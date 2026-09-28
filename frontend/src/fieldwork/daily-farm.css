@@ -1,0 +1,440 @@
+.daily-farm {
+  display: grid;
+  gap: 22px;
+  min-width: 0;
+}
+.daily-farm button {
+  min-height: 40px;
+}
+.daily-hero {
+  background: var(--accent-soft);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 28px;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
+}
+.daily-hero h2 {
+  font-size: 29px;
+  margin: 10px 0;
+  letter-spacing: -0.5px;
+}
+.daily-hero p {
+  line-height: 1.7;
+}
+.daily-hero small {
+  display: block;
+  margin-top: 15px;
+  color: var(--muted);
+}
+.daily-farm-picker {
+  min-width: 210px;
+  max-width: 340px;
+}
+.daily-quick {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.daily-quick button:not(.primary),
+.daily-task-actions button:not(.primary) {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+}
+.daily-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.daily-kpis article {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 20px;
+  border-radius: 14px;
+}
+.daily-kpis strong {
+  font-size: 34px;
+  display: block;
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.daily-kpis strong span {
+  font-size: 13px;
+  margin-left: 7px;
+  font-weight: 400;
+}
+.daily-kpis small,
+.daily-kpis p {
+  color: var(--muted);
+  font-size: 12px;
+}
+.daily-kpis p {
+  margin: 6px 0 0;
+}
+.daily-kpis .attention {
+  border-top: 3px solid #b77c34;
+}
+.daily-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(270px, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.daily-worklist,
+.daily-risk,
+.daily-season {
+  padding: 22px;
+}
+.daily-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.daily-section-title h3 {
+  font-size: 19px;
+  margin: 5px 0;
+}
+.daily-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+.daily-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.daily-tabs {
+  display: flex;
+  gap: 6px;
+  margin: 18px 0 12px;
+  flex-wrap: wrap;
+}
+.daily-tabs button {
+  border-radius: 8px;
+  padding: 8px 15px;
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+.daily-tabs button[aria-pressed="true"] {
+  background: var(--accent-soft);
+  color: var(--text);
+  box-shadow: inset 0 -2px var(--accent);
+}
+.daily-search {
+  width: 100%;
+}
+.daily-task {
+  padding: 20px 0;
+  border-bottom: 1px solid var(--line);
+}
+.daily-task:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.daily-task-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.daily-task time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.daily-task h4 {
+  font-size: 17px;
+  margin: 12px 0 8px;
+}
+.daily-status {
+  border-radius: 6px;
+  padding: 4px 8px;
+  background: var(--accent-soft);
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+}
+.daily-status.warning {
+  background: #fff0d9;
+  color: #855311;
+}
+.daily-meta,
+.daily-note,
+.daily-task-footer small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.daily-blocker,
+.daily-receipt {
+  padding: 12px;
+  background: var(--surface-soft);
+  border-left: 3px solid #b77c34;
+  border-radius: 0 6px 6px 0;
+  line-height: 1.7;
+  font-size: 13px;
+}
+.daily-receipt {
+  border-color: var(--accent);
+}
+.daily-task-footer {
+  margin-top: 15px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.daily-task-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.daily-task-actions button {
+  font-size: 12px;
+  padding: 6px 10px;
+}
+.daily-right {
+  display: grid;
+  gap: 20px;
+}
+.daily-issue {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.daily-issue p {
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.daily-issue small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 8px 0;
+}
+.daily-issue button {
+  margin-top: 8px;
+  width: 100%;
+}
+.daily-plot {
+  padding: 14px 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.daily-plot small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+}
+.daily-season > button {
+  width: 100%;
+  margin-top: 18px;
+}
+.daily-tip {
+  padding: 22px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+}
+.daily-tip p {
+  line-height: 1.8;
+  color: var(--muted);
+  font-size: 13px;
+}
+.daily-tip button {
+  color: var(--accent);
+  padding-left: 0;
+}
+.daily-empty {
+  padding: 28px 14px;
+  color: var(--muted);
+  line-height: 1.8;
+  text-align: center;
+}
+.daily-dialog {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 26px;
+  width: min(560px, calc(100vw - 28px));
+  max-height: 88dvh;
+  overflow: auto;
+  background: var(--surface);
+  color: var(--text);
+}
+.daily-dialog::backdrop {
+  background: #0a211e99;
+  backdrop-filter: blur(3px);
+}
+.daily-dialog textarea {
+  resize: vertical;
+}
+.daily-dialog label {
+  margin-top: 16px;
+}
+.daily-dialog textarea {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  font: inherit;
+}
+.daily-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+.daily-context {
+  background: var(--surface-soft);
+  padding: 12px;
+  border-radius: 8px;
+}
+.daily-log {
+  border-left: 2px solid var(--accent);
+  padding: 12px 16px;
+  margin: 16px 0;
+}
+.daily-log p {
+  line-height: 1.7;
+}
+.daily-log small {
+  color: var(--muted);
+}
+.daily-farm details summary {
+  cursor: pointer;
+  padding-top: 18px;
+  font-size: 13px;
+}
+@media (max-width: 1150px) {
+  .daily-columns {
+    grid-template-columns: 1fr;
+  }
+  .daily-right {
+    grid-template-columns: 1fr 1fr;
+  }
+  .daily-risk {
+    grid-row: span 2;
+  }
+}
+@media (max-width: 760px) {
+  html .app-layout {
+    display: block;
+  }
+  .app-layout .sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    padding: 10px 12px;
+  }
+  .app-layout .sidebar .brand,
+  .app-layout .sidebar .tenant-box,
+  .app-layout .sidebar .nav-caption {
+    display: none;
+  }
+  .app-layout .sidebar nav {
+    margin: 0;
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 3px 0 8px;
+  }
+  .app-layout .sidebar nav button {
+    font-size: 12px;
+    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    min-height: 44px;
+    padding: 10px;
+  }
+  .app-layout .sidebar nav button span {
+    font-size: 16px;
+  }
+  .app-layout .main-shell {
+    margin-left: 0;
+    width: 100%;
+  }
+  .app-layout .sidebar-bottom {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0;
+    padding: 6px 0 0;
+  }
+  .app-layout .sidebar-bottom .account-entry {
+    min-height: 40px;
+  }
+  .app-layout .sidebar-bottom .account-entry > span:last-child {
+    display: block;
+    text-align: left;
+    font-size: 12px;
+  }
+  .app-layout main {
+    padding: 20px 14px;
+  }
+  .app-layout .page-heading {
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .daily-hero {
+    padding: 20px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .daily-hero h2 {
+    font-size: 23px;
+  }
+  .daily-farm-picker {
+    max-width: none;
+    min-width: 0;
+  }
+  .daily-kpis {
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .daily-kpis article {
+    padding: 14px;
+  }
+  .daily-kpis strong {
+    font-size: 29px;
+  }
+  .daily-columns,
+  .daily-right {
+    grid-template-columns: 1fr;
+  }
+  .daily-worklist,
+  .daily-risk,
+  .daily-season {
+    padding: 16px;
+  }
+  .daily-section-title {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .daily-check {
+    margin: 0;
+  }
+  .daily-task-actions button,
+  .daily-quick button {
+    min-height: 44px;
+  }
+  .daily-form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .daily-dialog {
+    padding: 20px;
+  }
+}
