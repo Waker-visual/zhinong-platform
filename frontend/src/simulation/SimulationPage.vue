@@ -229,7 +229,7 @@ onMounted(() =>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <section class="panel simulation-intro">
       <div>
-        <p class="eyebrow">OPERATIONS LAB</p>
+        <p class="eyebrow">季度演练</p>
         <h2>让经营方案接受一季天气的考验</h2>
         <p>
           同一组地块与天气，对比资源正常、无人机缺位及人工补位三种情景。查看产量差异背后的排程与资源缺口。
@@ -433,7 +433,7 @@ onMounted(() =>
       ><section class="panel simulation-results">
         <div class="section-title">
           <div>
-            <p class="eyebrow">SCENARIO COMPARISON</p>
+            <p class="eyebrow">方案对照</p>
             <h2>{{ result.input.label }} · {{ result.farmName }}</h2>
             <p class="muted">
               {{ result.input.startDate }} 起 {{ result.input.days }} 天 ·

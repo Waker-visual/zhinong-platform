@@ -156,8 +156,9 @@ async function main() {
   const ownerTask = owner
     .locator(".daily-task")
     .filter({ hasText: tag + "处理" });
+  await ownerTask.getByRole("button", { name: "更多操作" }).click();
   await ownerTask
-    .getByRole("button", { name: "调整安排", exact: true })
+    .getByRole("menuitem", { name: "调整安排", exact: true })
     .click();
   await owner.getByLabel("计划作业方式").selectOption("MANUAL");
   await owner

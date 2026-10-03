@@ -149,7 +149,7 @@ onBeforeUnmount(() => {
     >
       <div class="section-title">
         <div>
-          <p class="eyebrow">DEVICE WORKSPACE</p>
+          <p class="eyebrow">设备详情</p>
           <h2>{{ device?.name || "正在加载设备…" }}</h2>
         </div>
         <button aria-label="关闭设备详情" @click="emit('close')">×</button>

@@ -11,6 +11,7 @@ import SimulationPage from "./simulation/SimulationPage.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import CommandPalette from "./ui/CommandPalette.vue";
+import ModalDialog from "./ui/ModalDialog.vue";
 import "./ui/shell.css";
 
 const identity = ref(null);
@@ -501,7 +502,7 @@ onUnmounted(() => {
     <section class="login-story">
       <div class="brand"><span class="brand-mark">禾</span>智禾农场</div>
       <div>
-        <p class="eyebrow">FARM OPERATIONS</p>
+        <p class="eyebrow">农场经营工作空间</p>
         <h1>田间有序<br />经营有据</h1>
         <p class="story-copy">
           连接每一块田地的种植、农事与收获。<br />为不同经营主体提供独立的农场工作空间。
@@ -711,6 +712,7 @@ onUnmounted(() => {
           :revision="moduleRevision"
           @navigate="dailyNavigate"
           @farm="launchFarm"
+          @notice="message"
         />
         <FarmHub
           v-else-if="['dashboard', 'farms'].includes(page)"
@@ -979,17 +981,12 @@ onUnmounted(() => {
       @close="settingsOpen = false"
       @password-changed="passwordChanged"
     />
-    <div
+    <ModalDialog
       v-if="dialog"
-      class="modal-backdrop"
-      @click.self="!busy && (dialog = false)"
+      :label="current.title"
+      :locked="busy"
+      @close="dialog = false"
     >
-      <section
-        role="dialog"
-        aria-modal="true"
-        :aria-label="current.title"
-        class="modal"
-      >
         <div class="section-title">
           <h2>{{ editing ? "编辑" : "新增" }}{{ current.title }}</h2>
           <button @click="dialog = false" :disabled="busy" aria-label="关闭">
@@ -1052,15 +1049,13 @@ onUnmounted(() => {
             </button>
           </div>
         </form>
-      </section>
-    </div>
-    <div v-if="captureDevice" class="modal-backdrop">
-      <section
-        role="dialog"
-        aria-modal="true"
-        aria-label="录入监测数据"
-        class="modal"
-      >
+    </ModalDialog>
+    <ModalDialog
+      v-if="captureDevice"
+      label="录入监测数据"
+      :locked="busy"
+      @close="captureDevice = null"
+    >
         <h2>录入监测数据</h2>
         <p class="muted">
           {{ captureDevice.name }} · {{ display(captureDevice.metric) }}
@@ -1087,7 +1082,6 @@ onUnmounted(() => {
             ><button class="primary" :disabled="busy">保存记录</button>
           </div>
         </form>
-      </section>
-    </div>
+    </ModalDialog>
   </div>
 </template>

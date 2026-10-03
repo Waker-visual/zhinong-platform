@@ -128,7 +128,7 @@ onBeforeUnmount(() => {
   <section v-else class="farm-hub">
     <div class="hub-banner">
       <div>
-        <p class="eyebrow">ONE FARM, ONE WORKSPACE</p>
+        <p class="eyebrow">农场工作台</p>
         <h2>从一张农场图，进入生产现场。</h2>
         <p>查看地块布局、设备点位与经营数据，让每条记录都能找到所属的田地。</p>
       </div>

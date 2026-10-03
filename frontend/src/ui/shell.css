@@ -55,6 +55,86 @@
   flex-shrink: 0;
   white-space: nowrap;
 }
+/* 按下反馈：所有可用按钮轻微缩小，确认点击已被接收 */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+button[aria-busy="true"] {
+  cursor: progress;
+}
+
+/* 原生对话框：内边距放在内层，点击对话框元素本身即点在遮罩上 */
+.modal.app-dialog {
+  max-width: calc(100vw - 32px);
+  padding: 0;
+  border: 0;
+  color: var(--text);
+}
+.app-dialog::backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(3px);
+}
+.app-dialog > .dialog-body {
+  padding: 28px;
+}
+
+/* “更多”菜单 */
+.action-menu {
+  position: relative;
+  display: inline-block;
+}
+.action-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.action-menu-trigger .app-icon {
+  width: 16px;
+  height: 16px;
+}
+.action-menu-list {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  min-width: 148px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow-lg);
+  animation: menu-in 160ms var(--ease-expo);
+}
+.action-menu-list button {
+  display: block;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+}
+.action-menu-list button:hover,
+.action-menu-list button:focus-visible {
+  background: var(--control-hover);
+  outline: none;
+}
+.action-menu-list button.danger {
+  color: var(--danger);
+}
+.action-menu-list button.danger:hover,
+.action-menu-list button.danger:focus-visible {
+  background: var(--danger-bg);
+}
+@keyframes menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
 
 .app-layout {
   display: grid;
@@ -706,7 +786,11 @@
   }
   .page-loading.active::after,
   .skeleton,
-  .toast {
+  .toast,
+  .action-menu-list {
     animation: none;
+  }
+  button:active:not(:disabled) {
+    transform: none;
   }
 }

@@ -16,8 +16,9 @@
   gap: 24px;
   align-items: center;
 }
+/* 农场名低于页面标题一级（页面 h1 为 27px） */
 .daily-hero h2 {
-  font-size: 29px;
+  font-size: 22px;
   margin: 10px 0;
   letter-spacing: -0.5px;
 }
@@ -39,11 +40,18 @@
   flex-wrap: wrap;
 }
 .daily-quick button:not(.primary),
-.daily-task-actions button:not(.primary) {
+.daily-task-actions > button:not(.primary),
+.daily-task-actions .action-menu-trigger {
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
+  transition: background-color 0.16s ease;
+}
+.daily-quick button:not(.primary):hover,
+.daily-task-actions > button:not(.primary):hover,
+.daily-task-actions .action-menu-trigger:hover {
+  background: var(--control-hover);
 }
 .daily-kpis {
   display: grid;
@@ -164,7 +172,7 @@
   border-radius: 6px;
   padding: 4px 8px;
   background: var(--neutral-bg);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -214,11 +222,13 @@
 .daily-task-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 7px;
 }
-.daily-task-actions button {
-  font-size: 12px;
-  padding: 6px 10px;
+.daily-task-actions > button,
+.daily-task-actions .action-menu-trigger {
+  font-size: 13px;
+  padding: 6px 12px;
 }
 .daily-right {
   display: grid;
@@ -236,7 +246,7 @@
 .daily-issue small {
   display: block;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
   margin: 8px 0;
 }
@@ -355,7 +365,7 @@
     gap: 8px;
   }
   .daily-hero h2 {
-    font-size: 23px;
+    font-size: 20px;
   }
   .daily-farm-picker {
     max-width: none;
@@ -387,7 +397,8 @@
   .daily-check {
     margin: 0;
   }
-  .daily-task-actions button,
+  .daily-task-actions > button,
+  .daily-task-actions .action-menu-trigger,
   .daily-quick button {
     min-height: 44px;
   }

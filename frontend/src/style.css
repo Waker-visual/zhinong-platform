@@ -25,7 +25,7 @@ button {
 }
 button:disabled {
   opacity: 0.5;
-  cursor: wait;
+  cursor: not-allowed;
 }
 input,
 select {
@@ -80,9 +80,9 @@ label select {
   outline-offset: 2px;
 }
 .eyebrow {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 2.2px;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
   color: var(--label-fg);
   margin-bottom: 10px;
 }
@@ -102,10 +102,10 @@ label select {
 }
 .brand small {
   display: block;
-  font-size: 8px;
-  letter-spacing: 1.9px;
+  font-size: 11px;
+  letter-spacing: 1.2px;
   color: var(--label-fg);
-  margin-top: 5px;
+  margin-top: 3px;
 }
 .brand-mark {
   display: grid;
@@ -269,7 +269,7 @@ main {
   overflow: hidden;
 }
 .pill {
-  font-size: 10px;
+  font-size: 12px;
   background: var(--sunken);
   padding: 6px 10px;
   border-radius: 20px;
@@ -362,12 +362,12 @@ main {
   letter-spacing: -0.7px;
 }
 .stats strong small {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   letter-spacing: 0;
 }
 .stats article > div {
-  font-size: 10px;
+  font-size: 12px;
   color: var(--label-fg);
   border-top: 1px solid var(--border);
   padding-top: 13px;
@@ -395,7 +395,7 @@ main {
 }
 .text-button {
   color: var(--link-fg);
-  font-size: 11px;
+  font-size: 12px;
 }
 .task-line {
   display: flex;
@@ -414,7 +414,7 @@ main {
 }
 .task-line small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 8px;
 }
 .task-icon {
@@ -469,13 +469,13 @@ main {
   font-size: 26px;
 }
 .farm-card p {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-2);
   line-height: 1.8;
   margin: 9px 0;
 }
 .farm-card small {
-  font-size: 10px;
+  font-size: 12px;
 }
 .workflow-strip {
   display: flex;
@@ -487,7 +487,7 @@ main {
   padding: 19px 23px;
   margin-top: 22px;
   background: var(--subtle-bg);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-2);
 }
 .workflow-strip > span {
@@ -499,7 +499,7 @@ main {
   color: var(--text-3);
 }
 .workflow-strip button {
-  font-size: 11px;
+  font-size: 12px;
 }
 .table-panel {
   padding: 0;
@@ -517,12 +517,12 @@ main {
   margin-bottom: 8px;
 }
 .table-toolbar small {
-  font-size: 11px;
+  font-size: 12px;
 }
 .count {
   display: inline-block;
   background: var(--sunken);
-  font-size: 11px;
+  font-size: 12px;
   padding: 3px 7px;
   border-radius: 10px;
   margin-left: 6px;
@@ -574,7 +574,7 @@ tbody tr:hover {
   white-space: nowrap;
 }
 .actions button {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--link-fg);
   padding: 5px 7px;
 }
@@ -596,11 +596,11 @@ tbody tr:hover {
   margin: 0;
 }
 .observation-panel small {
-  font-size: 11px;
+  font-size: 12px;
 }
 footer {
   color: var(--label-fg);
-  font-size: 10px;
+  font-size: 12px;
   display: flex;
   justify-content: space-between;
   margin-top: 30px;
@@ -670,7 +670,7 @@ footer {
     font-size: 24px;
   }
   .page-heading .muted {
-    font-size: 11px;
+    font-size: 12px;
   }
   .welcome-banner {
     padding: 24px;

@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { api } from "../api";
 import { labels } from "../catalog";
 import "./daily-farm.css";
+import ActionMenu from "../ui/ActionMenu.vue";
 const props = defineProps({
   identity: Object,
   farms: Array,
@@ -10,7 +11,7 @@ const props = defineProps({
   farmId: String,
   revision: Number,
 });
-const emit = defineEmits(["update:farmId", "navigate", "farm"]);
+const emit = defineEmits(["update:farmId", "navigate", "farm", "notice"]);
 const admin = computed(() => props.identity.role === "ADMIN");
 const writer = computed(() =>
   ["ADMIN", "OPERATOR"].includes(props.identity.role),
@@ -21,7 +22,6 @@ const farmPlots = computed(() =>
 );
 const data = ref({ tasks: [], issues: [], crew: [], today: "" }),
   error = ref(""),
-  notice = ref(""),
   loading = ref(false),
   saving = ref(false);
 const filter = ref("open"),
@@ -69,6 +69,24 @@ function statusTone(t) {
   if (t.status === "RUNNING") return "info";
   return "";
 }
+// 次要操作进“更多”菜单；只剩“记录”时直接显示按钮。
+function moreActions(t) {
+  const live = admin.value && ["PENDING", "RUNNING"].includes(t.status);
+  return [
+    { key: "history", label: "记录" },
+    ...(live
+      ? [
+          { key: "plan", label: "调整安排" },
+          { key: "cancel", label: "取消任务", danger: true },
+        ]
+      : []),
+  ];
+}
+function moreAction(key, t) {
+  if (key === "history") history(t);
+  else if (key === "plan") open("plan", t);
+  else if (key === "cancel") open("progress", t, "CANCELLED");
+}
 function statusText(t) {
   if (overdue(t)) return "已逾期";
   if (t.blockedReason) return "受阻";
@@ -97,8 +115,8 @@ const taskList = computed(() =>
     })
     .sort(
       (a, b) =>
-        Number(Boolean(b.blockedReason)) - Number(Boolean(a.blockedReason)) ||
         Number(overdue(b)) - Number(overdue(a)) ||
+        Number(Boolean(b.blockedReason)) - Number(Boolean(a.blockedReason)) ||
         a.dueDate.localeCompare(b.dueDate),
     ),
 );
@@ -227,7 +245,7 @@ async function submit() {
       await api(`/field-work/issues/${target.value.id}/resolve`, "POST", form);
     dialogElement.value.close();
     modal.value = "";
-    notice.value = "记录已保存，农场待办已更新。";
+    emit("notice", "记录已保存，农场待办已更新。");
     await load();
   } catch (e) {
     error.value = e.message;
@@ -257,10 +275,10 @@ async function history(row) {
         <p class="eyebrow">
           {{
             identity.role === "OPERATOR"
-              ? "FIELD WORK · 田间作业"
+              ? "田间作业"
               : identity.role === "VIEWER"
-                ? "FARM REVIEW · 经营查看"
-                : "MY FARM · 日常经营"
+                ? "经营查看"
+                : "日常经营"
           }}
         </p>
         <h2>{{ farm?.name || "从你的第一座农场开始" }}</h2>
@@ -295,7 +313,6 @@ async function history(row) {
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
     </p>
-    <p v-if="notice && !modal" class="success" role="status">{{ notice }}</p>
     <section v-if="!farmId && !loading" class="panel daily-empty">
       <h3>还没有可使用的农场</h3>
       <p>
@@ -369,7 +386,6 @@ async function history(row) {
         <section class="panel daily-worklist">
           <div class="daily-section-title">
             <div>
-              <p class="eyebrow">WORK QUEUE</p>
               <h3>{{ mine ? "我的农事" : "农场农事" }}</h3>
             </div>
             <label class="daily-check"
@@ -435,25 +451,24 @@ async function history(row) {
             <div class="daily-task-footer">
               <small>{{ methods[t.method] || "尚未安排资源" }}</small>
               <div class="daily-task-actions">
-                <button @click="history(t)">记录</button>
-                <button
-                  v-if="admin && ['PENDING', 'RUNNING'].includes(t.status)"
-                  @click="open('plan', t)"
-                >
-                  调整安排
-                </button>
+                <ActionMenu
+                  v-if="moreActions(t).length > 1"
+                  :items="moreActions(t)"
+                  @select="moreAction($event, t)"
+                />
+                <button v-else @click="history(t)">记录</button>
                 <template v-if="canWork(t)"
+                  ><button
+                    v-if="['PENDING', 'RUNNING'].includes(t.status)"
+                    @click="open('progress', t, 'BLOCKED')"
+                  >
+                    报告受阻</button
                   ><button
                     v-if="t.status === 'PENDING'"
                     class="primary"
                     @click="open('progress', t, 'RUNNING')"
                   >
                     开始任务</button
-                  ><button
-                    v-if="['PENDING', 'RUNNING'].includes(t.status)"
-                    @click="open('progress', t, 'BLOCKED')"
-                  >
-                    报告受阻</button
                   ><button
                     v-if="t.status === 'RUNNING'"
                     class="primary"
@@ -462,12 +477,6 @@ async function history(row) {
                     完成回执
                   </button></template
                 >
-                <button
-                  v-if="admin && ['PENDING', 'RUNNING'].includes(t.status)"
-                  @click="open('progress', t, 'CANCELLED')"
-                >
-                  取消任务
-                </button>
               </div>
             </div>
           </article>
@@ -476,7 +485,6 @@ async function history(row) {
           <section class="panel daily-risk">
             <div class="daily-section-title">
               <div>
-                <p class="eyebrow">FIELD NOTES</p>
                 <h3>现场问题</h3>
               </div>
               <span class="count">{{ openIssues.length }}</span>
@@ -543,7 +551,6 @@ async function history(row) {
             </details>
           </section>
           <section class="panel daily-season">
-            <p class="eyebrow">THIS SEASON</p>
             <h3>我的地块</h3>
             <div v-for="p in farmPlots" :key="p.id" class="daily-plot">
               <span

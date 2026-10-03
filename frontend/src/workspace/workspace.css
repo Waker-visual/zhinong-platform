@@ -148,7 +148,7 @@
   background: var(--surface);
   color: var(--text-2);
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .farm-card-body {
   padding: 20px;
@@ -185,7 +185,7 @@
   flex-direction: column;
   gap: 5px;
   color: var(--label-fg);
-  font-size: 11px;
+  font-size: 12px;
 }
 .farm-card-stats b {
   color: var(--text);
@@ -212,7 +212,7 @@
 }
 .demo-tag {
   display: inline-block;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 500;
   background: var(--amber-bg);
   color: var(--amber);
@@ -327,7 +327,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .map-layer-controls input {
@@ -339,7 +339,7 @@
   padding: 6px 9px !important;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text);
 }
 .farm-map {
@@ -364,7 +364,7 @@
   color: var(--map-label);
   font-weight: 700;
   box-shadow: none;
-  font-size: 11px;
+  font-size: 12px;
   text-shadow: 0 1px 2px var(--map-label-halo);
   padding: 3px;
   white-space: nowrap;
@@ -404,7 +404,7 @@
   align-items: center;
   flex-wrap: wrap;
   padding: 11px 16px;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-2);
   background: var(--nav-bg);
 }
@@ -503,7 +503,7 @@
   padding: 18px;
 }
 .device-inspector .section-title .muted {
-  font-size: 10px;
+  font-size: 12px;
   margin: 0;
 }
 .device-title {
@@ -540,7 +540,7 @@
   margin-left: auto;
 }
 .status-chip {
-  font-size: 11px;
+  font-size: 12px;
   display: inline-block;
   padding: 5px 8px;
   border-radius: 5px;
@@ -562,7 +562,7 @@
   background: var(--neutral-bg);
 }
 .source-tag {
-  font-size: 10px;
+  font-size: 12px;
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 3px 5px;
@@ -585,7 +585,7 @@
 }
 .inspector-values span {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--label-fg);
   margin-bottom: 7px;
 }
@@ -594,14 +594,14 @@
   color: var(--text);
 }
 .inspector-values small {
-  font-size: 11px;
+  font-size: 12px;
 }
 .device-inspector .inline-controls {
   margin-top: 12px;
   flex-wrap: wrap;
 }
 .device-inspector .inline-controls button {
-  font-size: 11px;
+  font-size: 12px;
   padding: 8px 10px;
 }
 .alert-preview-item {
@@ -623,7 +623,7 @@
 .alert-preview-item span,
 .alert-preview-item small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   color: var(--text-2);
   line-height: 1.8;
 }
@@ -667,7 +667,7 @@
 }
 .chart-filter-chips button {
   padding: 4px 7px;
-  font-size: 10px;
+  font-size: 12px;
   background: var(--sunken);
   border-radius: 5px;
   border: 1px solid transparent;
@@ -684,7 +684,7 @@
 .analytics-bottom .section-title select {
   width: 105px;
   padding: 6px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .analytics-bottom > .panel > select {
   padding: 6px;
@@ -696,7 +696,7 @@
   gap: 12px;
   flex-wrap: wrap;
   color: var(--label-fg);
-  font-size: 10px;
+  font-size: 12px;
 }
 .yield-ranking span {
   display: flex;
@@ -711,7 +711,7 @@
 .workspace-lists .section-title select {
   width: 110px;
   padding: 7px;
-  font-size: 11px;
+  font-size: 12px;
 }
 .device-list-row {
   display: flex;
@@ -729,14 +729,14 @@
 }
 .device-list-row small {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   margin-top: 5px;
 }
 .device-list-row.selected {
   background: var(--nav-selected-bg);
 }
 .workspace-footnote {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--label-fg);
   line-height: 1.8;
   margin: 18px 0;
@@ -773,7 +773,7 @@
   margin-top: 14px;
 }
 .channel-row label {
-  font-size: 11px;
+  font-size: 12px;
   margin: 0 !important;
 }
 .channel-row input,
@@ -811,7 +811,7 @@
 }
 .detail-facts dt {
   color: var(--label-fg);
-  font-size: 11px;
+  font-size: 12px;
   margin-bottom: 5px;
 }
 .detail-facts dd {
@@ -854,7 +854,7 @@
   font-size: 12px;
 }
 .metric-cards > button > small {
-  font-size: 10px;
+  font-size: 12px;
 }
 .detail-trend {
   padding: 17px 0;
@@ -898,7 +898,7 @@
 }
 .alert-item button {
   margin-left: 6px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 7px 10px;
 }
 .integration-panel {
@@ -911,7 +911,7 @@
 .integration-panel pre {
   max-height: 240px;
   overflow: auto;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.7;
   background: var(--sunken);
   padding: 15px;
@@ -953,7 +953,7 @@
 .asset-table small {
   display: block;
   margin-top: 6px;
-  font-size: 10px;
+  font-size: 12px;
 }
 .asset-table td {
   vertical-align: middle !important;
@@ -1119,7 +1119,7 @@
     gap: 5px;
   }
   .workspace-toolbar .inline-controls button {
-    font-size: 11px;
+    font-size: 12px;
     padding: 8px;
   }
   .workspace-stats {
@@ -1261,7 +1261,7 @@
     flex: 1;
   }
   .screen-mode .map-filters .primary {
-    font-size: 11px;
+    font-size: 12px;
     padding: 9px;
   }
   .screen-mode .map-toolbar {

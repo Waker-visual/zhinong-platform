@@ -235,7 +235,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
       <div class="settings-content">
         <header>
           <div>
-            <p class="eyebrow">YOUR WORKSPACE</p>
+            <p class="eyebrow">账号设置</p>
             <h2>{{ tabs.find((t) => t.id === tab)?.name }}</h2>
           </div>
           <button
