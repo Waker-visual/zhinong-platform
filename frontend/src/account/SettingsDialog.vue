@@ -352,10 +352,10 @@ onBeforeUnmount(() => applyAppearance(props.account));
             <button
               type="button"
               v-for="item in [
-                { code: 'FOREST', name: '田园绿', color: '#2d7555' },
-                { code: 'BLUE', name: '湖泊蓝', color: '#3265a3' },
-                { code: 'AMBER', name: '麦穗金', color: '#96621b' },
-                { code: 'ROSE', name: '玫瑰紫', color: '#984c75' },
+                { code: 'FOREST', name: '田园绿' },
+                { code: 'BLUE', name: '湖泊蓝' },
+                { code: 'AMBER', name: '麦穗金' },
+                { code: 'ROSE', name: '玫瑰紫' },
               ]"
               :key="item.code"
               :class="{ selected: appearance.accent === item.code }"
@@ -364,13 +364,18 @@ onBeforeUnmount(() => applyAppearance(props.account));
                 preview();
               "
             >
-              <i :style="{ background: item.color }" />{{ item.name
+              <i :data-accent="item.code.toLowerCase()" />{{ item.name
               }}<span v-if="appearance.accent === item.code">✓</span>
             </button>
           </div>
           <div class="appearance-preview">
             <h3>你的农场工作空间</h3>
-            <p>界面背景、按钮和选中状态将应用所选外观。</p>
+            <p>
+              主题颜色用于品牌标识和当前菜单的指示条；按钮、任务状态和底色保持固定配色，便于区分。
+            </p>
+            <div class="appearance-preview-nav" aria-hidden="true">
+              <b>禾</b>今日农场
+            </div>
             <button type="button" class="primary">主按钮预览</button
             ><button type="button" class="outline">次按钮预览</button>
           </div>

@@ -341,7 +341,7 @@ function initializeMap() {
     L.control.scale({ imperial: false }).addTo(map);
   } else {
     const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#365b4b"/></pattern></defs><rect width="1000" height="700" fill="#1d3e31"/><rect width="1000" height="700" fill="url(#grid)"/></svg>';
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#2d2d2d"/></pattern></defs><rect width="1000" height="700" fill="#1f1f1f"/><rect width="1000" height="700" fill="url(#grid)"/></svg>';
     L.imageOverlay(
       "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
       bounds(),
@@ -566,14 +566,14 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex-wrap: wrap;
   padding: 10px 16px;
-  background: #ecf3ed;
-  color: #345747;
+  background: var(--subtle-bg);
+  color: var(--text-2);
   font-size: 12px;
   line-height: 1.65;
 }
 .map-network-warning {
-  background: #fff2dd;
-  color: #7e4d12;
+  background: var(--amber-bg);
+  color: var(--amber);
 }
 .map-network-actions {
   display: flex;

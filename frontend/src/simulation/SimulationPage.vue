@@ -625,7 +625,7 @@ onMounted(() =>
   font-weight: 600;
 }
 .simulation-page details {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   margin-top: 14px;
 }
 .simulation-run-bar {
@@ -638,7 +638,7 @@ onMounted(() =>
 .simulation-run-bar small {
   max-width: 600px;
   line-height: 1.7;
-  color: var(--muted);
+  color: var(--text-2);
 }
 .simulation-history {
   display: flex;
@@ -661,14 +661,15 @@ onMounted(() =>
   gap: 9px;
   padding: 20px;
   text-align: left;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
   border-radius: 12px;
 }
 .scenario-card.active {
-  border: 2px solid var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+  background: var(--nav-selected-bg);
 }
 .scenario-card strong {
   font-size: 26px;
@@ -692,7 +693,7 @@ onMounted(() =>
 }
 .simulation-page td small {
   display: block;
-  color: var(--muted);
+  color: var(--text-2);
   margin-top: 5px;
 }
 .simulation-events {
@@ -703,7 +704,7 @@ onMounted(() =>
   display: flex;
   gap: 16px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 .simulation-sources {
   line-height: 1.9;

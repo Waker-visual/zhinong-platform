@@ -35,6 +35,26 @@ test('scanner blocks private material paths and reports no secret values', t => 
   assert.equal(JSON.stringify(results).includes(secret), false);
 });
 
+test('scanner requires stylesheet colors to come from theme tokens', t => {
+  const { root, put } = fixture(t);
+  put('frontend/src/account/theme.css', ':root { --text: #0b0b0b; --backdrop: rgba(0, 0, 0, 0.4); }');
+  put('frontend/src/style.css', 'body {\n  color: var(--text);\n  background: #f5f7f4;\n}');
+  put('frontend/src/Panel.vue', [
+    '<script setup>',
+    'const chart = { color: "#63aa85" };',
+    '</script>',
+    '<style scoped>',
+    '.panel { border: 1px solid var(--border); }',
+    '.warning { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.1); color: white; }',
+    '</style>',
+  ].join('\n'));
+  const files = ['frontend/src/account/theme.css', 'frontend/src/style.css', 'frontend/src/Panel.vue'];
+  assert.deepEqual(scanFiles(root, files), [
+    { type: 'raw_color', path: 'frontend/src/style.css', line: 3 },
+    { type: 'raw_color', path: 'frontend/src/Panel.vue', line: 6 },
+  ]);
+});
+
 test('scanner allows ordinary application files and rejects escaped paths', t => {
   const { root, put } = fixture(t);
   put('frontend/src/main.js', 'export const demo = true;');

@@ -61,6 +61,19 @@ const openIssues = computed(() =>
 );
 const overdue = (t) =>
   ["PENDING", "RUNNING"].includes(t.status) && t.dueDate < data.value.today;
+// 任务状态的语义色，与徽章文字一一对应：逾期红色，受阻橙色，执行中蓝色，其余中性。
+// 既逾期又受阻时按逾期处理，农场主先看到已经超期的事项。
+function statusTone(t) {
+  if (overdue(t)) return "danger";
+  if (t.blockedReason) return "caution";
+  if (t.status === "RUNNING") return "info";
+  return "";
+}
+function statusText(t) {
+  if (overdue(t)) return "已逾期";
+  if (t.blockedReason) return "受阻";
+  return word(t.status);
+}
 const taskList = computed(() =>
   data.value.tasks
     .filter((t) => {
@@ -331,12 +344,14 @@ async function history(row) {
           ><strong>{{ myPending.length }}<span>项</span></strong>
           <p>待执行与执行中</p>
         </article>
-        <article :class="{ attention: pending.some(overdue) }">
+        <article :class="{ 'attention danger': pending.some(overdue) }">
           <small>农场逾期任务</small
           ><strong>{{ pending.filter(overdue).length }}<span>项</span></strong>
           <p>按服务器日期 {{ data.today || "…" }}</p>
         </article>
-        <article :class="{ attention: pending.some((t) => t.blockedReason) }">
+        <article
+          :class="{ 'attention caution': pending.some((t) => t.blockedReason) }"
+        >
           <small>资源或现场受阻</small
           ><strong
             >{{ pending.filter((t) => t.blockedReason).length
@@ -400,18 +415,9 @@ async function history(row) {
             :data-task-id="t.id"
           >
             <div class="daily-task-line">
-              <span
-                :class="[
-                  'daily-status',
-                  { warning: overdue(t) || t.blockedReason },
-                ]"
-                >{{
-                  t.blockedReason
-                    ? "受阻"
-                    : overdue(t)
-                      ? "已逾期"
-                      : word(t.status)
-                }}</span
+              <span :class="['daily-status', statusTone(t)]">{{
+                statusText(t)
+              }}</span
               ><time>{{ t.dueDate }}</time>
             </div>
             <h4>{{ t.title }}</h4>
