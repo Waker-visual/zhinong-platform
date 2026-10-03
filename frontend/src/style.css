@@ -1,5 +1,5 @@
 :root {
-  font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+  font-family: var(--font-sans);
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
@@ -358,7 +358,7 @@ main {
   font-weight: 550;
   margin: 14px 0;
   color: var(--text);
-  font-family: Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
   letter-spacing: -0.7px;
 }
 .stats strong small {

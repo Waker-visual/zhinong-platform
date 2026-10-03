@@ -139,6 +139,10 @@
   --radius-sm: 8px;
   --radius: 12px;
   --radius-lg: 18px;
+  /* 字母数字用 Iosevka Aile，汉字用思源黑体（见 fonts.css），未加载完成时退回系统字体 */
+  --font-sans: "Zhihe Latin", "Zhihe Han", "PingFang SC", "Microsoft YaHei UI",
+    "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Zhihe Han", monospace;
   /* 展开用磐隐的 expo，收起用加速曲线 */
   --ease-expo: cubic-bezier(0.19, 1, 0.22, 1);
   --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);

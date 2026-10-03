@@ -30,6 +30,11 @@ function render() {
     chart.setOption(
       {
         ...props.option,
+        // 图表文字沿用界面字体（字母数字 Iosevka Aile，汉字思源黑体）
+        textStyle: {
+          fontFamily: getComputedStyle(host.value).fontFamily,
+          ...props.option.textStyle,
+        },
         animationDuration: 250,
         animationDurationUpdate: 150,
         aria: { enabled: true },

@@ -252,7 +252,7 @@ button[aria-busy="true"] {
   border-radius: 4px;
   box-shadow: 0 0 0 1px var(--border);
   color: var(--label-fg);
-  font: 11px/16px ui-monospace, Consolas, monospace;
+  font: 11px/16px var(--font-mono);
 }
 .sidebar nav {
   display: flex;
