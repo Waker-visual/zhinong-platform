@@ -8,6 +8,7 @@ import app.zhinong.fieldwork.FieldWorkService;
 import app.zhinong.security.Identity;
 import app.zhinong.workspace.AssetService;
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
 import org.springframework.stereotype.Service;
@@ -99,6 +100,31 @@ public class FarmService {
       "devices",
       db.queryForObject(
         "SELECT COUNT(*) FROM devices WHERE tenant_id=?",
+        Long.class,
+        tenant
+      ),
+      // 导航计数与今日农场同一口径：按服务器日期判断逾期，逾期优先于受阻，二者不重复计数。
+      "overdueTasks",
+      db.queryForObject(
+        "SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND status IN ('PENDING','RUNNING') AND due_date<?",
+        Long.class,
+        tenant,
+        LocalDate.now()
+      ),
+      "blockedTasks",
+      db.queryForObject(
+        """
+        SELECT COUNT(*) FROM farm_tasks t
+        JOIN task_fieldwork d ON d.tenant_id=t.tenant_id AND d.task_id=t.id
+        WHERE t.tenant_id=? AND t.status IN ('PENDING','RUNNING') AND t.due_date>=? AND d.blocked_reason<>''
+        """,
+        Long.class,
+        tenant,
+        LocalDate.now()
+      ),
+      "openIssues",
+      db.queryForObject(
+        "SELECT COUNT(*) FROM field_issues WHERE tenant_id=? AND status<>'RESOLVED'",
         Long.class,
         tenant
       )

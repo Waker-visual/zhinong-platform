@@ -3,7 +3,7 @@ const fs = require("node:fs"),
   assert = require("node:assert/strict");
 const { chromium } = require("../frontend/node_modules/playwright");
 const root = path.resolve(__dirname, ".."),
-  base = "http://127.0.0.1:9175";
+  base = process.env.FARM_BASE_URL || "http://127.0.0.1:9175";
 const accounts = JSON.parse(
   fs.readFileSync(
     path.join(root, ".cache/farm-acceptance-accounts.json"),
@@ -56,7 +56,7 @@ async function save(page) {
   );
 }
 async function fresh(page) {
-  await page.getByRole("button", { name: "↻ 刷新数据", exact: true }).click();
+  await page.getByRole("button", { name: "刷新数据", exact: true }).click();
   await page.waitForFunction(
     () =>
       document.querySelector(".daily-farm")?.getAttribute("aria-busy") ===

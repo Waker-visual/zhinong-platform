@@ -199,6 +199,43 @@ class FieldWorkIntegrationTest {
     return call(admin, "GET", "/field-work?farmId=" + farm, null, 200);
   }
 
+  long count(String token, String field) throws Exception {
+    return call(token, "GET", "/dashboard", null, 200).path(field).asLong();
+  }
+
+  @Test
+  void dashboardCountsAttentionItemsWithinTenant() throws Exception {
+    long issues = count(admin, "openIssues"),
+      blocked = count(admin, "blockedTasks"),
+      overdue = count(admin, "overdueTasks"),
+      otherIssues = count(other, "openIssues");
+    issue();
+    String current = task(null, workerId);
+    call(
+      operator,
+      "PATCH",
+      "/field-work/tasks/" + current + "/progress",
+      progress("BLOCKED", "UNCONFIRMED", 0),
+      200
+    );
+    var late = new HashMap<>(plan(workerId));
+    late.put("dueDate", LocalDate.now().minusDays(2).toString());
+    String lateTask = call(admin, "POST", "/field-work/tasks", late, 200)
+      .path("id")
+      .asText();
+    call(
+      operator,
+      "PATCH",
+      "/field-work/tasks/" + lateTask + "/progress",
+      progress("BLOCKED", "UNCONFIRMED", 0),
+      200
+    );
+    assertEquals(issues + 1, count(admin, "openIssues"));
+    assertEquals(blocked + 1, count(admin, "blockedTasks"));
+    assertEquals(overdue + 1, count(admin, "overdueTasks"));
+    assertEquals(otherIssues, count(other, "openIssues"));
+  }
+
   @Test
   void lifecycleRequiresEvidenceAndOwnerReview() throws Exception {
     String issue = issue(),

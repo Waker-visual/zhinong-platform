@@ -348,65 +348,6 @@
   }
 }
 @media (max-width: 760px) {
-  html .app-layout {
-    display: block;
-  }
-  .app-layout .sidebar {
-    position: static;
-    width: 100%;
-    height: auto;
-    padding: 10px 12px;
-  }
-  .app-layout .sidebar .brand,
-  .app-layout .sidebar .tenant-box,
-  .app-layout .sidebar .nav-caption {
-    display: none;
-  }
-  .app-layout .sidebar nav {
-    margin: 0;
-    flex-direction: row;
-    overflow-x: auto;
-    padding: 3px 0 8px;
-  }
-  .app-layout .sidebar nav button {
-    font-size: 12px;
-    gap: 6px;
-    white-space: nowrap;
-    flex-shrink: 0;
-    min-height: 44px;
-    padding: 10px;
-  }
-  .app-layout .sidebar nav button span {
-    font-size: 16px;
-  }
-  .app-layout .main-shell {
-    margin-left: 0;
-    width: 100%;
-  }
-  .app-layout .sidebar-bottom {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    justify-content: space-between;
-    align-items: center;
-    margin: 0;
-    padding: 6px 0 0;
-  }
-  .app-layout .sidebar-bottom .account-entry {
-    min-height: 40px;
-  }
-  .app-layout .sidebar-bottom .account-entry > span:last-child {
-    display: block;
-    text-align: left;
-    font-size: 12px;
-  }
-  .app-layout main {
-    padding: 20px 14px;
-  }
-  .app-layout .page-heading {
-    gap: 10px;
-    flex-wrap: wrap;
-  }
   .daily-hero {
     padding: 20px;
     flex-direction: column;

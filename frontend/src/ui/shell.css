@@ -1,0 +1,712 @@
+/* 应用外壳：沿用磐隐运维的 Grid 外壳与粘性侧栏。侧栏收起只过渡外壳的一列宽度，
+ * 展开用 --ease-expo，收起用 --ease-exit；文字先淡出、宽度到位后再淡入。 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.app-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  color: var(--label-fg);
+  font-size: 20px;
+  line-height: 1;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.outline.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.outline.with-icon .app-icon {
+  width: 16px;
+  height: 16px;
+}
+.page-heading {
+  gap: 16px;
+}
+.page-heading > .outline {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100vh;
+  transition: grid-template-columns 280ms var(--ease-expo);
+}
+.app-layout.sidebar-collapsed {
+  grid-template-columns: 64px minmax(0, 1fr);
+  transition: grid-template-columns 210ms var(--ease-exit);
+}
+.main-shell {
+  min-width: 0;
+}
+
+/* 侧栏 */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 12px 12px;
+  overflow: hidden auto;
+  scrollbar-width: thin;
+  background: var(--nav-bg);
+  box-shadow: 1px 0 0 var(--border);
+  color: var(--text-2);
+}
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding-left: 2px;
+}
+.sidebar .brand {
+  gap: 10px;
+  min-width: 0;
+  font-size: 18px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  color: var(--text);
+}
+.sidebar .brand-mark {
+  width: 32px;
+  height: 34px;
+  font-size: 18px;
+}
+.sidebar-label {
+  transition: opacity 150ms linear 90ms;
+}
+.tenant-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.tenant-box > div {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tenant-box small {
+  display: block;
+  margin-top: 2px;
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.tenant-dot,
+.connection-dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.sidebar-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  margin-bottom: 4px;
+  padding: 0 10px 0 11px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--label-fg);
+  font-size: 13px;
+  text-align: left;
+  white-space: nowrap;
+  transition: box-shadow 0.16s ease;
+}
+.sidebar-search:hover:not(:disabled) {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.sidebar-search > span {
+  flex: 1;
+}
+.sidebar-search kbd,
+.command-footer kbd {
+  padding: 0 4px;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--label-fg);
+  font: 11px/16px ui-monospace, Consolas, monospace;
+}
+.sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nav-group {
+  display: grid;
+  gap: 2px;
+}
+.nav-caption {
+  margin: 4px 12px 2px;
+  color: var(--label-fg);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.sidebar nav button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 10px 0 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 14px;
+  text-align: left;
+  white-space: nowrap;
+  transition:
+    background-color 0.16s ease,
+    color 0.16s ease;
+}
+.sidebar nav button .app-icon {
+  color: var(--label-fg);
+}
+.sidebar nav button:hover:not(:disabled) {
+  background: var(--control-hover);
+  color: var(--text);
+}
+.sidebar nav button.selected {
+  background: var(--nav-selected-bg);
+  color: var(--text);
+  font-weight: 600;
+}
+.sidebar nav button.selected .app-icon {
+  color: var(--text);
+}
+/* 主题色只出现在品牌标识和这条当前位置指示条上 */
+.sidebar nav button.selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--brand);
+}
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nav-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  padding: 0 5px;
+  border-radius: 5px;
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  text-align: center;
+}
+.nav-count.danger {
+  background: var(--danger-bg);
+  box-shadow: none;
+  color: var(--danger);
+}
+.nav-count.caution {
+  background: var(--caution-bg);
+  box-shadow: none;
+  color: var(--caution);
+}
+.sidebar-bottom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.account-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+  transition: background-color 0.16s ease;
+}
+.account-entry:hover {
+  background: var(--control-hover);
+}
+.account-entry > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-entry small {
+  display: block;
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--sunken);
+  color: var(--text-2);
+  object-fit: cover;
+}
+
+/* 收起：保留图标与计数点，文字淡出但不改变占位，避免动画中途跳动 */
+.sidebar-collapsed .sidebar-label {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 70ms linear;
+}
+.sidebar-collapsed .tenant-box {
+  display: none;
+}
+.sidebar-collapsed .sidebar-head,
+.sidebar-collapsed .sidebar-bottom {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.sidebar-collapsed .nav-count {
+  position: absolute;
+  top: 7px;
+  left: 26px;
+  min-width: 8px;
+  height: 8px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--label-fg);
+  font-size: 0;
+}
+.sidebar-collapsed .nav-count.danger {
+  background: var(--danger);
+}
+.sidebar-collapsed .nav-count.caution {
+  background: var(--caution-line);
+}
+
+/* 顶栏 */
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  height: 56px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--label-fg);
+  font-size: 13px;
+}
+.topbar-trail {
+  color: var(--text-2);
+}
+.topbar-trail b {
+  margin: 0 10px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.topbar-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  white-space: nowrap;
+}
+.topbar-meta .connection-dot {
+  margin-left: 14px;
+}
+.topbar-brand,
+.topbar-search {
+  display: none;
+}
+
+/* 手机底部标签栏，默认隐藏 */
+.tabbar {
+  display: none;
+}
+
+/* 页面切换反馈：加载超过 120ms 才出现，避免快速加载时闪烁 */
+.page-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 13000;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  background: var(--border);
+  transition: opacity 120ms;
+}
+.page-loading.active {
+  opacity: 1;
+  transition-delay: 120ms;
+}
+.page-loading::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: var(--text-2);
+}
+.page-loading.active::after {
+  animation: page-load 1.2s ease-in-out infinite;
+}
+@keyframes page-load {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(286%);
+  }
+}
+.skeleton {
+  display: block;
+  width: 70%;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--sunken);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.skeleton-row td:first-child .skeleton {
+  width: 85%;
+}
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 操作结果提示：固定在右下角，长表格底部操作也能看到 */
+.toast-region {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 12500;
+  display: grid;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: min(420px, calc(100vw - 32px));
+  margin: 0;
+  padding: 10px 8px 10px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  box-shadow: var(--shadow-lg);
+  font-size: 14px;
+  line-height: 1.5;
+  pointer-events: auto;
+  animation: toast-in 220ms var(--ease-expo);
+}
+.toast button {
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 18px;
+  opacity: 0.7;
+}
+.toast button:hover {
+  opacity: 1;
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* Ctrl K 命令面板 */
+.command-palette {
+  width: min(576px, calc(100vw - 32px));
+  max-height: min(540px, calc(100dvh - 120px));
+  margin: 14vh auto auto;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+}
+.command-palette[open] {
+  display: flex;
+  flex-direction: column;
+}
+.command-palette::backdrop {
+  background: var(--backdrop);
+  backdrop-filter: blur(2px);
+}
+.command-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--label-fg);
+}
+.command-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 14px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+}
+/* 面板打开时焦点固定在这个输入框，光标即焦点提示 */
+.command-search input:focus-visible {
+  outline: none;
+}
+.command-results {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px 8px 8px;
+}
+.command-results section > p {
+  margin: 8px 10px 4px;
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.command-results button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: 14px;
+  text-align: left;
+}
+.command-results button[aria-selected="true"] {
+  background: var(--nav-selected-bg);
+  color: var(--text);
+}
+.command-results button small {
+  margin-left: auto;
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.command-enter {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  color: var(--label-fg);
+  visibility: hidden;
+}
+.command-results button[aria-selected="true"] .command-enter {
+  visibility: visible;
+}
+.command-empty {
+  padding: 28px 16px;
+  color: var(--label-fg);
+  font-size: 14px;
+  text-align: center;
+}
+.command-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.command-footer kbd {
+  margin-right: 3px;
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    padding: 0 24px;
+  }
+  .main-shell main {
+    padding: 24px;
+  }
+}
+@media (max-width: 760px) {
+  .app-layout,
+  .app-layout.sidebar-collapsed {
+    display: block;
+  }
+  .sidebar {
+    display: none;
+  }
+  .topbar {
+    height: 52px;
+    padding: 0 8px 0 14px;
+  }
+  .topbar-brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .topbar-brand .brand-mark {
+    width: 26px;
+    height: 28px;
+    font-size: 15px;
+  }
+  .topbar-trail,
+  .topbar-meta {
+    display: none;
+  }
+  .topbar-search {
+    display: inline-grid;
+    margin-left: auto;
+  }
+  .main-shell main {
+    padding: 20px 14px calc(96px + env(safe-area-inset-bottom, 0px));
+  }
+  .tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 900;
+    display: flex;
+    gap: 2px;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom, 0px));
+    background: var(--nav-bg);
+    box-shadow: 0 -1px 0 var(--border);
+  }
+  .tabbar button {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    min-height: 52px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    font-size: 12px;
+  }
+  .tabbar button span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tabbar button.selected {
+    background: var(--nav-selected-bg);
+    color: var(--text);
+    font-weight: 600;
+  }
+  .tab-dot {
+    position: absolute;
+    top: 7px;
+    left: calc(50% + 7px);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--label-fg);
+  }
+  .tab-dot.danger {
+    background: var(--danger);
+  }
+  .tab-dot.caution {
+    background: var(--caution-line);
+  }
+  .toast-region {
+    left: 16px;
+    right: 16px;
+    bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  }
+  .toast {
+    max-width: none;
+  }
+  /* 手机上命令面板从底部弹出，兼作完整菜单 */
+  .command-palette {
+    width: 100%;
+    max-width: none;
+    max-height: 82dvh;
+    margin: auto 0 0;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .command-footer {
+    display: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-layout,
+  .app-layout.sidebar-collapsed,
+  .sidebar-label,
+  .page-loading {
+    transition: none;
+  }
+  .page-loading.active::after,
+  .skeleton,
+  .toast {
+    animation: none;
+  }
+}

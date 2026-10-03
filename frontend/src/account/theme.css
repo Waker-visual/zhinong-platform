@@ -231,30 +231,6 @@ html .app-layout {
 html[data-theme="dark"] .data-chart text {
   fill: var(--text);
 }
-.sidebar-bottom .account-entry {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  background: transparent;
-  color: inherit;
-  padding: 7px 0;
-  border-radius: 8px;
-}
-.account-entry > div {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.account-entry img.avatar {
-  object-fit: cover;
-  flex-shrink: 0;
-}
-.account-entry small {
-  display: block;
-}
 .settings-backdrop {
   position: fixed;
   inset: 0;
@@ -636,16 +612,6 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
   }
 }
 
-.sidebar-bottom .account-entry {
-  font-size: 14px;
-  line-height: 1.45;
-}
-.account-entry > span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .map-toolbar {
   flex-wrap: wrap;
 }
@@ -681,18 +647,6 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
   gap: 12px;
 }
 @media (max-width: 760px) {
-  .sidebar-bottom {
-    flex-wrap: wrap;
-  }
-  .sidebar-bottom .account-entry {
-    justify-content: center;
-  }
-  .sidebar-bottom .account-entry .avatar {
-    display: flex;
-  }
-  .account-entry > span:last-child {
-    display: none;
-  }
   .simulation-events > div {
     flex-direction: column;
     gap: 4px;

@@ -240,156 +240,6 @@ label select {
   border-radius: 7px;
   margin-bottom: 16px;
 }
-.app-layout {
-  min-height: 100vh;
-  display: flex;
-}
-.sidebar {
-  width: 232px;
-  flex-shrink: 0;
-  background: var(--nav-bg);
-  color: var(--text-2);
-  padding: 30px 18px 20px;
-  display: flex;
-  flex-direction: column;
-  position: fixed;
-  height: 100vh;
-}
-.sidebar .brand {
-  font-size: 23px;
-  padding: 0 9px;
-  color: var(--text);
-}
-.tenant-box {
-  margin: 35px 6px 28px;
-  padding: 14px 10px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-.tenant-box small {
-  display: block;
-  margin-top: 7px;
-  color: var(--label-fg);
-  font-size: 10px;
-}
-.tenant-dot,
-.connection-dot {
-  display: inline-block;
-  height: 7px;
-  width: 7px;
-  background: var(--ok);
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.nav-caption {
-  font-size: 10px;
-  letter-spacing: 2px;
-  margin: 0 16px 12px;
-  color: var(--label-fg);
-}
-nav {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-nav button {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  text-align: left;
-  padding: 12px 16px;
-  border-radius: 7px;
-  font-size: 13px;
-  color: var(--text-2);
-  position: relative;
-  transition: background-color 0.16s ease, color 0.16s ease;
-}
-nav button span {
-  font-size: 19px;
-  width: 20px;
-  text-align: center;
-}
-nav button b {
-  margin-left: auto;
-  color: var(--label-fg);
-}
-nav button:hover {
-  background: var(--control-hover);
-}
-nav button.selected {
-  background: var(--nav-selected-bg);
-  color: var(--text);
-  font-weight: 600;
-}
-/* 主题色只出现在品牌标识和这条当前位置指示条上 */
-nav button.selected::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--brand);
-}
-.sidebar-bottom {
-  margin-top: auto;
-  border-top: 1px solid var(--border);
-  padding: 20px 6px 0;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 12px;
-}
-.avatar {
-  border-radius: 50%;
-  background: var(--sunken);
-  color: var(--text-2);
-  display: grid;
-  place-items: center;
-  width: 32px;
-  height: 32px;
-}
-.sidebar-bottom small {
-  display: block;
-  font-size: 10px;
-  margin-top: 5px;
-}
-.sidebar-bottom button {
-  margin-left: auto;
-  font-size: 22px;
-}
-.main-shell {
-  margin-left: 232px;
-  width: calc(100% - 232px);
-}
-.topbar {
-  height: 70px;
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 36px;
-  font-size: 12px;
-  color: var(--label-fg);
-}
-.topbar b {
-  font-weight: 400;
-  margin: 0 12px;
-  color: var(--text-3);
-}
-.topbar i {
-  margin: 0 7px 0 22px;
-}
-.topbar > span:first-child {
-  color: var(--text-2);
-}
 main {
   max-width: 1510px;
   margin: auto;
@@ -400,9 +250,6 @@ main {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 26px;
-}
-.page-heading .eyebrow {
-  font-size: 9px;
 }
 .page-heading h1 {
   font-size: 27px;
@@ -793,21 +640,6 @@ footer {
   margin-top: 26px;
 }
 @media (max-width: 1100px) {
-  .sidebar {
-    width: 205px;
-    padding-left: 12px;
-    padding-right: 12px;
-  }
-  .main-shell {
-    margin-left: 205px;
-    width: calc(100% - 205px);
-  }
-  main {
-    padding: 24px;
-  }
-  .topbar {
-    padding: 0 24px;
-  }
   .stats {
     gap: 12px;
   }
@@ -823,9 +655,6 @@ footer {
   .workflow-strip {
     flex-wrap: wrap;
   }
-  .topbar > span:last-child {
-    font-size: 10px;
-  }
 }
 @media (max-width: 760px) {
   .login-layout {
@@ -836,48 +665,6 @@ footer {
   }
   .login-panel {
     padding: 32px;
-  }
-  .sidebar {
-    width: 66px;
-    padding: 20px 8px;
-  }
-  .sidebar .brand {
-    padding: 0;
-    justify-content: center;
-  }
-  .sidebar .brand > span:last-child,
-  .tenant-box,
-  .nav-caption,
-  .sidebar-bottom {
-    display: none;
-  }
-  nav {
-    margin-top: 25px;
-  }
-  nav button {
-    font-size: 0;
-    padding: 13px;
-    gap: 0;
-  }
-  nav button b {
-    display: none;
-  }
-  nav button span {
-    font-size: 22px;
-  }
-  .main-shell {
-    margin-left: 66px;
-    width: calc(100% - 66px);
-  }
-  main {
-    padding: 20px 14px;
-  }
-  .topbar {
-    padding: 0 14px;
-    height: 55px;
-  }
-  .topbar > span:last-child {
-    display: none;
   }
   .page-heading h1 {
     font-size: 24px;
@@ -929,17 +716,3 @@ footer {
   }
 }
 
-@media (max-width: 760px) {
-  .sidebar-bottom {
-    display: flex;
-    padding: 16px 0 0;
-    justify-content: center;
-  }
-  .sidebar-bottom .avatar,
-  .sidebar-bottom > div {
-    display: none;
-  }
-  .sidebar-bottom button {
-    margin: 0;
-  }
-}

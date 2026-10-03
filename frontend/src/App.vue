@@ -6,9 +6,12 @@ import FarmHub from "./workspace/FarmHub.vue";
 import DeviceManager from "./workspace/DeviceManager.vue";
 import "./workspace/workspace.css";
 import SettingsDialog from "./account/SettingsDialog.vue";
-import { applyAppearance } from "./account/appearance";
+import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
+import AppIcon from "./ui/AppIcon.vue";
+import CommandPalette from "./ui/CommandPalette.vue";
+import "./ui/shell.css";
 
 const identity = ref(null);
 const account = ref(null),
@@ -38,7 +41,27 @@ const farmToOpen = ref("");
 const navigationRevision = ref(0);
 const error = ref("");
 const notice = ref("");
+// busy 只锁写操作；页面加载用 loading，导航不再被写操作或加载阻塞。
 const busy = ref(false);
+const loading = ref(false);
+const paletteOpen = ref(false);
+const sidebarKey = "zhinong-sidebar";
+const collapsed = ref(readSidebar());
+function readSidebar() {
+  try {
+    return localStorage.getItem(sidebarKey) === "collapsed";
+  } catch {
+    return false;
+  }
+}
+function toggleSidebar() {
+  collapsed.value = !collapsed.value;
+  try {
+    localStorage.setItem(sidebarKey, collapsed.value ? "collapsed" : "expanded");
+  } catch {
+    // 浏览器禁用存储时只在本次会话内生效
+  }
+}
 const search = ref("");
 const rows = ref([]);
 const dashboard = ref({});
@@ -69,6 +92,49 @@ const visibleMenus = computed(() =>
 const current = computed(
   () => menus.find((m) => m.id === page.value) || menus[0],
 );
+const groupOrder = ["日常作业", "农场与设备", "分析与管理", "平台管理"];
+const menuGroups = computed(() =>
+  groupOrder
+    .map((label) => ({
+      label,
+      items: visibleMenus.value.filter((m) => m.group === label),
+    }))
+    .filter((g) => g.items.length),
+);
+// 今日农场的计数覆盖本租户全部农场：逾期、受阻（不含已逾期）与待处理现场问题，颜色取最紧急的一项。
+const attention = computed(() => {
+  const d = dashboard.value;
+  const overdue = Number(d.overdueTasks || 0),
+    blocked = Number(d.blockedTasks || 0),
+    issues = Number(d.openIssues || 0);
+  const total = overdue + blocked + issues;
+  if (!total) return null;
+  return {
+    total,
+    tone: overdue ? "danger" : blocked ? "caution" : "neutral",
+    label: `全部农场需要处理：${overdue} 项逾期，${blocked} 项受阻，${issues} 项现场问题`,
+  };
+});
+const tabPriority = ["daily", "tasks", "dashboard", "devices", "platform/tenants"];
+const tabItems = computed(() =>
+  tabPriority
+    .map((id) => visibleMenus.value.find((m) => m.id === id))
+    .filter(Boolean)
+    .slice(0, 4),
+);
+const paletteItems = computed(() => [
+  ...menuGroups.value.flatMap((g) =>
+    g.items.map((m) => ({ ...m, current: m.id === page.value })),
+  ),
+  { id: "action:settings", title: "账号设置", icon: "settings", group: "账号" },
+  {
+    id: "action:theme",
+    title: colorMode.value === "DARK" ? "切换到浅色主题" : "切换到深色主题",
+    icon: "moon",
+    group: "账号",
+  },
+  { id: "action:signout", title: "退出登录", icon: "logout", group: "账号" },
+]);
 const fields = computed(() => forms[page.value] || []);
 const canCreate = computed(
   () =>
@@ -213,9 +279,22 @@ async function load() {
     if (sequence === loadSequence) observations.value = values;
   }
 }
+let reloadTicket = 0;
+async function reload() {
+  const ticket = ++reloadTicket;
+  loading.value = true;
+  error.value = "";
+  try {
+    await load();
+  } catch (e) {
+    if (ticket === reloadTicket) error.value = e.message;
+  } finally {
+    if (ticket === reloadTicket) loading.value = false;
+  }
+}
 async function refreshActive() {
   moduleRevision.value++;
-  await action(load);
+  await reload();
 }
 async function dailyNavigate({ page: target, farmId, create }) {
   farmScope.value = farmId;
@@ -228,15 +307,46 @@ async function launchFarm(id) {
   farmToOpen.value = id;
 }
 async function navigate(id) {
-  if (busy.value) return;
-  notice.value = "";
   page.value = id;
   navigationRevision.value++;
   farmToOpen.value = "";
   search.value = "";
-  error.value = "";
   rows.value = [];
-  await action(load);
+  await reload();
+}
+async function toggleTheme() {
+  const previous = {
+    themeMode: account.value.themeMode,
+    accent: account.value.accent,
+  };
+  const next = {
+    themeMode: colorMode.value === "DARK" ? "LIGHT" : "DARK",
+    accent: account.value.accent || "FOREST",
+  };
+  applyAppearance(next);
+  try {
+    accountUpdated(await api("/account/appearance", "PUT", next));
+  } catch (e) {
+    applyAppearance(previous);
+    error.value = "主题未保存：" + e.message;
+  }
+}
+function choosePalette(item) {
+  if (item.id === "action:settings") settingsOpen.value = true;
+  else if (item.id === "action:theme") toggleTheme();
+  else if (item.id === "action:signout") signOut();
+  else navigate(item.id);
+}
+function onShortcut(event) {
+  if (
+    (event.ctrlKey || event.metaKey) &&
+    event.key.toLowerCase() === "k" &&
+    identity.value &&
+    !account.value?.mustChangePassword
+  ) {
+    event.preventDefault();
+    paletteOpen.value = true;
+  }
 }
 async function signIn() {
   await action(async () => {
@@ -275,6 +385,8 @@ function expire() {
   observations.value = [];
   dialog.value = false;
   captureDevice.value = null;
+  paletteOpen.value = false;
+  loading.value = false;
   ++loadSequence;
 }
 function openForm(row = null) {
@@ -368,6 +480,7 @@ async function recordObservation() {
 }
 onMounted(async () => {
   window.addEventListener("session-expired", expire);
+  window.addEventListener("keydown", onShortcut);
   if (!sessionStorage.getItem("zhinong-session")) return;
   await action(async () => {
     identity.value = await api("/auth/me");
@@ -378,6 +491,7 @@ onMounted(async () => {
 });
 onUnmounted(() => {
   window.removeEventListener("session-expired", expire);
+  window.removeEventListener("keydown", onShortcut);
   clearTimeout(timer);
 });
 </script>
@@ -434,39 +548,87 @@ onUnmounted(() => {
       </form>
     </section>
   </div>
-  <div v-else class="app-layout">
-    <aside class="sidebar">
-      <div class="brand">
-        <span class="brand-mark">禾</span
-        ><span>智禾农场<small>ZHIHE FARM</small></span>
+  <div v-else :class="['app-layout', { 'sidebar-collapsed': collapsed }]">
+    <div
+      class="page-loading"
+      :class="{ active: loading }"
+      role="status"
+      aria-live="polite"
+    >
+      <span class="sr-only">{{ loading ? "正在加载页面" : "" }}</span>
+    </div>
+    <p v-if="attention" id="attention-note" class="sr-only">
+      {{ attention.label }}
+    </p>
+    <aside id="app-sidebar" class="sidebar" aria-label="主导航">
+      <div class="sidebar-head">
+        <div class="brand">
+          <span class="brand-mark">禾</span
+          ><span class="sidebar-label">智禾农场<small>ZHIHE FARM</small></span>
+        </div>
+        <button
+          type="button"
+          class="icon-button sidebar-toggle"
+          aria-controls="app-sidebar"
+          :aria-expanded="!collapsed"
+          :aria-label="collapsed ? '展开侧栏' : '收起侧栏'"
+          :title="collapsed ? '展开侧栏' : '收起侧栏'"
+          @click="toggleSidebar"
+        >
+          <AppIcon name="sidebar" />
+        </button>
       </div>
-      <div class="tenant-box">
+      <div class="tenant-box" :title="identity.tenantName">
         <span class="tenant-dot"></span>
-        <div>
+        <div class="sidebar-label">
           {{ identity.tenantName }}<small>{{ display(identity.role) }}</small>
         </div>
       </div>
-      <p class="nav-caption">
-        {{ platform ? "平台工作空间" : "农场工作空间" }}
-      </p>
-      <nav>
-        <button
-          v-for="item in visibleMenus"
-          :key="item.id"
-          :aria-label="item.title"
-          :aria-current="page === item.id ? 'page' : undefined"
-          :class="{ selected: page === item.id }"
-          @click="navigate(item.id)"
-          :disabled="busy || account?.mustChangePassword"
-        >
-          <span>{{ item.glyph }}</span
-          >{{ item.title }}<b v-if="page === item.id">›</b>
-        </button>
+      <button
+        type="button"
+        class="sidebar-search"
+        aria-haspopup="dialog"
+        title="搜索页面（Ctrl K）"
+        :disabled="account?.mustChangePassword"
+        @click="paletteOpen = true"
+      >
+        <AppIcon name="search" /><span class="sidebar-label">搜索页面…</span
+        ><kbd class="sidebar-label">Ctrl K</kbd>
+      </button>
+      <nav aria-label="工作空间">
+        <div v-for="group in menuGroups" :key="group.label" class="nav-group">
+          <p class="nav-caption sidebar-label">{{ group.label }}</p>
+          <button
+            v-for="item in group.items"
+            :key="item.id"
+            :aria-label="item.title"
+            :title="collapsed ? item.title : undefined"
+            :aria-current="page === item.id ? 'page' : undefined"
+            :aria-describedby="
+              item.id === 'daily' && attention ? 'attention-note' : undefined
+            "
+            :class="{ selected: page === item.id }"
+            @click="navigate(item.id)"
+            :disabled="account?.mustChangePassword"
+          >
+            <AppIcon :name="item.icon" /><span class="nav-label sidebar-label">{{
+              item.title
+            }}</span
+            ><span
+              v-if="item.id === 'daily' && attention"
+              :class="['nav-count', attention.tone]"
+              :title="attention.label"
+              aria-hidden="true"
+              >{{ attention.total }}</span
+            >
+          </button>
+        </div>
       </nav>
       <div class="sidebar-bottom">
         <button
           class="account-entry"
           aria-label="账号设置"
+          :title="collapsed ? '账号设置' : undefined"
           @click="settingsOpen = true"
         >
           <img
@@ -478,41 +640,68 @@ onUnmounted(() => {
           <span v-else class="avatar">{{
             identity.displayName.slice(0, 1)
           }}</span>
-          <span
+          <span class="sidebar-label"
             >{{ identity.displayName
             }}<small>{{ identity.username }} · 设置</small></span
           >
         </button>
         <button
+          type="button"
+          class="icon-button"
+          :aria-label="colorMode === 'DARK' ? '切换到浅色主题' : '切换到深色主题'"
+          :title="colorMode === 'DARK' ? '切换到浅色主题' : '切换到深色主题'"
+          :disabled="!account"
+          @click="toggleTheme"
+        >
+          <AppIcon name="moon" />
+        </button>
+        <button
+          type="button"
+          class="icon-button"
           @click="signOut"
           title="退出登录"
           aria-label="退出登录"
           :disabled="busy"
         >
-          ↪
+          <AppIcon name="logout" />
         </button>
       </div>
     </aside>
     <div class="main-shell">
       <header class="topbar">
-        <span>工作空间 <b>/</b> {{ current.title }}</span
-        ><span>{{ today }} <i class="connection-dot"></i> 本地服务</span>
+        <span class="topbar-brand"
+          ><span class="brand-mark">禾</span>智禾农场</span
+        ><span class="topbar-trail"
+          >工作空间 <b>/</b> {{ current.title }}</span
+        ><span class="topbar-meta"
+          >{{ today }} <i class="connection-dot"></i> 本地服务</span
+        >
+        <button
+          type="button"
+          class="icon-button topbar-search"
+          aria-label="搜索页面"
+          :disabled="account?.mustChangePassword"
+          @click="paletteOpen = true"
+        >
+          <AppIcon name="search" />
+        </button>
       </header>
       <main v-if="account && !account.mustChangePassword">
         <div class="page-heading">
           <div>
-            <p class="eyebrow">
-              {{ platform ? "TENANT ADMINISTRATION" : "FARM MANAGEMENT" }}
-            </p>
             <h1>{{ current.title }}</h1>
             <p class="muted">{{ current.description }}</p>
           </div>
-          <button class="outline" @click="refreshActive" :disabled="busy">
-            {{ busy ? "正在加载…" : "↻ 刷新数据" }}
+          <button
+            class="outline with-icon"
+            @click="refreshActive"
+            :disabled="loading"
+            :aria-busy="loading"
+          >
+            <AppIcon name="refresh" />{{ loading ? "正在加载…" : "刷新数据" }}
           </button>
         </div>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
-        <p v-if="notice" role="status" class="success">{{ notice }}</p>
         <DailyFarm
           v-if="page === 'daily'"
           :identity="identity"
@@ -543,7 +732,7 @@ onUnmounted(() => {
           @farm="farmScope = $event"
         />
         <template v-else>
-          <section class="panel table-panel">
+          <section class="panel table-panel" :aria-busy="loading">
             <div class="table-toolbar">
               <div>
                 <h2>
@@ -559,7 +748,7 @@ onUnmounted(() => {
                   aria-label="筛选农场"
                   class="farm-scope-select"
                   @change="refreshActive"
-                  :disabled="busy"
+                  :disabled="loading"
                 >
                   <option value="">全部农场 · 总览</option>
                   <option v-for="f in farmRows" :key="f.id" :value="f.id">
@@ -677,9 +866,20 @@ onUnmounted(() => {
                     </td>
                   </tr>
                 </tbody>
+                <tbody v-if="loading && !rows.length" aria-hidden="true">
+                  <tr v-for="n in 4" :key="n" class="skeleton-row">
+                    <td
+                      v-for="col in current.columns.length +
+                      (writer || platform ? 1 : 0)"
+                      :key="col"
+                    >
+                      <span class="skeleton"></span>
+                    </td>
+                  </tr>
+                </tbody>
               </table>
             </div>
-            <div v-if="!filtered.length" class="empty">
+            <div v-if="!filtered.length && !loading" class="empty">
               {{
                 search
                   ? "没有匹配的记录，请调整搜索内容。"
@@ -732,6 +932,45 @@ onUnmounted(() => {
         <p>管理员重置密码后，需要设置自己的新密码才能进入工作空间。</p>
         <button @click="settingsOpen = true">打开账号安全</button>
       </main>
+    </div>
+    <nav
+      v-if="!account?.mustChangePassword"
+      class="tabbar"
+      aria-label="常用页面"
+    >
+      <button
+        v-for="item in tabItems"
+        :key="item.id"
+        :aria-current="page === item.id ? 'page' : undefined"
+        :aria-describedby="
+          item.id === 'daily' && attention ? 'attention-note' : undefined
+        "
+        :class="{ selected: page === item.id }"
+        @click="navigate(item.id)"
+      >
+        <AppIcon :name="item.icon" /><span>{{ item.title }}</span
+        ><i
+          v-if="item.id === 'daily' && attention"
+          :class="['tab-dot', attention.tone]"
+          aria-hidden="true"
+        ></i>
+      </button>
+      <button aria-haspopup="dialog" @click="paletteOpen = true">
+        <AppIcon name="more" /><span>更多</span>
+      </button>
+    </nav>
+    <CommandPalette
+      v-model:open="paletteOpen"
+      :items="paletteItems"
+      @choose="choosePalette"
+    />
+    <div class="toast-region" aria-live="polite" aria-atomic="true">
+      <p v-if="notice" class="toast" role="status">
+        <span>{{ notice }}</span
+        ><button type="button" aria-label="关闭提示" @click="notice = ''">
+          ×
+        </button>
+      </p>
     </div>
     <SettingsDialog
       v-if="settingsOpen && account"
