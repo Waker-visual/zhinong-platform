@@ -169,13 +169,24 @@ function render() {
               : "idle";
       const marker = L.marker(xy(point), {
         draggable: editing.value,
-        title: d.name,
+        // 状态同时写进标题和角标形状，不只靠底色区分
+        title:
+          d.name +
+          "，" +
+          stateNames[d.freshness] +
+          (d.alertCount > 0 ? "，" + d.alertCount + " 条告警" : ""),
         icon: L.divIcon({
           className:
             "asset-marker " +
             mood +
             (props.selectedDevice === d.id ? " chosen" : ""),
-          html: `<span>${typeIcons[d.deviceType] || "◉"}</span>`,
+          html:
+            `<span>${typeIcons[d.deviceType] || "◉"}</span>` +
+            (mood === "alert"
+              ? '<i class="marker-badge alert" aria-hidden="true">!</i>'
+              : mood === "stale"
+                ? '<i class="marker-badge stale" aria-hidden="true">…</i>'
+                : ""),
           iconSize: [36, 36],
           iconAnchor: [18, 18],
         }),

@@ -541,9 +541,6 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
   width: 15px;
   min-width: 15px;
 }
-.farm-scope-select {
-  min-width: 180px;
-}
 .scope-summary {
   display: flex;
   gap: 24px;
@@ -610,9 +607,6 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
   }
   .settings-team-tools {
     flex-wrap: wrap;
-  }
-  .farm-scope-select {
-    width: 100%;
   }
 }
 

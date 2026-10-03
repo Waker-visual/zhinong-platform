@@ -17,6 +17,7 @@ const props = defineProps({
   revision: Number,
   initialFarmId: String,
 });
+const emit = defineEmits(["farm"]);
 const farms = ref([]),
   selected = ref(props.initialFarmId || ""),
   search = ref(""),
@@ -103,10 +104,14 @@ watch(() => props.revision, load);
 watch(
   () => props.initialFarmId,
   (id) => {
-    if (id) selected.value = id;
+    selected.value = id || "";
   },
 );
-watch(selected, () => nextTick(() => window.scrollTo(0, 0)));
+// 打开或退出某座农场时同步顶栏的“当前农场”
+watch(selected, (id) => {
+  emit("farm", id);
+  nextTick(() => window.scrollTo(0, 0));
+});
 onMounted(load);
 onBeforeUnmount(() => {
   alive = false;

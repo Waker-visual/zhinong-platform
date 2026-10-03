@@ -45,6 +45,7 @@ const notice = ref("");
 // busy 只锁写操作；页面加载用 loading，导航不再被写操作或加载阻塞。
 const busy = ref(false);
 const loading = ref(false);
+const pending = ref("");
 const paletteOpen = ref(false);
 const sidebarKey = "zhinong-sidebar";
 const collapsed = ref(readSidebar());
@@ -93,6 +94,23 @@ const visibleMenus = computed(() =>
 const current = computed(
   () => menus.find((m) => m.id === page.value) || menus[0],
 );
+// 顶栏“当前农场”是各页面共用的农场范围；今日农场与经营模拟必须选定一座农场。
+const farmRequired = computed(() =>
+  ["daily", "simulation"].includes(page.value),
+);
+const simulationKey = ref(0);
+function selectFarm() {
+  if (page.value === "daily") return;
+  if (["dashboard", "farms"].includes(page.value)) {
+    farmToOpen.value = farmScope.value;
+    return;
+  }
+  if (page.value === "simulation") {
+    simulationKey.value++;
+    return;
+  }
+  if (scopedPage.value) refreshActive();
+}
 const groupOrder = ["日常作业", "农场与设备", "分析与管理", "平台管理"];
 const menuGroups = computed(() =>
   groupOrder
@@ -213,9 +231,11 @@ function options(field) {
     }));
   return field.options.map((value) => ({ value, label: display(value) }));
 }
-async function action(work, success) {
+// key 标记触发本次写操作的按钮：只有它显示加载中，其余按钮在保存期间禁用以免重复提交。
+async function action(work, success, key = "") {
   if (busy.value) return;
   busy.value = true;
+  pending.value = key;
   error.value = "";
   try {
     await work();
@@ -224,6 +244,7 @@ async function action(work, success) {
     error.value = e.message;
   } finally {
     busy.value = false;
+    pending.value = "";
   }
 }
 async function load() {
@@ -310,7 +331,8 @@ async function launchFarm(id) {
 async function navigate(id) {
   page.value = id;
   navigationRevision.value++;
-  farmToOpen.value = "";
+  // 农场概览直接打开顶栏选中的农场；选“全部农场”时显示农场列表
+  farmToOpen.value = id === "dashboard" ? farmScope.value : "";
   search.value = "";
   rows.value = [];
   await reload();
@@ -433,7 +455,7 @@ async function save() {
     );
     dialog.value = false;
     await load();
-  }, "已保存");
+  }, "已保存", "save");
 }
 async function remove(row) {
   if (
@@ -443,13 +465,13 @@ async function remove(row) {
   await action(async () => {
     await api("/" + page.value + "/" + row.id, "DELETE");
     await load();
-  }, "已删除");
+  }, "已删除", "delete:" + row.id);
 }
 async function transition(row, status) {
   await action(async () => {
     await api("/" + page.value + "/" + row.id + "/status", "PATCH", { status });
     await load();
-  }, "状态已更新");
+  }, "状态已更新", "status:" + row.id + ":" + status);
 }
 async function toggle(row) {
   await action(async () => {
@@ -457,13 +479,13 @@ async function toggle(row) {
       enabled: !row.enabled,
     });
     await load();
-  }, "启用状态已更新");
+  }, "启用状态已更新", "toggle:" + row.id);
 }
 async function sample(row) {
   await action(async () => {
     await api("/devices/" + row.id + "/sample", "POST");
     await load();
-  }, "模拟记录已生成");
+  }, "模拟记录已生成", "sample:" + row.id);
 }
 async function recordObservation() {
   await action(async () => {
@@ -477,7 +499,7 @@ async function recordObservation() {
     });
     captureDevice.value = null;
     await load();
-  }, "监测记录已保存");
+  }, "监测记录已保存", "observe");
 }
 onMounted(async () => {
   window.addEventListener("session-expired", expire);
@@ -540,7 +562,7 @@ onUnmounted(() => {
         /></label>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <p v-if="notice" role="status" class="success">{{ notice }}</p>
-        <button class="primary login-button" :disabled="busy">
+        <button class="primary login-button" :disabled="busy" :aria-busy="busy">
           {{ busy ? "正在登录…" : "进入工作空间 →" }}
         </button>
         <p class="login-hint">
@@ -674,6 +696,21 @@ onUnmounted(() => {
           ><span class="brand-mark">禾</span>智禾农场</span
         ><span class="topbar-trail"
           >工作空间 <b>/</b> {{ current.title }}</span
+        ><label
+          v-if="!platform && farmRows.length && !account?.mustChangePassword"
+          class="topbar-farm"
+          ><span class="tenant-dot" aria-hidden="true"></span
+          ><select
+            v-model="farmScope"
+            aria-label="当前农场"
+            :disabled="loading"
+            @change="selectFarm"
+          >
+            <option value="" :disabled="farmRequired">全部农场</option>
+            <option v-for="f in farmRows" :key="f.id" :value="f.id">
+              {{ f.name }}
+            </option>
+          </select></label
         ><span class="topbar-meta"
           >{{ today }} <i class="connection-dot"></i> 本地服务</span
         >
@@ -720,6 +757,7 @@ onUnmounted(() => {
           :role="role"
           :revision="moduleRevision"
           :initial-farm-id="farmToOpen"
+          @farm="farmScope = $event"
         />
         <DeviceManager
           v-else-if="page === 'devices'"
@@ -729,6 +767,7 @@ onUnmounted(() => {
         />
         <SimulationPage
           v-else-if="page === 'simulation'"
+          :key="simulationKey"
           :role="role"
           :initial-farm-id="farmScope"
           @farm="farmScope = $event"
@@ -744,19 +783,6 @@ onUnmounted(() => {
                 <small>数据范围：{{ identity.tenantName }}</small>
               </div>
               <div class="table-tools">
-                <select
-                  v-if="scopedPage"
-                  v-model="farmScope"
-                  aria-label="筛选农场"
-                  class="farm-scope-select"
-                  @change="refreshActive"
-                  :disabled="loading"
-                >
-                  <option value="">全部农场 · 总览</option>
-                  <option v-for="f in farmRows" :key="f.id" :value="f.id">
-                    {{ f.name }}
-                  </option>
-                </select>
                 <button
                   v-if="page === 'tasks' && admin"
                   class="primary"
@@ -809,6 +835,7 @@ onUnmounted(() => {
                           class="danger-text"
                           @click="remove(row)"
                           :disabled="busy"
+                          :aria-busy="pending === 'delete:' + row.id"
                         >
                           删除
                         </button></template
@@ -831,12 +858,14 @@ onUnmounted(() => {
                           v-if="row.status === 'PLANNED'"
                           @click="transition(row, 'ACTIVE')"
                           :disabled="busy"
+                          :aria-busy="pending === 'status:' + row.id + ':ACTIVE'"
                         >
                           开始种植</button
                         ><button
                           v-if="row.status === 'ACTIVE'"
                           @click="transition(row, 'FINISHED')"
                           :disabled="busy"
+                          :aria-busy="pending === 'status:' + row.id + ':FINISHED'"
                         >
                           结束周期
                         </button></template
@@ -846,6 +875,7 @@ onUnmounted(() => {
                           v-if="row.adapter === 'SIMULATED'"
                           @click="sample(row)"
                           :disabled="busy"
+                          :aria-busy="pending === 'sample:' + row.id"
                         >
                           模拟采集</button
                         ><button
@@ -862,6 +892,7 @@ onUnmounted(() => {
                         v-if="['members', 'platform/tenants'].includes(page)"
                         @click="toggle(row)"
                         :disabled="busy || row.id === identity.memberId"
+                        :aria-busy="pending === 'toggle:' + row.id"
                       >
                         {{ row.enabled ? "停用" : "启用" }}
                       </button>
@@ -1044,8 +1075,12 @@ onUnmounted(() => {
               :disabled="busy"
             >
               取消</button
-            ><button class="primary" :disabled="busy">
-              {{ busy ? "正在保存…" : "保存" }}
+            ><button
+              class="primary"
+              :disabled="busy"
+              :aria-busy="pending === 'save'"
+            >
+              {{ pending === "save" ? "正在保存…" : "保存" }}
             </button>
           </div>
         </form>
@@ -1079,7 +1114,13 @@ onUnmounted(() => {
               :disabled="busy"
             >
               取消</button
-            ><button class="primary" :disabled="busy">保存记录</button>
+            ><button
+              class="primary"
+              :disabled="busy"
+              :aria-busy="pending === 'observe'"
+            >
+              保存记录
+            </button>
           </div>
         </form>
     </ModalDialog>

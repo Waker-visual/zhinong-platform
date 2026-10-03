@@ -30,10 +30,6 @@
   margin-top: 15px;
   color: var(--text-2);
 }
-.daily-farm-picker {
-  min-width: 210px;
-  max-width: 340px;
-}
 .daily-quick {
   display: flex;
   gap: 10px;
@@ -366,10 +362,6 @@
   }
   .daily-hero h2 {
     font-size: 20px;
-  }
-  .daily-farm-picker {
-    max-width: none;
-    min-width: 0;
   }
   .daily-kpis {
     grid-template-columns: 1fr 1fr;

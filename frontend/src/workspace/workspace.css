@@ -398,6 +398,30 @@
 .asset-marker span {
   display: block;
 }
+/* 状态角标：告警为圆形“!”，超时未报为方形“…”，色觉差异时也能分辨 */
+.marker-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--on-image);
+  border-radius: 50%;
+  color: var(--on-image);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1;
+}
+.marker-badge.alert {
+  background: var(--marker-alert);
+}
+.marker-badge.stale {
+  border-radius: 4px;
+  background: var(--marker-stale);
+}
 .map-legend {
   display: flex;
   gap: 17px;
@@ -1321,4 +1345,7 @@
   .screen-mode > .workspace-footnote {
     display: none;
   }
+}
+.map-legend .stale-dot {
+  border-radius: 2px;
 }

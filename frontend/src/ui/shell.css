@@ -62,6 +62,27 @@ button:active:not(:disabled) {
 button[aria-busy="true"] {
   cursor: progress;
 }
+/* 被点击的按钮显示转圈；同时处于禁用时不再变淡，表明它正在工作而不是不可用 */
+button[aria-busy="true"]:disabled {
+  opacity: 1;
+}
+button[aria-busy="true"]::after {
+  content: "";
+  display: inline-block;
+  width: 0.9em;
+  height: 0.9em;
+  margin-left: 6px;
+  vertical-align: -0.12em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: busy-spin 0.7s linear infinite;
+}
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 
 /* 原生对话框：内边距放在内层，点击对话框元素本身即点在遮罩上 */
 .modal.app-dialog {
@@ -76,6 +97,32 @@ button[aria-busy="true"] {
 }
 .app-dialog > .dialog-body {
   padding: 28px;
+}
+
+/* 指标的统计口径：默认折叠，说明数字从哪里来、包含什么 */
+.stat-notes {
+  color: var(--label-fg);
+  font-size: 13px;
+}
+.stat-notes summary {
+  width: fit-content;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.stat-notes summary:hover {
+  color: var(--text);
+}
+.stat-notes ul {
+  display: grid;
+  gap: 4px;
+  max-width: 76ch;
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.screen-mode > .stat-notes {
+  display: none;
 }
 
 /* “更多”菜单 */
@@ -454,6 +501,43 @@ button[aria-busy="true"] {
 .topbar-search {
   display: none;
 }
+/* 当前农场：各页面共用的农场范围 */
+.topbar .topbar-farm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  margin: 0;
+  padding: 0 4px 0 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+  color: var(--text);
+  font-weight: 400;
+  transition: box-shadow 0.16s ease;
+}
+.topbar .topbar-farm:hover {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.topbar .topbar-farm:focus-within {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.topbar .topbar-farm select {
+  width: auto;
+  min-width: 0;
+  max-width: 240px;
+  margin: 0;
+  padding: 0 4px 0 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.topbar .topbar-farm select:focus-visible {
+  outline: none;
+}
 
 /* 手机底部标签栏，默认隐藏 */
 .tabbar {
@@ -697,9 +781,18 @@ button[aria-busy="true"] {
   .topbar-meta {
     display: none;
   }
+  .topbar .topbar-farm {
+    margin-left: auto;
+  }
+  .topbar .topbar-farm select {
+    max-width: 150px;
+  }
   .topbar-search {
     display: inline-grid;
     margin-left: auto;
+  }
+  .topbar-farm + .topbar-meta + .topbar-search {
+    margin-left: 4px;
   }
   .main-shell main {
     padding: 20px 14px calc(96px + env(safe-area-inset-bottom, 0px));
@@ -787,7 +880,8 @@ button[aria-busy="true"] {
   .page-loading.active::after,
   .skeleton,
   .toast,
-  .action-menu-list {
+  .action-menu-list,
+  button[aria-busy="true"]::after {
     animation: none;
   }
   button:active:not(:disabled) {

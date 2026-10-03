@@ -296,19 +296,6 @@ async function history(row) {
           {{ identity.displayName }}，欢迎回来</small
         >
       </div>
-      <label class="daily-farm-picker"
-        >当前农场<select
-          aria-label="当前农场"
-          :value="farmId"
-          @change="emit('update:farmId', $event.target.value)"
-          :disabled="loading || !farms.length"
-        >
-          <option v-if="!farms.length" value="">尚无农场</option>
-          <option v-for="f in farms" :key="f.id" :value="f.id">
-            {{ f.name }}
-          </option>
-        </select></label
-      >
     </section>
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
@@ -382,6 +369,19 @@ async function history(row) {
           <p>处理后仍需农场主复核</p>
         </article>
       </div>
+      <details class="stat-notes">
+        <summary>统计口径</summary>
+        <ul>
+          <li>
+            待办：本农场待执行与执行中的任务；勾选“只看我负责 /
+            未分配”时，只计自己负责和尚未分配的任务。
+          </li>
+          <li>逾期：计划日期早于服务器当天、仍未结束的任务。</li>
+          <li>受阻：执行人已报告受阻、尚未恢复进展的任务，可能同时逾期。</li>
+          <li>现场问题：巡田上报后尚未由农场主复核关闭的问题。</li>
+          <li>数字来自已保存的任务与上报记录，切换农场或刷新后重新统计。</li>
+        </ul>
+      </details>
       <div class="daily-columns">
         <section class="panel daily-worklist">
           <div class="daily-section-title">
