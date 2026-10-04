@@ -220,6 +220,9 @@ function message(value) {
 }
 function display(value) {
   if (typeof value === "boolean") return value ? "已启用" : "已停用";
+  // 数字按千分位分组，长数字一眼读出量级（清单：自动分段）
+  if (typeof value === "number")
+    return value.toLocaleString("zh-CN", { maximumFractionDigits: 3 });
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}T/.test(value)) {
     const time = new Date(value);
     if (!Number.isNaN(time.getTime()))
@@ -583,7 +586,7 @@ onUnmounted(() => {
       <small>多租户农场管理 · 0.3.0</small>
     </section>
     <section class="login-panel">
-      <form @submit.prevent="signIn">
+      <form v-validate @submit.prevent="signIn">
         <p class="eyebrow">欢迎回来</p>
         <h2>登录农场工作空间</h2>
         <p class="muted">请输入租户代码及您的成员账号</p>
@@ -592,6 +595,9 @@ onUnmounted(() => {
             v-model.trim="login.tenantCode"
             required
             autocomplete="organization"
+            autocapitalize="none"
+            spellcheck="false"
+            enterkeyhint="next"
             placeholder="例如 demo-a"
         /></label>
         <label
@@ -599,6 +605,9 @@ onUnmounted(() => {
             v-model.trim="login.username"
             required
             autocomplete="username"
+            autocapitalize="none"
+            spellcheck="false"
+            enterkeyhint="next"
         /></label>
         <label
           >密码<input
@@ -606,6 +615,7 @@ onUnmounted(() => {
             required
             type="password"
             autocomplete="current-password"
+            enterkeyhint="go"
         /></label>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <p v-if="loginNotice" role="status" class="success">
@@ -851,6 +861,9 @@ onUnmounted(() => {
                 </button>
                 <input
                   v-model="search"
+                  type="search"
+                  enterkeyhint="search"
+                  autocomplete="off"
                   aria-label="搜索当前列表"
                   placeholder="搜索当前列表…"
                 /><button
@@ -1080,7 +1093,7 @@ onUnmounted(() => {
             ×
           </button>
         </div>
-        <form @submit.prevent="save">
+        <form v-validate @submit.prevent="save">
           <label v-if="fields.some((f) => f.source === 'plots')"
             >所属农场<select
               v-model="formFarm"
@@ -1151,7 +1164,7 @@ onUnmounted(() => {
         <p class="muted">
           {{ captureDevice.name }} · {{ display(captureDevice.metric) }}
         </p>
-        <form @submit.prevent="recordObservation">
+        <form v-validate @submit.prevent="recordObservation">
           <label
             >监测值（{{ captureDevice.unit }}）<input
               v-model="captureValue"

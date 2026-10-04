@@ -147,6 +147,9 @@ onBeforeUnmount(() => {
       <div class="device-filter-toolbar">
         <input
           v-model="search"
+          type="search"
+          enterkeyhint="search"
+          autocomplete="off"
           aria-label="搜索设备"
           placeholder="搜索设备名称、编码、型号…"
         /><select v-model="farmId" aria-label="筛选设备农场">

@@ -956,6 +956,19 @@
 }
 .credential-box button {
   font-size: 12px;
+  margin-right: 8px;
+}
+.credential-box button.primary {
+  padding: 6px 12px;
+}
+.credential-key {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+}
+.credential-key span {
+  display: inline-block;
+  margin-right: 0.6ch;
 }
 .device-filter-toolbar {
   display: flex;

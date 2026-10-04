@@ -96,7 +96,7 @@ async function save() {
           ×
         </button>
       </div>
-      <form @submit.prevent="save">
+      <form v-validate @submit.prevent="save">
         <div class="form-grid">
           <label
             >设备名称<input

@@ -249,7 +249,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
         </header>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <p v-if="message" class="success" role="status">{{ message }}</p>
-        <form v-if="tab === 'profile'" @submit.prevent="saveProfile">
+        <form v-validate v-if="tab === 'profile'" @submit.prevent="saveProfile">
           <div class="profile-avatar-row">
             <img
               v-if="profile.avatarData"
@@ -302,7 +302,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
           <p class="muted">昵称与头像可修改，登录账号及所属租户保持不变。</p>
           <button class="primary" :disabled="busy">保存个人资料</button>
         </form>
-        <form v-if="tab === 'security'" @submit.prevent="changePassword">
+        <form v-validate v-if="tab === 'security'" @submit.prevent="changePassword">
           <p v-if="account.mustChangePassword" class="settings-notice">
             管理员已重置你的密码。请先用临时密码设置自己的新密码，再进入业务工作空间。
           </p>
@@ -338,7 +338,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
             <button class="primary" :disabled="busy">修改密码并重新登录</button>
           </div>
         </form>
-        <form v-if="tab === 'appearance'" @submit.prevent="saveAppearance">
+        <form v-validate v-if="tab === 'appearance'" @submit.prevent="saveAppearance">
           <p class="muted">先预览再保存。未保存关闭设置时恢复原来的外观。</p>
           <label
             >显示模式<select v-model="appearance.themeMode" @change="preview">
@@ -385,6 +385,9 @@ onBeforeUnmount(() => applyAppearance(props.account));
           <div class="settings-team-tools">
             <input
               v-model="memberSearch"
+              type="search"
+              enterkeyhint="search"
+              autocomplete="off"
               placeholder="搜索成员账号或昵称"
               aria-label="设置中搜索成员"
             /><button
@@ -398,7 +401,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
               新增成员
             </button>
           </div>
-          <form
+          <form v-validate
             v-if="memberForm"
             class="settings-subform"
             @submit.prevent="createMember"
@@ -431,7 +434,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
             ><button class="primary" :disabled="busy">创建成员</button
             ><button type="button" @click="memberForm = false">取消</button>
           </form>
-          <form
+          <form v-validate
             v-if="resetTarget"
             class="settings-subform"
             @submit.prevent="resetPassword"

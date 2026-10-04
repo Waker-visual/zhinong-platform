@@ -37,6 +37,10 @@ select {
   width: 100%;
   color: var(--text);
 }
+/* 搜索框保留清除按钮，但不用 Safari 的圆角原生外观 */
+input[type="search"] {
+  appearance: none;
+}
 textarea {
   background: var(--input-bg);
   color: var(--text);
@@ -559,6 +563,7 @@ th {
 td {
   padding: 20px;
   border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
   color: var(--text);
   max-width: 300px;
   line-height: 1.7;

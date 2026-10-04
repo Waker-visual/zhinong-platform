@@ -775,6 +775,35 @@ button[aria-busy="true"]::after {
   }
 }
 
+/* 表单就地校验（ui/validate.js）：原因写在字段下方，错误字段描边变红；提交时第一个错误字段轻摇 */
+.field-error {
+  display: block;
+  margin-top: 6px;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+:is(input, select, textarea)[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+:is(input, select, textarea)[aria-invalid="true"]:focus-visible {
+  outline-color: var(--danger);
+}
+.field-shake {
+  animation: field-shake 0.4s var(--ease-exit);
+}
+@keyframes field-shake {
+  15%,
+  55% {
+    transform: translateX(-5px);
+  }
+  35%,
+  75% {
+    transform: translateX(5px);
+  }
+}
+
 /* 顶栏状态胶囊：一眼看到与本地服务的连接与最近同步时间，点击刷新当前页面 */
 .status-capsule {
   display: inline-flex;
@@ -1085,6 +1114,7 @@ button[aria-busy="true"]::after {
   .skeleton,
   .toast,
   .toast-countdown,
+  .field-shake,
   .numbers-loading :is(strong, b),
   .status-capsule .connection-dot,
   .action-menu-list,

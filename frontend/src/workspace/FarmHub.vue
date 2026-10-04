@@ -172,6 +172,9 @@ onBeforeUnmount(() => {
       <div class="inline-controls">
         <input
           v-model="search"
+          type="search"
+          enterkeyhint="search"
+          autocomplete="off"
           aria-label="搜索农场"
           placeholder="搜索农场、区域…"
         /><button v-if="role === 'ADMIN'" class="primary" @click="openForm()">
@@ -278,7 +281,7 @@ onBeforeUnmount(() => {
           <h2>{{ editing ? "编辑农场资料" : "新增农场" }}</h2>
           <button aria-label="关闭农场表单" @click="dialog = false">×</button>
         </div>
-        <form @submit.prevent="save">
+        <form v-validate @submit.prevent="save">
           <label
             >农场名称<input
               v-model.trim="model.name"

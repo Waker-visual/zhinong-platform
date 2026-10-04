@@ -256,7 +256,7 @@ onMounted(() =>
       </div>
     </section>
     <section class="panel simulation-form">
-      <form @submit.prevent="execute">
+      <form v-validate @submit.prevent="execute">
         <div class="simulation-fields">
           <label
             >模拟农场<select

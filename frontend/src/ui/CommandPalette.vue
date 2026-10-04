@@ -96,6 +96,8 @@ function onKey(event) {
           matches[active] ? 'command-' + matches[active].id : undefined
         "
         aria-label="输入页面名称"
+        enterkeyhint="go"
+        autocomplete="off"
         placeholder="搜索页面或操作…"
         @keydown="onKey"
       />

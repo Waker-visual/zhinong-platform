@@ -46,7 +46,7 @@ async function save() {
         默认位置为建三江公开农业区域，示例地块不代表实际权属。使用 WGS84
         坐标；GCJ-02 / BD-09 需先转换。
       </p>
-      <form @submit.prevent="save">
+      <form v-validate @submit.prevent="save">
         <label
           >位置说明<input
             v-model.trim="model.locationLabel"

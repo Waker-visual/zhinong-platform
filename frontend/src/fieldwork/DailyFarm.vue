@@ -415,6 +415,9 @@ async function history(row) {
           <input
             class="daily-search"
             v-model="search"
+            type="search"
+            enterkeyhint="search"
+            autocomplete="off"
             aria-label="搜索农事"
             placeholder="搜索地块、任务或负责人"
           />
@@ -615,7 +618,7 @@ async function history(row) {
             ×
           </button>
         </div>
-        <form v-if="modal !== 'history'" @submit.prevent="submit">
+        <form v-validate v-if="modal !== 'history'" @submit.prevent="submit">
           <template v-if="modal === 'issue' || modal === 'plan'"
             ><label
               >所属地块<select

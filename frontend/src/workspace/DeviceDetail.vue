@@ -9,7 +9,7 @@ import {
 } from "vue";
 import { api } from "../api";
 import { confirmAction } from "../ui/confirm";
-import { reportFailure } from "../ui/feedback";
+import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
 import {
   typeNames,
@@ -106,6 +106,16 @@ async function saveManual() {
     emit("changed");
     note.value = "监测数据已保存";
   });
+}
+// 凭据按 4 位分组显示，便于逐段核对；分组靠间距，选中复制得到的仍是原文
+const keyGroups = computed(() => key.value.match(/.{1,4}/g) || []);
+async function copyKey() {
+  try {
+    await navigator.clipboard.writeText(key.value);
+    toast("凭据已复制到剪贴板");
+  } catch {
+    failure("浏览器未允许自动复制，请选中凭据文字后手动复制。");
+  }
 }
 async function rotate() {
   if (
@@ -273,7 +283,7 @@ onBeforeUnmount(() => {
           >
             立即模拟采集全部指标
           </button>
-          <form
+          <form v-validate
             v-if="device.protocol === 'MANUAL'"
             @submit.prevent="saveManual"
           >
@@ -322,7 +332,12 @@ onBeforeUnmount(() => {
             的相同报文可安全重试。
           </p>
           <div v-if="key" class="credential-box">
-            <strong>新凭据（仅本次显示）</strong><code>{{ key }}</code
+            <strong>新凭据（仅本次显示）</strong
+            ><code class="credential-key" :aria-label="key"
+              ><span v-for="(group, i) in keyGroups" :key="i">{{
+                group
+              }}</span></code
+            ><button class="primary" @click="copyKey">复制凭据</button
             ><button @click="key = ''">隐藏凭据</button>
           </div>
           <pre>{{ example }}</pre>
