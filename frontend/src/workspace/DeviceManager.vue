@@ -187,15 +187,16 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <div class="table-scroll">
-        <table class="asset-table">
-          <thead>
-            <tr>
-              <th>设备 / 编码</th>
-              <th>农场 / 地块</th>
-              <th>接入与状态</th>
-              <th>最新监测</th>
-              <th>最近上报</th>
-              <th>操作</th>
+        <!-- 手机上每台设备显示为一张卡片；显式 ARIA 角色让读屏软件仍按表格朗读 -->
+        <table class="asset-table stack-table" role="table">
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader">设备 / 编码</th>
+              <th role="columnheader">农场 / 地块</th>
+              <th role="columnheader">接入与状态</th>
+              <th role="columnheader">最新监测</th>
+              <th role="columnheader">最近上报</th>
+              <th role="columnheader">操作</th>
             </tr>
           </thead>
           <tbody v-if="busy && !rows.length" aria-hidden="true">
@@ -205,20 +206,21 @@ onBeforeUnmount(() => {
               </td>
             </tr>
           </tbody>
-          <tbody>
+          <tbody role="rowgroup">
             <tr
               v-for="device in rows"
               :key="device.id"
               :data-asset-id="device.id"
+              role="row"
             >
-              <td>
+              <td role="cell" class="stack-head">
                 <button class="asset-name" @click="detailId = device.id">
                   {{ typeIcons[device.deviceType] }} {{ device.name }}</button
                 ><small
                   >{{ device.code }} · {{ typeNames[device.deviceType] }}</small
                 >
               </td>
-              <td>
+              <td role="cell" data-label="农场 / 地块">
                 <button @click="emit('farm', device.farmId)">
                   {{ device.farmName }} ↗</button
                 ><small
@@ -226,14 +228,14 @@ onBeforeUnmount(() => {
                   {{ device.planX == null ? "未定位" : "已定位" }}</small
                 >
               </td>
-              <td>
+              <td role="cell" data-label="接入与状态">
                 <span
                   class="status-chip"
                   :class="device.freshness.toLowerCase()"
                   >{{ stateNames[device.freshness] }}</span
                 ><small>{{ sourceNames[device.protocol] }}</small>
               </td>
-              <td>
+              <td role="cell" data-label="最新监测">
                 <div v-for="c in device.channels.slice(0, 2)" :key="c.metric">
                   {{ c.name }}
                   <b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b>
@@ -243,13 +245,13 @@ onBeforeUnmount(() => {
                   >共 {{ device.channels.length }} 个指标</small
                 >
               </td>
-              <td>
+              <td role="cell" data-label="最近上报">
                 {{ timeText(device.lastReceivedAt)
                 }}<small v-if="device.alertCount" class="alarm-text"
                   >{{ device.alertCount }} 项告警待处理</small
                 >
               </td>
-              <td class="actions">
+              <td class="actions" role="cell" data-label="操作">
                 <button @click="detailId = device.id">详情</button
                 ><button v-if="role === 'ADMIN'" @click="edit(device)">
                   编辑</button

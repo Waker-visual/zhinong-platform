@@ -324,6 +324,25 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <!-- 首次读取：指标卡、地图与侧栏的占位；地图占位同时作为封面转场的落点 -->
+    <template v-if="!workspace && !error">
+      <p class="sr-only" role="status">正在加载农场工作台…</p>
+      <div class="workspace-stats numbers-loading" aria-hidden="true">
+        <article v-for="n in 5" :key="n">
+          <span class="skeleton" style="width: 50%"></span>
+          <strong>0</strong>
+        </article>
+      </div>
+      <div class="workspace-main-grid" aria-hidden="true">
+        <span class="skeleton skeleton-block workspace-map-skeleton"></span>
+        <div class="panel">
+          <span class="skeleton" style="width: 45%; height: 16px"></span>
+          <span class="skeleton" style="width: 85%"></span>
+          <span class="skeleton" style="width: 70%"></span>
+          <span class="skeleton skeleton-button"></span>
+        </div>
+      </div>
+    </template>
     <template v-if="workspace">
       <div class="workspace-stats">
         <article>

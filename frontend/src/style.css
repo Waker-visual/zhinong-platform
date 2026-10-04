@@ -766,7 +766,7 @@ footer {
   .stack-table td {
     display: grid;
     grid-template-columns: 6.5em minmax(0, 1fr);
-    gap: 12px;
+    gap: 4px 12px;
     padding: 9px 0;
     border-bottom: 1px solid var(--border);
     overflow-wrap: anywhere;
@@ -779,8 +779,20 @@ footer {
     color: var(--label-fg);
     font-size: 12px;
   }
+  /* 一格里有多段内容（按钮 + 说明）时都放在右栏，按内容宽度排列 */
+  .stack-table td[data-label] > * {
+    grid-column: 2;
+    justify-self: start;
+  }
   .stack-table td.actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 14px;
     white-space: normal;
+  }
+  .stack-table td.actions::before {
+    flex: 0 0 calc(6.5em - 2px);
   }
   /* 当前角色在这一行没有可做的操作时不显示空的“操作”行 */
   .stack-table td.actions:not(:has(button, span)) {
@@ -788,5 +800,13 @@ footer {
   }
   .stack-table .skeleton-row td::before {
     content: none;
+  }
+  /* 卡片标题行（例如设备名称与编码）不加字段名 */
+  .stack-table td.stack-head {
+    display: block;
+    padding-top: 12px;
+  }
+  .stack-table .skeleton-row td {
+    display: block;
   }
 }

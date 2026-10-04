@@ -179,8 +179,18 @@ function preset(kind) {
   result.value = null;
   runId.value = "";
 }
+// 计算或读取方案期间先隐藏上一份结果，显示占位，避免把旧数字当成新结果
+const pendingResult = ref(false);
+async function withResult(fn) {
+  pendingResult.value = true;
+  try {
+    await work(fn);
+  } finally {
+    pendingResult.value = false;
+  }
+}
 async function execute() {
-  await work(async () => {
+  await withResult(async () => {
     const data = await api("/simulations", "POST", form);
     result.value = data.result;
     runId.value = data.id;
@@ -191,7 +201,7 @@ async function execute() {
   });
 }
 async function open(id) {
-  await work(async () => {
+  await withResult(async () => {
     const data = await api("/simulations/" + id);
     result.value = data.result;
     runId.value = id;
@@ -429,7 +439,26 @@ onMounted(() =>
         </select></label
       ><span class="muted">保留输入、天气指纹、地块快照及每日结果</span>
     </section>
-    <template v-if="result"
+    <section
+      v-if="pendingResult"
+      class="panel simulation-results"
+      role="status"
+      aria-label="正在计算方案对照"
+    >
+      <span class="skeleton" style="width: 38%; height: 20px"></span>
+      <div class="simulation-comparison numbers-loading" aria-hidden="true">
+        <div v-for="n in 3" :key="n" class="scenario-card">
+          <span class="skeleton" style="width: 60%"></span>
+          <strong>0</strong>
+          <span class="skeleton" style="width: 80%"></span>
+        </div>
+      </div>
+      <span
+        class="skeleton skeleton-block simulation-chart-skeleton"
+        aria-hidden="true"
+      ></span>
+    </section>
+    <template v-if="result && !pendingResult"
       ><section class="panel simulation-results">
         <div class="section-title">
           <div>
@@ -647,6 +676,12 @@ onMounted(() =>
 }
 .simulation-history label {
   flex: 1;
+}
+.simulation-chart-skeleton {
+  display: block;
+  height: 300px;
+  margin-top: 18px;
+  border-radius: var(--radius);
 }
 .simulation-comparison {
   display: grid;

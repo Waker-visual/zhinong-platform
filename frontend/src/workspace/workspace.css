@@ -1370,8 +1370,19 @@
   height: 190px;
 }
 
-/* 农场封面 ⇄ 工作台地图的共享元素转场 */
-.farm-morphing .farm-map-panel {
+/* 工作台首次读取时的地图占位，高度与地图面板一致 */
+.workspace-main-grid .workspace-map-skeleton {
+  display: block;
+  height: 560px;
+  border-radius: var(--radius-lg);
+}
+@media (max-width: 760px) {
+  .workspace-main-grid .workspace-map-skeleton {
+    height: 380px;
+  }
+}
+/* 农场封面 ⇄ 工作台地图的共享元素转场；数据未到时落在地图占位上 */
+.farm-morphing :is(.farm-map-panel, .workspace-map-skeleton) {
   view-transition-name: farm-morph;
 }
 ::view-transition-group(farm-morph) {
