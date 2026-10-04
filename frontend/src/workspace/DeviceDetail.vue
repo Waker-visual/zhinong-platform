@@ -8,6 +8,7 @@ import {
   watch,
 } from "vue";
 import { api } from "../api";
+import { confirmAction } from "../ui/confirm";
 import DataChart from "./DataChart.vue";
 import {
   typeNames,
@@ -107,7 +108,13 @@ async function saveManual() {
 async function rotate() {
   if (
     device.value.credentialConfigured &&
-    !window.confirm("重新生成后，旧凭据立即失效。确定继续？")
+    !(await confirmAction({
+      title: "重新生成接入凭据",
+      message:
+        "旧凭据会立即失效，正在用它上报的设备需要换成新凭据后才能继续上报。",
+      confirmLabel: "重新生成",
+      danger: true,
+    }))
   )
     return;
   await action(async () => {

@@ -9,6 +9,7 @@ import {
   nextTick,
 } from "vue";
 import { api } from "../api";
+import { confirmAction } from "../ui/confirm";
 import FarmThumbnail from "./FarmThumbnail.vue";
 import FarmWorkspace from "./FarmWorkspace.vue";
 import { num } from "./presentation";
@@ -91,8 +92,13 @@ async function save() {
   }
 }
 async function remove(farm) {
-  if (!window.confirm(`删除“${farm.name}”？已有地块或设备引用时不能删除。`))
-    return;
+  const ok = await confirmAction({
+    title: `删除“${farm.name}”`,
+    message: "删除后无法恢复。农场下还有地块或设备时不能删除。",
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!ok) return;
   try {
     await api("/farms/" + farm.id, "DELETE");
     await load();

@@ -664,7 +664,7 @@ onMounted(() =>
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .scenario-card.active {
   border-color: var(--text);

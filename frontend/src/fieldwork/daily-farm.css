@@ -9,7 +9,7 @@
 .daily-hero {
   background: var(--hero-bg);
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: var(--radius-lg);
   padding: 28px;
   display: flex;
   justify-content: space-between;
@@ -58,7 +58,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   padding: 20px;
-  border-radius: 14px;
+  border-radius: var(--radius);
 }
 .daily-kpis strong {
   font-size: 34px;
@@ -124,7 +124,7 @@
   flex-wrap: wrap;
 }
 .daily-tabs button {
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 8px 15px;
   color: var(--text-2);
   background: var(--sunken);
@@ -165,7 +165,7 @@
   margin: 12px 0 8px;
 }
 .daily-status {
-  border-radius: 6px;
+  border-radius: var(--radius-xs);
   padding: 4px 8px;
   background: var(--neutral-bg);
   font-size: 12px;
@@ -200,7 +200,7 @@
   padding: 12px;
   background: var(--subtle-bg);
   border-left: 3px solid var(--caution-line);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
   line-height: 1.7;
   font-size: 13px;
 }
@@ -270,7 +270,7 @@
 .daily-tip {
   padding: 22px;
   border: 1px dashed var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .daily-tip p {
   line-height: 1.8;
@@ -289,7 +289,7 @@
 }
 .daily-dialog {
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 26px;
   width: min(560px, calc(100vw - 28px));
   max-height: 88dvh;
@@ -312,7 +312,7 @@
   width: 100%;
   margin-top: 8px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   padding: 12px;
   font: inherit;
 }
@@ -324,7 +324,7 @@
 .daily-context {
   background: var(--subtle-bg);
   padding: 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 .daily-log {
   border-left: 2px solid var(--border-strong);

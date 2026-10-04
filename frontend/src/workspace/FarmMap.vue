@@ -597,7 +597,7 @@ onBeforeUnmount(() => {
 }
 .map-network-status button {
   border: 1px solid currentColor;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   padding: 4px 8px;
   white-space: nowrap;
 }

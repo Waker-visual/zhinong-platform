@@ -12,6 +12,8 @@ import DailyFarm from "./fieldwork/DailyFarm.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import CommandPalette from "./ui/CommandPalette.vue";
 import ModalDialog from "./ui/ModalDialog.vue";
+import ConfirmDialog from "./ui/ConfirmDialog.vue";
+import { confirmAction } from "./ui/confirm";
 import "./ui/shell.css";
 
 const identity = ref(null);
@@ -458,10 +460,13 @@ async function save() {
   }, "已保存", "save");
 }
 async function remove(row) {
-  if (
-    !window.confirm("确定删除“" + row.name + "”？已有业务引用的记录不能删除。")
-  )
-    return;
+  const ok = await confirmAction({
+    title: `删除“${row.name}”`,
+    message: "删除后无法恢复。已被其他业务记录引用的记录不能删除。",
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!ok) return;
   await action(async () => {
     await api("/" + page.value + "/" + row.id, "DELETE");
     await load();
@@ -992,6 +997,7 @@ onUnmounted(() => {
         <AppIcon name="more" /><span>更多</span>
       </button>
     </nav>
+    <ConfirmDialog />
     <CommandPalette
       v-model:open="paletteOpen"
       :items="paletteItems"
