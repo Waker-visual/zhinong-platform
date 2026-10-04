@@ -1369,3 +1369,21 @@
   width: 100%;
   height: 190px;
 }
+
+/* 农场封面 ⇄ 工作台地图的共享元素转场 */
+.farm-morphing .farm-map-panel {
+  view-transition-name: farm-morph;
+}
+::view-transition-group(farm-morph) {
+  animation-duration: 380ms;
+  animation-timing-function: var(--ease-expo);
+}
+::view-transition-old(farm-morph),
+::view-transition-new(farm-morph) {
+  height: 100%;
+  object-fit: cover;
+}
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: 200ms;
+}

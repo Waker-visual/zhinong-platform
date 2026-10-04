@@ -272,9 +272,35 @@ onBeforeUnmount(() => {
       <p v-if="busy && !rows.length" class="sr-only" role="status">
         正在加载设备…
       </p>
-      <p v-else-if="!rows.length" class="empty">
-        没有符合筛选条件的设备。管理员可以新增设备，配置指标与接入方式。
-      </p>
+      <div v-else-if="!rows.length" class="empty empty-state">
+        <template v-if="search || farmId || type || status">
+          <p>没有符合筛选条件的设备。</p>
+          <button
+            class="outline"
+            @click="
+              search = '';
+              farmId = '';
+              type = '';
+              status = '';
+            "
+          >
+            清除筛选
+          </button>
+        </template>
+        <template v-else-if="role === 'ADMIN' && !farms.length">
+          <p>还没有设备。设备要挂在农场下，请先在农场档案新增农场。</p>
+        </template>
+        <template v-else>
+          <p>还没有设备。新增后配置监测指标与接入方式，再到农场平面图定位。</p>
+          <button
+            v-if="role === 'ADMIN' && catalog"
+            class="primary"
+            @click="create"
+          >
+            ＋ 新增第一台设备
+          </button>
+        </template>
+      </div>
       <div v-if="!(busy && !devices.length)" class="pagination">
         <span>共 {{ filtered.length }} 台 · 每页 15 台</span
         ><button class="outline" @click="page--" :disabled="page <= 1">

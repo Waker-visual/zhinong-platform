@@ -114,6 +114,34 @@ function remove(farm) {
     },
   });
 }
+// 共享元素转场：点中的农场封面放大成工作台地图，返回时再收回卡片（清单：空间连续性）。
+// 浏览器不支持 View Transitions 或系统要求减少动态效果时直接切换。
+const morphId = ref("");
+function morph(update, id) {
+  if (
+    !document.startViewTransition ||
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  )
+    return update();
+  morphId.value = id;
+  document.documentElement.classList.add("farm-morphing");
+  const transition = document.startViewTransition(async () => {
+    update();
+    await nextTick();
+  });
+  transition.finished.finally(() => {
+    morphId.value = "";
+    document.documentElement.classList.remove("farm-morphing");
+  });
+}
+function openFarm(id) {
+  morph(() => (selected.value = id), id);
+}
+function closeFarm() {
+  const id = selected.value;
+  morph(() => (selected.value = ""), id);
+  load();
+}
 watch(() => props.revision, load);
 watch(
   () => props.initialFarmId,
@@ -139,10 +167,7 @@ onBeforeUnmount(() => {
     :farm-id="selected"
     :role="role"
     :revision="revision"
-    @back="
-      selected = '';
-      load();
-    "
+    @back="closeFarm"
   />
   <section v-else class="farm-hub">
     <div class="hub-banner">
@@ -207,7 +232,10 @@ onBeforeUnmount(() => {
       >
         <button
           class="farm-cover-button"
-          @click="selected = farm.id"
+          :style="
+            morphId === farm.id ? { viewTransitionName: 'farm-morph' } : null
+          "
+          @click="openFarm(farm.id)"
           :aria-label="'打开农场 ' + farm.name"
         >
           <FarmThumbnail :plots="farm.plots" :name="farm.name" /><span
@@ -217,7 +245,7 @@ onBeforeUnmount(() => {
         </button>
         <div class="farm-card-body">
           <h3>
-            <button @click="selected = farm.id">{{ farm.name }}</button>
+            <button @click="openFarm(farm.id)">{{ farm.name }}</button>
           </h3>
           <p class="farm-region">{{ farm.region || "尚未填写区域说明" }}</p>
           <p class="farm-description">
@@ -239,7 +267,7 @@ onBeforeUnmount(() => {
             >
           </div>
           <div class="farm-card-footer">
-            <button class="primary" @click="selected = farm.id">进入农场</button
+            <button class="primary" @click="openFarm(farm.id)">进入农场</button
             ><button v-if="role === 'ADMIN'" @click="openForm(farm)">
               编辑资料</button
             ><button
@@ -256,12 +284,18 @@ onBeforeUnmount(() => {
     <p v-if="busy && !farms.length" class="sr-only" role="status">
       正在加载农场…
     </p>
-    <div v-else-if="!filtered.length" class="panel empty">
-      {{
-        search
-            ? "没有匹配的农场。"
-            : "暂无农场，请先新增农场，再建立地块和设备。"
-      }}
+    <div v-else-if="!filtered.length" class="panel empty empty-state">
+      <template v-if="search">
+        <p>没有匹配“{{ search }}”的农场。</p>
+        <button class="outline" @click="search = ''">清除搜索</button>
+      </template>
+      <template v-else>
+        <p>还没有农场。新增农场后，再建立地块、设备和种植计划。</p>
+        <button v-if="role === 'ADMIN'" class="primary" @click="openForm()">
+          ＋ 新增第一座农场
+        </button>
+        <p v-else>请联系农场主建立农场。</p>
+      </template>
     </div>
     <p class="muted">
       农场图片为本地平面预览，方向与布局用于管理示意；登记面积以地块档案为准。

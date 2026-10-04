@@ -49,6 +49,12 @@ watch(
 );
 watch(query, () => (active.value = 0));
 
+// 搜不到时给几个常用页面作为下一步，而不是只说“没有匹配”
+const suggestions = computed(() =>
+  props.items
+    .filter((item) => !item.id.startsWith("action:") && !item.current)
+    .slice(0, 3),
+);
 function close() {
   emit("update:open", false);
 }
@@ -125,9 +131,18 @@ function onKey(event) {
           <AppIcon v-else class="command-enter" name="enter" />
         </button>
       </section>
-      <p v-if="!matches.length" class="command-empty">
-        没有匹配“{{ query }}”的页面
-      </p>
+      <div v-if="!matches.length" class="command-empty">
+        <p>没有匹配“{{ query }}”的页面，试试：</p>
+        <button
+          v-for="item in suggestions"
+          :key="item.id"
+          type="button"
+          class="outline"
+          @click="choose(item)"
+        >
+          {{ item.title }}
+        </button>
+      </div>
     </div>
     <footer class="command-footer">
       <span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>Enter</kbd> 打开</span

@@ -53,6 +53,7 @@ export const menus = [
   },
   {
     id: "farms",
+    noun: "农场",
     title: "农场档案",
     icon: "farms",
     group: "农场与设备",
@@ -64,6 +65,8 @@ export const menus = [
   },
   {
     id: "plots",
+    noun: "地块",
+    empty: "还没有地块。先建好地块，种植计划、农事任务和设备才能落到具体的田上。",
     title: "地块管理",
     icon: "plots",
     group: "农场与设备",
@@ -77,6 +80,8 @@ export const menus = [
   },
   {
     id: "plantings",
+    noun: "种植计划",
+    empty: "还没有种植计划。为地块安排作物和起止日期后，农场概览会显示当季种植。",
     title: "种植计划",
     icon: "plantings",
     group: "农场与设备",
@@ -94,6 +99,8 @@ export const menus = [
   },
   {
     id: "tasks",
+    noun: "农事任务",
+    empty: "还没有农事任务。在今日农场安排农事，或从现场问题直接派工。",
     title: "农事任务",
     icon: "tasks",
     group: "日常作业",
@@ -110,6 +117,8 @@ export const menus = [
   },
   {
     id: "production",
+    noun: "生产记录",
+    empty: "还没有生产记录。每次收获后登记产量，农场概览会自动汇总产量。",
     title: "生产记录",
     icon: "production",
     group: "日常作业",
@@ -124,6 +133,7 @@ export const menus = [
   },
   {
     id: "devices",
+    noun: "监测点",
     title: "设备台账",
     icon: "devices",
     group: "农场与设备",
@@ -138,6 +148,8 @@ export const menus = [
   },
   {
     id: "members",
+    noun: "成员",
+    empty: "还没有其他成员。添加操作员和查看者，分工处理农事。",
     title: "成员权限",
     icon: "members",
     group: "分析与管理",
@@ -152,6 +164,8 @@ export const menus = [
   },
   {
     id: "audit",
+    noun: "操作记录",
+    empty: "还没有操作记录。新增、修改或删除业务数据后会记录在这里。",
     title: "操作日志",
     icon: "audit",
     group: "分析与管理",
@@ -165,6 +179,8 @@ export const menus = [
   },
   {
     id: "platform/tenants",
+    noun: "租户",
+    empty: "还没有租户。新增租户后，租户管理员即可登录建立农场。",
     title: "租户管理",
     icon: "tenants",
     group: "平台管理",

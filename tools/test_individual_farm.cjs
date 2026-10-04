@@ -80,7 +80,7 @@ async function main() {
   check("Single farm selected; daily work is default landing");
   await shot(owner, "owner-daily");
   await owner.getByRole("button", { name: "记录收获", exact: true }).click();
-  await owner.getByRole("dialog", { name: "生产记录", exact: true }).waitFor();
+  await owner.getByRole("dialog", { name: "新增生产记录", exact: true }).waitFor();
   assert.equal(await owner.getByLabel("筛选所属农场").count(), 0); // form is scoped by the existing farm selector
   const productionFarm = owner.getByRole("dialog").locator("select").first();
   assert.equal(await productionFarm.inputValue(), fixture.farmId);

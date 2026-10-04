@@ -804,6 +804,22 @@ button[aria-busy="true"]::after {
   }
 }
 
+/* 弹层和内部滚动区滚到头时不带动背后的页面；横向滚动的表格不触发浏览器的左右滑动返回 */
+:is(
+    .modal,
+    .daily-dialog,
+    .settings-content,
+    .command-results,
+    .asset-editor,
+    .device-detail,
+    .farm-workspace.screen-mode
+  ) {
+  overscroll-behavior: contain;
+}
+:is(.table-scroll, .metric-cards, .integration-panel pre, .settings-nav) {
+  overscroll-behavior-x: contain;
+}
+
 /* 顶栏状态胶囊：一眼看到与本地服务的连接与最近同步时间，点击刷新当前页面 */
 .status-capsule {
   display: inline-flex;
@@ -937,10 +953,22 @@ button[aria-busy="true"]::after {
   visibility: visible;
 }
 .command-empty {
-  padding: 28px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 16px;
   color: var(--label-fg);
   font-size: 14px;
   text-align: center;
+}
+.command-empty p {
+  flex-basis: 100%;
+  margin: 0 0 4px;
+}
+.command-empty button {
+  padding: 7px 12px;
+  font-size: 13px;
 }
 .command-footer {
   display: flex;

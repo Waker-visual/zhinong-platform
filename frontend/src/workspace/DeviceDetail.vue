@@ -8,7 +8,7 @@ import {
   watch,
 } from "vue";
 import { api } from "../api";
-import { confirmAction } from "../ui/confirm";
+import { confirmAction, promptText } from "../ui/confirm";
 import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
 import {
@@ -137,10 +137,15 @@ async function rotate() {
   });
 }
 async function handle(alert, status) {
-  const text = window.prompt(
-    status === "ACKNOWLEDGED" ? "填写确认说明" : "填写处理结果（将关闭此告警）",
-  );
-  if (!text?.trim()) return;
+  const closing = status !== "ACKNOWLEDGED";
+  const text = await promptText({
+    title: closing ? "记录处理结果" : "确认告警",
+    message: alert.message,
+    label: closing ? "处理结果（保存后关闭此告警）" : "确认说明",
+    placeholder: closing ? "例如：已现场补水，读数恢复" : "例如：已通知田间人员前往查看",
+    confirmLabel: closing ? "保存并关闭告警" : "确认告警",
+  });
+  if (!text) return;
   await action(async () => {
     await api("/alerts/" + alert.id, "PATCH", { status, note: text.trim() });
     await refresh();

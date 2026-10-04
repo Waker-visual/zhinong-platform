@@ -431,9 +431,10 @@ function rowSummary(plot) {
             <span class="skeleton ops-mx-skeleton"></span>
           </div>
         </template>
-        <p v-if="data && !matrix.plots.length" class="ops-placeholder">
-          这座农场还没有地块。
-        </p>
+        <div v-if="data && !matrix.plots.length" class="empty-state ops-placeholder">
+          <p>这座农场还没有地块。建好地块并布设土壤水分设备后，这里会逐日显示墒情。</p>
+          <button class="outline" @click="emit('navigate', 'plots')">去地块管理</button>
+        </div>
       </div>
       <div class="ops-legend">
         <span class="mc-ok"><i></i>在上下限内</span

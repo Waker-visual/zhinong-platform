@@ -433,13 +433,33 @@ async function history(row) {
               <span class="skeleton skeleton-button"></span>
             </div>
           </div>
-          <p v-else-if="!taskList.length" class="daily-empty">
-            {{
-              search
-                ? "没有匹配的任务，请调整搜索条件。"
-                : "当前范围没有任务。可切换“全部”查看历史。"
-            }}
-          </p>
+          <div v-else-if="!taskList.length" class="daily-empty empty-state">
+            <template v-if="search">
+              <p>没有匹配“{{ search }}”的任务。</p>
+              <button class="outline" @click="search = ''">清除搜索</button>
+            </template>
+            <template v-else>
+              <p>
+                {{
+                  {
+                    open: "没有待处理的任务。",
+                    blocked: "没有受阻的任务。",
+                    done: "还没有已结束的任务。",
+                    all: "这座农场还没有任务。",
+                  }[filter]
+                }}
+              </p>
+              <button v-if="filter !== 'all'" class="outline" @click="filter = 'all'">
+                查看全部任务</button
+              ><button
+                v-if="admin && farmPlots.length"
+                class="primary"
+                @click="open('plan')"
+              >
+                安排农事
+              </button>
+            </template>
+          </div>
           <article
             v-for="t in taskList"
             :key="t.id"

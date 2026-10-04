@@ -593,6 +593,22 @@ tbody tr:hover {
   font-size: 12px;
   line-height: 1.8;
 }
+/* 空状态：一句说明 + 下一步按钮 */
+.empty-state {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.empty-state p {
+  flex-basis: 100%;
+  max-width: 46ch;
+  margin: 0 auto 2px;
+}
+.empty-state button {
+  padding: 9px 14px;
+}
 .observation-panel {
   margin-top: 22px;
 }
@@ -721,3 +737,52 @@ footer {
   }
 }
 
+
+/* 手机上的列表：每行改成一张“标签 + 值”的卡片，不再把多列挤在 375px 里逐字换行 */
+@media (max-width: 760px) {
+  .stack-table,
+  .stack-table tbody,
+  .stack-table tr,
+  .stack-table td {
+    display: block;
+  }
+  .stack-table thead {
+    display: none;
+  }
+  .stack-table tbody tr {
+    margin-bottom: 12px;
+    padding: 4px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+  }
+  .stack-table tbody tr:hover {
+    background: var(--surface);
+  }
+  .stack-table td {
+    display: grid;
+    grid-template-columns: 6.5em minmax(0, 1fr);
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
+  }
+  .stack-table td:last-child {
+    border-bottom: 0;
+  }
+  .stack-table td[data-label]::before {
+    content: attr(data-label);
+    color: var(--label-fg);
+    font-size: 12px;
+  }
+  .stack-table td.actions {
+    white-space: normal;
+  }
+  /* 当前角色在这一行没有可做的操作时不显示空的“操作”行 */
+  .stack-table td.actions:not(:has(button, span)) {
+    display: none;
+  }
+  .stack-table .skeleton-row td::before {
+    content: none;
+  }
+}

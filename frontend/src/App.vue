@@ -15,6 +15,7 @@ import CommandPalette from "./ui/CommandPalette.vue";
 import ModalDialog from "./ui/ModalDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import FeedbackRegion from "./ui/FeedbackRegion.vue";
+import { shakeElement } from "./ui/validate";
 import StatusCapsule from "./ui/StatusCapsule.vue";
 import {
   deferDelete,
@@ -196,6 +197,10 @@ const filtered = computed(() =>
       !pendingIds.has(row.id) &&
       JSON.stringify(row).toLowerCase().includes(search.value.toLowerCase()),
   ),
+);
+// 当前农场范围内的地块：种植计划和生产记录都要挂在地块上
+const scopePlots = computed(() =>
+  plotRows.value.filter((p) => !farmScope.value || p.farmId === farmScope.value),
 );
 // 撤销期内的农场不出现在顶栏选择里
 const farmOptions = computed(() =>
@@ -393,6 +398,7 @@ function onShortcut(event) {
     paletteOpen.value = true;
   }
 }
+const loginForm = ref(null);
 async function signIn() {
   await action(async () => {
     const result = await api("/auth/login", "POST", login);
@@ -405,6 +411,8 @@ async function signIn() {
     await loadAccount();
     await load();
   });
+  // 账号或密码被拒绝时整张登录表单轻摇，报错写在按钮上方
+  if (!identity.value && error.value) shakeElement(loginForm.value);
 }
 async function signOut() {
   await flushPending();
@@ -586,7 +594,7 @@ onUnmounted(() => {
       <small>多租户农场管理 · 0.3.0</small>
     </section>
     <section class="login-panel">
-      <form v-validate @submit.prevent="signIn">
+      <form ref="loginForm" v-validate @submit.prevent="signIn">
         <p class="eyebrow">欢迎回来</p>
         <h2>登录农场工作空间</h2>
         <p class="muted">请输入租户代码及您的成员账号</p>
@@ -872,34 +880,45 @@ onUnmounted(() => {
                   @click="openForm()"
                   :disabled="busy"
                 >
-                  ＋ 新增{{
-                    page === "platform/tenants"
-                      ? "租户"
-                      : current.title.slice(0, 2)
-                  }}
+                  ＋ 新增{{ current.noun }}
                 </button>
               </div>
             </div>
             <div class="table-scroll">
-              <table>
-                <thead>
-                  <tr>
-                    <th v-for="col in current.columns" :key="col[0]">
+              <table class="stack-table" role="table">
+                <!-- 显式 ARIA 角色：手机上改成卡片排列后，读屏软件仍按表格朗读 -->
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th
+                      v-for="col in current.columns"
+                      :key="col[0]"
+                      role="columnheader"
+                    >
                       {{ col[1] }}
                     </th>
-                    <th v-if="writer || platform">操作</th>
+                    <th v-if="writer || platform" role="columnheader">操作</th>
                   </tr>
                 </thead>
-                <tbody>
-                  <tr v-for="row in filtered" :key="row.id">
-                    <td v-for="col in current.columns" :key="col[0]">
+                <tbody role="rowgroup">
+                  <tr v-for="row in filtered" :key="row.id" role="row">
+                    <td
+                      v-for="col in current.columns"
+                      :key="col[0]"
+                      role="cell"
+                      :data-label="col[1]"
+                    >
                       <span
                         v-if="col[0] === 'status'"
                         :class="['badge', row.status.toLowerCase()]"
                         >{{ display(row[col[0]]) }}</span
                       ><span v-else>{{ display(row[col[0]]) }}</span>
                     </td>
-                    <td v-if="writer || platform" class="actions">
+                    <td
+                      v-if="writer || platform"
+                      class="actions"
+                      role="cell"
+                      data-label="操作"
+                    >
                       <template
                         v-if="admin && ['farms', 'plots'].includes(page)"
                         ><button @click="openForm(row)">编辑</button
@@ -907,7 +926,6 @@ onUnmounted(() => {
                           class="danger-text"
                           @click="remove(row)"
                           :disabled="busy"
-                          :aria-busy="pending === 'delete:' + row.id"
                         >
                           删除
                         </button></template
@@ -987,12 +1005,53 @@ onUnmounted(() => {
                 </tbody>
               </table>
             </div>
-            <div v-if="!filtered.length && !loading" class="empty">
-              {{
-                search
-                  ? "没有匹配的记录，请调整搜索内容。"
-                  : "暂无记录。请先创建所属农场或地块，再添加业务数据。"
-              }}
+            <!-- 空状态给出下一步：搜索无结果可一键清除；按农场筛选为空可看全部；没有数据时直接新增第一条 -->
+            <div v-if="!filtered.length && !loading" class="empty empty-state">
+              <template v-if="search">
+                <p>没有匹配“{{ search }}”的{{ current.noun }}。</p>
+                <button class="outline" @click="search = ''">清除搜索</button>
+              </template>
+              <template
+                v-else-if="
+                  ['plantings', 'production'].includes(page) && !scopePlots.length
+                "
+              >
+                <p>还没有地块。{{ current.noun }}要登记到具体地块上，请先建立地块。</p>
+                <button v-if="admin" class="primary" @click="navigate('plots')">
+                  去地块管理
+                </button>
+              </template>
+              <template v-else-if="scopedPage && farmScope">
+                <p>
+                  “{{ farmOptions.find((f) => f.id === farmScope)?.name }}”下还没有{{
+                    current.noun
+                  }}。
+                </p>
+                <button v-if="canCreate" class="primary" @click="openForm()">
+                  ＋ 新增{{ current.noun }}</button
+                ><button
+                  v-if="!farmRequired && farmOptions.length > 1"
+                  class="outline"
+                  @click="
+                    farmScope = '';
+                    refreshActive();
+                  "
+                >
+                  查看全部农场
+                </button>
+              </template>
+              <template v-else>
+                <p>{{ current.empty }}</p>
+                <button v-if="canCreate" class="primary" @click="openForm()">
+                  ＋ 新增第一条{{ current.noun }}</button
+                ><button
+                  v-else-if="page === 'tasks' && admin"
+                  class="primary"
+                  @click="navigate('daily')"
+                >
+                  到今日农场安排
+                </button>
+              </template>
             </div>
           </section>
           <section
@@ -1083,12 +1142,12 @@ onUnmounted(() => {
     />
     <ModalDialog
       v-if="dialog"
-      :label="current.title"
+      :label="(editing ? '编辑' : '新增') + current.noun"
       :locked="busy"
       @close="dialog = false"
     >
         <div class="section-title">
-          <h2>{{ editing ? "编辑" : "新增" }}{{ current.title }}</h2>
+          <h2>{{ editing ? "编辑" : "新增" }}{{ current.noun }}</h2>
           <button @click="dialog = false" :disabled="busy" aria-label="关闭">
             ×
           </button>

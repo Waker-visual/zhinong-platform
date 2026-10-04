@@ -113,14 +113,17 @@ function keyboardHints(form) {
   }
 }
 
-function shake(field) {
-  const target = field.closest("label") || field;
+// 摇头式抖动表达“没通过”；系统要求减少动态效果时由样式取消动画
+export function shakeElement(target) {
+  if (!target) return;
   target.classList.remove("field-shake");
-  // 重新触发动画
   void target.offsetWidth;
   target.classList.add("field-shake");
   setTimeout(() => target.classList.remove("field-shake"), 450);
   if (matchMedia("(pointer: coarse)").matches) navigator.vibrate?.(30);
+}
+function shake(field) {
+  shakeElement(field.closest("label") || field);
 }
 
 export const validate = {
