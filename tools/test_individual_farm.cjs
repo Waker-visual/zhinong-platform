@@ -215,6 +215,30 @@ async function main() {
     .waitFor();
   await shot(viewer, "viewer-receipt");
   check("Read-only member can inspect the complete activity log");
+  await viewer.keyboard.press("Escape");
+  await viewer.locator(".daily-dialog").waitFor({ state: "hidden" });
+  await viewer
+    .getByRole("navigation")
+    .getByRole("button", { name: "运行概览", exact: true })
+    .click();
+  await viewer.locator(".ops-slice").first().waitFor();
+  assert.equal(
+    await viewer.getByLabel("当前农场", { exact: true }).inputValue(),
+    fixture.farmId,
+  );
+  assert.equal(await viewer.locator(".ops-slice").count(), 100);
+  assert.equal(await viewer.locator(".ops-run").count(), 4);
+  assert((await viewer.locator(".ops-mx-row").count()) > 0);
+  await viewer.locator(".ops-slice").last().focus();
+  await viewer.keyboard.press("Home");
+  assert.match(
+    await viewer.locator(".ops-readout").innerText(),
+    /^\d\d\/\d\d \d\d:\d\d–/,
+  );
+  await shot(viewer, "viewer-operations");
+  await viewer.getByRole("button", { name: "查看农事 →", exact: true }).click();
+  await viewer.locator(".daily-farm").waitFor();
+  check("Read-only member reads the farm operations overview");
   await owner
     .getByRole("button", { name: "季度方案对照 →", exact: true })
     .click();

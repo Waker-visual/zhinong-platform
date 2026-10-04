@@ -1,0 +1,422 @@
+/* 农场运行概览：版式沿用磐隐运维概览——指标卡、时间片健康条、流水线卡、地块矩阵 */
+.operations {
+  display: grid;
+  gap: 16px;
+  --mx-name: 11.5em;
+}
+.ops-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.ops-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.ops-metric {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px 14px;
+}
+.ops-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: var(--label-fg);
+  font-size: 13px;
+}
+.ops-label .app-icon {
+  width: 18px;
+  height: 18px;
+}
+.ops-value {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.ops-value.danger {
+  color: var(--danger);
+}
+/* 与任务状态一致：红色只给逾期，橙色给受阻 */
+.ops-bottom b {
+  font-weight: 400;
+}
+.ops-bottom .tone-danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+.ops-bottom .tone-caution {
+  color: var(--caution);
+  font-weight: 600;
+}
+.ops-value small,
+.ops-summary small {
+  margin-left: 4px;
+  color: var(--label-fg);
+  font-size: 13px;
+  font-weight: 400;
+}
+.ops-bottom {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.operations .link-button {
+  color: var(--link-fg);
+  font-size: 12px;
+}
+.operations .link-button:hover {
+  text-decoration: underline;
+}
+
+.ops-chart {
+  padding: 18px 20px 14px;
+}
+.ops-chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px 16px;
+}
+.ops-chart-head h3 {
+  display: inline;
+  margin: 0 10px 0 0;
+  font-size: 15px;
+}
+.ops-chart-head p {
+  margin: 4px 0 0;
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.ops-range {
+  width: auto;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.ops-summary {
+  font-size: 24px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.ops-summary small {
+  display: block;
+  margin: 0;
+}
+.ops-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 12px 0 10px;
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ops-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ops-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--swatch);
+}
+.ops-legend .line-key i {
+  width: 16px;
+  height: 2px;
+  border-radius: 1px;
+  background: var(--text);
+}
+
+/* 色阶：健康度四档沿用磐隐阈值；无样本用凹陷底色，不与“差”混淆 */
+.hc-green {
+  --swatch: var(--health-green);
+}
+.hc-brown {
+  --swatch: var(--health-brown);
+}
+.hc-orange {
+  --swatch: var(--health-orange);
+}
+.hc-red {
+  --swatch: var(--health-red);
+}
+.hc-none {
+  --swatch: var(--sunken);
+}
+.ops-slices {
+  position: relative;
+  display: flex;
+  gap: 2px;
+  height: 64px;
+}
+.ops-slice {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  border-radius: 2px;
+}
+.ops-slice i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--swatch);
+  opacity: 0.82;
+  transition: opacity 0.12s var(--ease-exit);
+}
+.ops-slice:hover i,
+.ops-slice:focus-visible i {
+  opacity: 1;
+}
+.ops-slice:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.ops-slice.hc-none i {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.ops-line {
+  position: absolute;
+  inset: 8px 0;
+  z-index: 1;
+  width: 100%;
+  height: calc(100% - 16px);
+  pointer-events: none;
+  overflow: visible;
+}
+.ops-line path {
+  fill: none;
+  stroke: var(--text);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.ops-line path.halo {
+  stroke: var(--surface);
+  stroke-width: 5;
+}
+.ops-placeholder {
+  margin: auto;
+  color: var(--label-fg);
+  font-size: 13px;
+}
+.ops-readout {
+  min-height: 1.5em;
+  margin: 10px 0 2px;
+  color: var(--text);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.ops-axis {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--label-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ops-sechead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 4px;
+}
+.ops-sechead h3 {
+  margin: 0;
+  font-size: 15px;
+}
+.ops-sechead span {
+  color: var(--label-fg);
+  font-size: 12px;
+}
+
+.ops-runs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.ops-run {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px;
+  text-align: left;
+  transition:
+    box-shadow 0.2s var(--ease-expo),
+    transform 0.2s var(--ease-expo);
+}
+.ops-run:hover {
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
+}
+.ops-art {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  color: var(--on-module);
+}
+.ops-art .app-icon {
+  width: 22px;
+  height: 22px;
+}
+.ops-run-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.ops-run-body b {
+  font-size: 14px;
+}
+.ops-run-body small {
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.ops-status {
+  justify-self: start;
+  padding: 1px 8px;
+  border-radius: var(--radius-xs);
+  background: var(--neutral-bg);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.ops-status.ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.ops-status.info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+.ops-status.caution {
+  background: var(--caution-bg);
+  color: var(--caution);
+}
+
+/* 地块 × 日期：偏低（缺水）用橙、偏高（过湿）用蓝；未设上下限用浅灰，无读数留空 */
+.ops-matrix {
+  padding: 16px 20px 6px;
+}
+.ops-mx {
+  display: grid;
+  gap: 4px;
+}
+.ops-mx-dates {
+  display: grid;
+  grid-template-columns: var(--mx-name) 1fr auto;
+  color: var(--label-fg);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.ops-mx-row {
+  display: grid;
+  grid-template-columns: var(--mx-name) repeat(28, minmax(0, 1fr));
+  align-items: center;
+  gap: 3px;
+}
+.ops-mx-name {
+  display: grid;
+  min-width: 0;
+  padding-right: 8px;
+  font-size: 13px;
+}
+.ops-mx-name span,
+.ops-mx-name small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ops-mx-name small {
+  color: var(--label-fg);
+  font-size: 11px;
+}
+.ops-mx-cell {
+  height: 20px;
+  border-radius: 3px;
+  background: var(--swatch);
+}
+.mc-ok {
+  --swatch: var(--health-green);
+}
+.mc-low {
+  --swatch: var(--caution-line);
+}
+.mc-high {
+  --swatch: var(--info);
+}
+.mc-unset {
+  --swatch: color-mix(in srgb, var(--label-fg) 40%, var(--surface));
+}
+.mc-none {
+  --swatch: var(--sunken);
+}
+.ops-mx-cell.mc-none,
+.ops-legend .mc-none i,
+.ops-legend .hc-none i {
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+.ops-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  color: var(--label-fg);
+  font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+  .ops-runs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 760px) {
+  .operations {
+    --mx-name: 7.5em;
+  }
+  .ops-metrics,
+  .ops-runs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .ops-slices {
+    gap: 1px;
+    height: 56px;
+  }
+  .ops-chart,
+  .ops-matrix {
+    padding-inline: 14px;
+  }
+  .ops-mx-row {
+    gap: 2px;
+  }
+  .ops-mx-cell {
+    height: 16px;
+    border-radius: 2px;
+  }
+  .ops-summary {
+    text-align: left;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ops-run,
+  .ops-slice i {
+    transition: none;
+  }
+  .ops-run:hover {
+    transform: none;
+  }
+}

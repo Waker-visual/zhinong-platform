@@ -9,6 +9,7 @@ import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
+import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import CommandPalette from "./ui/CommandPalette.vue";
 import ModalDialog from "./ui/ModalDialog.vue";
@@ -96,13 +97,13 @@ const visibleMenus = computed(() =>
 const current = computed(
   () => menus.find((m) => m.id === page.value) || menus[0],
 );
-// 顶栏“当前农场”是各页面共用的农场范围；今日农场与经营模拟必须选定一座农场。
+// 顶栏“当前农场”是各页面共用的农场范围；今日农场、运行概览与经营模拟必须选定一座农场。
 const farmRequired = computed(() =>
-  ["daily", "simulation"].includes(page.value),
+  ["daily", "operations", "simulation"].includes(page.value),
 );
 const simulationKey = ref(0);
 function selectFarm() {
-  if (page.value === "daily") return;
+  if (["daily", "operations"].includes(page.value)) return;
   if (["dashboard", "farms"].includes(page.value)) {
     farmToOpen.value = farmScope.value;
     return;
@@ -269,7 +270,7 @@ async function load() {
   if (
     farms.length === 1 ||
     (farmScope.value && !farms.some((f) => f.id === farmScope.value)) ||
-    (target === "daily" && !farmScope.value)
+    (["daily", "operations"].includes(target) && !farmScope.value)
   )
     farmScope.value = farms[0]?.id || "";
   plotRows.value = plots;
@@ -277,6 +278,7 @@ async function load() {
   tasks.value = taskList;
   if (
     target === "daily" ||
+    target === "operations" ||
     target === "dashboard" ||
     target === "devices" ||
     target === "simulation"
@@ -755,6 +757,12 @@ onUnmounted(() => {
           @navigate="dailyNavigate"
           @farm="launchFarm"
           @notice="message"
+        />
+        <OperationsOverview
+          v-else-if="page === 'operations'"
+          :farm-id="farmScope"
+          :revision="moduleRevision"
+          @navigate="navigate"
         />
         <FarmHub
           v-else-if="['dashboard', 'farms'].includes(page)"

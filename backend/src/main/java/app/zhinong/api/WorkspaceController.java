@@ -13,15 +13,18 @@ public class WorkspaceController {
   private final FarmWorkspaceService farms;
   private final AssetService assets;
   private final TelemetryService telemetry;
+  private final OperationsService operations;
 
   public WorkspaceController(
     FarmWorkspaceService farms,
     AssetService assets,
-    TelemetryService telemetry
+    TelemetryService telemetry,
+    OperationsService operations
   ) {
     this.farms = farms;
     this.assets = assets;
     this.telemetry = telemetry;
+    this.operations = operations;
   }
 
   @GetMapping("/farm-workspaces")
@@ -42,6 +45,11 @@ public class WorkspaceController {
   @GetMapping("/farms/{id}/analytics")
   Object analytics(@PathVariable String id, @RequestParam(defaultValue = "30") int days) {
     return farms.analytics(id, days);
+  }
+
+  @GetMapping("/farms/{id}/operations")
+  Object operations(@PathVariable String id, @RequestParam(defaultValue = "168") int hours) {
+    return operations.overview(id, hours);
   }
 
   @PutMapping("/farms/{id}/profile")

@@ -23,6 +23,14 @@ const icons = {
     '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
   tenants:
     '<path d="M4.5 20.5v-15l7-2.5v18"/><path d="M11.5 8.5h8v12"/><path d="M2.5 20.5h19M7.5 8.5h1M7.5 12h1M7.5 15.5h1M14.5 12h2M14.5 15.5h2"/>',
+  operations:
+    '<path d="M3.5 15.5a8.5 8.5 0 0 1 17 0"/><path d="m12 15.5 4-5"/><path d="M3.5 19.5h17"/>',
+  patrol:
+    '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.8"/>',
+  irrigation:
+    '<path d="M12 3.5s6 6.4 6 10.8a6 6 0 0 1-12 0c0-4.4 6-10.8 6-10.8z"/><path d="M9 14.5a3 3 0 0 0 3 3"/>',
+  protection:
+    '<path d="M5 19c0-8 5-13 14.5-14 0 9-5 14-13.5 14"/><path d="m5 19 8-8"/>',
   search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
   sidebar:
     '<rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/>',

@@ -45,6 +45,13 @@ export const menus = [
     description: "选择农场，查看平面图、设备与交互式经营数据",
   },
   {
+    id: "operations",
+    title: "运行概览",
+    icon: "operations",
+    group: "农场与设备",
+    description: "一屏查看设备上报是否正常、土壤水分走势和各项作业进展",
+  },
+  {
     id: "farms",
     title: "农场档案",
     icon: "farms",
