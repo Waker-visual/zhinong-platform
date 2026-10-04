@@ -11,6 +11,7 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { AuthenticatedTileLayer } from "./AuthenticatedTileLayer";
 import { cropColor, typeIcons, typeNames, stateNames } from "./presentation";
+import { tokenColor } from "../ui/tokens";
 const props = defineProps({
   geo: Object,
   plots: Array,
@@ -25,6 +26,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["device", "plot", "save", "editing", "configure"]);
 const host = ref(null),
+  // Leaflet 需要实际色值：从地图所在区域（深色地图面板）解析令牌
+  paint = (value) => tokenColor(value, host.value || document.documentElement),
   editing = ref(false),
   tool = ref("select"),
   targetPlot = ref(""),
@@ -130,9 +133,11 @@ function render() {
       const points = plotPoints(p);
       if (points.length < 3) continue;
       const polygon = L.polygon(points.map(xy), {
-        color: props.selectedPlot === p.id ? "#e7ad37" : "#edf9ee",
+        color: paint(
+          props.selectedPlot === p.id ? "var(--module-harvest)" : "var(--on-image)",
+        ),
         weight: props.selectedPlot === p.id ? 4 : 2,
-        fillColor: cropColor(p.crop),
+        fillColor: paint(cropColor(p.crop)),
         fillOpacity: geographic.value ? 0.2 : 0.74,
       }).addTo(plotLayer);
       if (layers.value.labels)
@@ -214,14 +219,14 @@ function render() {
     }
   if (drawPoints.value.length) {
     L.polyline(drawPoints.value.map(xy), {
-      color: "#ffbe57",
+      color: paint("var(--module-harvest)"),
       dashArray: "5 5",
       weight: 3,
     }).addTo(sketchLayer);
     drawPoints.value.forEach((p) =>
       L.circleMarker(xy(p), {
         radius: 5,
-        color: "#ffbe57",
+        color: paint("var(--module-harvest)"),
         fillOpacity: 1,
       }).addTo(sketchLayer),
     );
@@ -343,7 +348,7 @@ function initializeMap() {
     });
     tiles.addTo(map);
     L.rectangle(bounds(), {
-      color: "#ffd36e",
+      color: paint("var(--module-harvest)"),
       weight: 1,
       dashArray: "6 6",
       fill: false,
@@ -352,7 +357,7 @@ function initializeMap() {
     L.control.scale({ imperial: false }).addTo(map);
   } else {
     const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#2d2d2d"/></pattern></defs><rect width="1000" height="700" fill="#1f1f1f"/><rect width="1000" height="700" fill="url(#grid)"/></svg>';
+      `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="${paint("var(--border)")}"/></pattern></defs><rect width="1000" height="700" fill="${paint("var(--surface)")}"/><rect width="1000" height="700" fill="url(#grid)"/></svg>`;
     L.imageOverlay(
       "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
       bounds(),

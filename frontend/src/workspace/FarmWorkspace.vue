@@ -23,6 +23,7 @@ import {
   num,
   timeText,
   pieOption,
+  statusColors,
   lineOption,
 } from "./presentation";
 const props = defineProps({ farmId: String, role: String, revision: Number });
@@ -87,14 +88,12 @@ const cropsChart = computed(() =>
   pieOption(
     workspace.value?.analytics.cropArea || [],
     "作物面积 / 亩",
-    screenMode.value,
   ),
 );
 const deviceChart = computed(() =>
   pieOption(
     workspace.value?.analytics.deviceTypes || [],
     "设备分类",
-    screenMode.value,
   ),
 );
 const taskChart = computed(() =>
@@ -102,9 +101,9 @@ const taskChart = computed(() =>
     workspace.value?.analytics.taskStatus.map((s) => ({
       ...s,
       name: stateNames[s.code],
+      itemStyle: { color: statusColors[s.code] },
     })) || [],
     "农事状态",
-    screenMode.value,
   ),
 );
 const monitorChart = computed(() =>
@@ -116,21 +115,16 @@ const monitorChart = computed(() =>
 );
 const productionChart = computed(() => ({
   backgroundColor: "transparent",
-  color: ["#63aa85"],
+  color: ["var(--amber-line)"],
   tooltip: { trigger: "axis", renderMode: "richText" },
   grid: { left: 58, right: 20, top: 28, bottom: 38 },
   xAxis: {
     type: "category",
     data: workspace.value?.analytics.productionTrend.map((p) => p.date) || [],
-    axisLabel: { color: screenMode.value ? "#bfd3c7" : "#667c70" },
   },
   yAxis: {
     type: "value",
     name: "kg",
-    axisLabel: { color: screenMode.value ? "#bfd3c7" : "#667c70" },
-    splitLine: {
-      lineStyle: { color: screenMode.value ? "#29473e" : "#eaf0eb" },
-    },
   },
   series: [
     {
@@ -582,6 +576,7 @@ onBeforeUnmount(() => {
           <DataChart
             v-if="workspace.analytics.cropArea.length"
             :option="cropsChart"
+            :scope="screenMode ? 'screen' : 'page'"
             label="作物面积饼图，点击筛选地块"
             @select="crop = crop === $event.name ? '' : $event.name"
           />
@@ -602,6 +597,7 @@ onBeforeUnmount(() => {
           <DataChart
             v-if="workspace.devices.length"
             :option="deviceChart"
+            :scope="screenMode ? 'screen' : 'page'"
             label="设备分类环形图"
             @select="deviceType = deviceType === $event.code ? '' : $event.code"
           />
@@ -612,6 +608,7 @@ onBeforeUnmount(() => {
           <DataChart
             v-if="workspace.analytics.taskStatus.length"
             :option="taskChart"
+            :scope="screenMode ? 'screen' : 'page'"
             label="农事状态环形图"
             @select="taskStatus = taskStatus === $event.code ? '' : $event.code"
           />
@@ -627,6 +624,7 @@ onBeforeUnmount(() => {
           <DataChart
             v-if="workspace.analytics.productionTrend.length"
             :option="productionChart"
+            :scope="screenMode ? 'screen' : 'page'"
             label="农场产量柱状图"
           />
           <p v-else class="empty">所选范围没有生产记录</p>
@@ -662,6 +660,7 @@ onBeforeUnmount(() => {
           ><DataChart
             v-if="history?.points.length"
             :option="monitorChart"
+            :scope="screenMode ? 'screen' : 'page'"
             label="环境监测时间序列"
           />
           <p v-else class="empty">当前设备和时间范围内没有监测记录</p>

@@ -232,8 +232,9 @@ html .main-shell,
 html .app-layout {
   background: var(--bg);
 }
-html[data-theme="dark"] .data-chart text {
-  fill: var(--text);
+/* 图表文字随所在区域的明暗取色（含大屏模式），覆盖 ECharts 写入的默认文字色 */
+.data-chart text {
+  fill: var(--text-2);
 }
 .settings-backdrop {
   position: fixed;

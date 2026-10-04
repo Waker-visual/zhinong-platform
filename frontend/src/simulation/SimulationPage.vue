@@ -56,13 +56,13 @@ const comparison = computed(() => ({
       name: "本期收获",
       type: "bar",
       data: result.value?.scenarios.map((s) => s.summary.harvestKg) || [],
-      itemStyle: { color: "#359b79" },
+      itemStyle: { color: "var(--amber-line)" },
     },
     {
       name: "虫害归因损失",
       type: "bar",
       data: result.value?.scenarios.map((s) => s.summary.pestLossKg) || [],
-      itemStyle: { color: "#df9366" },
+      itemStyle: { color: "var(--caution-line)" },
     },
   ],
 }));
@@ -86,13 +86,13 @@ const resources = computed(() => ({
       showSymbol: false,
       data: selected.value?.days.map((d) => d.backlogMu) || [],
       areaStyle: { opacity: 0.15 },
-      itemStyle: { color: "#dd925c" },
+      itemStyle: { color: "var(--caution-line)" },
     },
     {
       name: "完成防治",
       type: "bar",
       data: selected.value?.days.map((d) => d.treatedMu) || [],
-      itemStyle: { color: "#359b79" },
+      itemStyle: { color: "var(--ok)" },
     },
     {
       name: "降雨",
@@ -100,7 +100,7 @@ const resources = computed(() => ({
       yAxisIndex: 1,
       showSymbol: false,
       data: selected.value?.days.map((d) => d.rain) || [],
-      itemStyle: { color: "#599aca" },
+      itemStyle: { color: "var(--module-irrigation)" },
     },
   ],
 }));

@@ -35,13 +35,13 @@ test('scanner blocks private material paths and reports no secret values', t => 
   assert.equal(JSON.stringify(results).includes(secret), false);
 });
 
-test('scanner requires stylesheet colors to come from theme tokens', t => {
+test('scanner requires frontend colors to come from theme tokens', t => {
   const { root, put } = fixture(t);
   put('frontend/src/account/theme.css', ':root { --text: #0b0b0b; --backdrop: rgba(0, 0, 0, 0.4); }');
   put('frontend/src/style.css', 'body {\n  color: var(--text);\n  background: #f5f7f4;\n}');
   put('frontend/src/Panel.vue', [
     '<script setup>',
-    'const chart = { color: "#63aa85" };',
+    'const chart = { color: "var(--ok)", legacy: "#63aa85" };',
     '</script>',
     '<style scoped>',
     '.panel { border: 1px solid var(--border); }',
@@ -51,6 +51,7 @@ test('scanner requires stylesheet colors to come from theme tokens', t => {
   const files = ['frontend/src/account/theme.css', 'frontend/src/style.css', 'frontend/src/Panel.vue'];
   assert.deepEqual(scanFiles(root, files), [
     { type: 'raw_color', path: 'frontend/src/style.css', line: 3 },
+    { type: 'raw_color', path: 'frontend/src/Panel.vue', line: 2 },
     { type: 'raw_color', path: 'frontend/src/Panel.vue', line: 6 },
   ]);
 });

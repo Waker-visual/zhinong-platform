@@ -19,23 +19,10 @@ function fingerprint(root = path.resolve(__dirname, '..')) {
   return crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
 }
 
-// 样式只引用 theme.css 中的令牌；其他样式表和 Vue <style> 块里出现的色值字面量视为违规。
-// 图表与地图脚本里的颜色暂未纳入，后续改为运行时读取令牌后再收紧。
+// 前端颜色只在 theme.css 定义为令牌；样式、脚本与模板里出现的色值字面量视为违规。
+// 图表与地图在脚本中写 "var(--令牌)"，绘制前再解析成实际颜色。
 const TOKEN_SOURCE = 'frontend/src/account/theme.css';
 const COLOR_LITERAL = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|:\s*(?:white|black)\b/i;
-
-function styleLines(relative, lines) {
-  if (relative.endsWith('.css')) return lines.map((line, index) => [index + 1, line]);
-  if (!relative.endsWith('.vue')) return [];
-  const result = [];
-  let inStyle = false;
-  lines.forEach((line, index) => {
-    if (/<style\b/i.test(line)) inStyle = true;
-    else if (/<\/style>/i.test(line)) inStyle = false;
-    else if (inStyle) result.push([index + 1, line]);
-  });
-  return result;
-}
 
 function scanFiles(root, files) {
   const findings = [];
@@ -61,10 +48,10 @@ function scanFiles(root, files) {
         if (pattern.test(line)) findings.push({ type, path: relative, line: index + 1 });
       }
     });
-    if (relative.startsWith('frontend/src/') && relative !== TOKEN_SOURCE) {
-      for (const [line, text] of styleLines(relative, lines)) {
-        if (COLOR_LITERAL.test(text)) findings.push({ type: 'raw_color', path: relative, line });
-      }
+    if (/^frontend\/src\/.*\.(?:css|vue|js)$/.test(relative) && relative !== TOKEN_SOURCE) {
+      lines.forEach((text, index) => {
+        if (COLOR_LITERAL.test(text)) findings.push({ type: 'raw_color', path: relative, line: index + 1 });
+      });
     }
   }
   return findings;

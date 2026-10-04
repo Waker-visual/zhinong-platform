@@ -32,14 +32,22 @@ export const stateNames = {
   COMPLETED: "已完成",
   CANCELLED: "已取消",
 };
+// 作物分类色取模块色：两种主题下不翻转，相邻分类的色相相差明显。
 export const cropColors = [
-  "#69ae84",
-  "#99b66b",
-  "#d3b966",
-  "#60aaa1",
-  "#94a6cf",
-  "#ce9677",
+  "var(--module-planting)",
+  "var(--module-harvest)",
+  "var(--module-irrigation)",
+  "var(--module-protection)",
+  "var(--module-device)",
+  "var(--module-simulation)",
 ];
+// 任务状态与全站徽章一致：执行中蓝、已完成绿、待执行与已取消为中性灰
+export const statusColors = {
+  PENDING: "var(--label-fg)",
+  RUNNING: "var(--info)",
+  COMPLETED: "var(--ok)",
+  CANCELLED: "var(--border-strong)",
+};
 export function cropColor(crop = "") {
   return cropColors[
     [...crop].reduce((n, c) => n + c.charCodeAt(0), 0) % cropColors.length
@@ -55,16 +63,16 @@ export function num(value, digits = 1) {
     maximumFractionDigits: digits,
   });
 }
-export function pieOption(data, name, dark = false) {
+export function pieOption(data, name) {
   return {
     backgroundColor: "transparent",
     color: cropColors,
-    textStyle: { color: dark ? "#ccdfd9" : "#52655b" },
     tooltip: { trigger: "item", renderMode: "richText" },
     legend: {
       bottom: 0,
       type: "scroll",
-      textStyle: { color: dark ? "#b5cbc1" : "#52655b" },
+      pageIconColor: "var(--text-2)",
+      pageIconInactiveColor: "var(--border-strong)",
     },
     series: [
       {
@@ -75,7 +83,7 @@ export function pieOption(data, name, dark = false) {
         avoidLabelOverlap: true,
         itemStyle: {
           borderWidth: 3,
-          borderColor: dark ? "#15332c" : "#fff",
+          borderColor: "var(--surface)",
           borderRadius: 5,
         },
         label: { show: false },
@@ -85,25 +93,38 @@ export function pieOption(data, name, dark = false) {
     ],
   };
 }
-export function lineOption(points, unit = "", dark = false) {
+// compact 用于大屏模式：横轴刻度更少
+export function lineOption(points, unit = "", compact = false) {
   return {
     backgroundColor: "transparent",
-    color: ["#42a781"],
+    color: ["var(--info)"],
     tooltip: { trigger: "axis", renderMode: "richText" },
     grid: { left: 58, right: 22, top: 25, bottom: 62 },
     xAxis: {
       type: "time",
-      splitNumber: dark ? 3 : 6,
-      axisLabel: { hideOverlap: true, color: dark ? "#bed4c9" : "#667c70" },
+      splitNumber: compact ? 3 : 6,
+      axisLabel: { hideOverlap: true },
     },
     yAxis: {
       type: "value",
       name: unit,
       scale: true,
-      axisLabel: { color: dark ? "#bed4c9" : "#667c70" },
-      splitLine: { lineStyle: { color: dark ? "#29473e" : "#eaf0eb" } },
     },
-    dataZoom: [{ type: "inside" }, { type: "slider", height: 16, bottom: 12 }],
+    dataZoom: [
+      { type: "inside" },
+      {
+        type: "slider",
+        height: 16,
+        bottom: 12,
+        showDataShadow: false,
+        borderColor: "var(--border)",
+        backgroundColor: "var(--subtle-bg)",
+        fillerColor: "var(--nav-selected-bg)",
+        handleStyle: { color: "var(--surface)", borderColor: "var(--border-strong)" },
+        moveHandleStyle: { color: "var(--border-strong)" },
+        textStyle: { color: "var(--label-fg)" },
+      },
+    ],
     series: [
       {
         name: "监测均值",
