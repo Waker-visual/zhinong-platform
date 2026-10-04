@@ -601,13 +601,17 @@ tbody tr:hover {
   gap: 12px;
   font-size: 13px;
 }
+/* 说明独占一行（较长时均衡折行），按钮在下一行居中 */
 .empty-state p {
   flex-basis: 100%;
-  max-width: 46ch;
-  margin: 0 auto 2px;
+  margin: 0 0 2px;
+  text-wrap: balance;
 }
 .empty-state button {
   padding: 9px 14px;
+}
+.empty-state button.outline {
+  color: var(--text);
 }
 .observation-panel {
   margin-top: 22px;
