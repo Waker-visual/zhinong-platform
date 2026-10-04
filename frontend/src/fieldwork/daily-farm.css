@@ -402,3 +402,11 @@
     padding: 20px;
   }
 }
+
+/* 首次读取的占位：与任务卡同样的行距，内容到达时版式不跳动 */
+.skeleton-task .skeleton-button {
+  margin-top: 14px;
+}
+.skeleton-issues {
+  padding: 14px 0;
+}

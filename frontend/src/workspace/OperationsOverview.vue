@@ -216,7 +216,8 @@ function rowSummary(plot) {
       <article class="ops-card ops-metric">
         <div class="ops-label"><span>农场待办</span><AppIcon name="tasks" /></div>
         <div class="ops-value">
-          {{ data ? summary.openTasks : "—" }}<small>项</small>
+          <span v-if="!data" class="skeleton skeleton-number"></span
+          ><template v-else>{{ summary.openTasks }}<small>项</small></template>
         </div>
         <div class="ops-bottom">
           <span
@@ -242,9 +243,12 @@ function rowSummary(plot) {
             { danger: currentHealth !== null && currentHealth < 50 },
           ]"
         >
-          {{ currentHealth ?? "—" }}<small>{{
-            currentHealth === null ? (data ? "暂无样本" : "") : "%"
-          }}</small>
+          <span v-if="!data" class="skeleton skeleton-number"></span
+          ><template v-else
+            >{{ currentHealth ?? "—" }}<small>{{
+              currentHealth === null ? "暂无样本" : "%"
+            }}</small></template
+          >
         </div>
         <div class="ops-bottom">
           <span v-if="data"
@@ -264,7 +268,8 @@ function rowSummary(plot) {
           <span>未关闭现场问题</span><AppIcon name="patrol" />
         </div>
         <div class="ops-value">
-          {{ data ? summary.openIssues : "—" }}<small>项</small>
+          <span v-if="!data" class="skeleton skeleton-number"></span
+          ><template v-else>{{ summary.openIssues }}<small>项</small></template>
         </div>
         <div class="ops-bottom">
           <span>均需农场主复核后关闭</span
@@ -333,7 +338,12 @@ function rowSummary(plot) {
         >
           <i></i>
         </button>
-        <p v-if="loading && !slices.length" class="ops-placeholder">
+        <span
+          v-if="loading && !slices.length"
+          class="skeleton skeleton-block"
+          aria-hidden="true"
+        ></span>
+        <p v-if="loading && !slices.length" class="sr-only" role="status">
           正在汇总上报记录…
         </p>
       </div>
@@ -352,6 +362,15 @@ function rowSummary(plot) {
       <span>展示最近记录，请结合现场时间判断</span>
     </div>
     <div class="ops-runs">
+      <template v-if="!data">
+        <div v-for="n in 4" :key="n" class="ops-card ops-run" aria-hidden="true">
+          <span class="skeleton ops-art"></span>
+          <span class="ops-run-body" style="flex: 1">
+            <span class="skeleton" style="width: 55%"></span>
+            <span class="skeleton" style="width: 80%"></span>
+          </span>
+        </div>
+      </template>
       <button
         v-for="card in pipeline"
         :key="card.key"
@@ -406,6 +425,12 @@ function rowSummary(plot) {
             :title="`${plot.name} · ${matrix.days[i]} · ${cellNames[cell]}`"
           ></span>
         </div>
+        <template v-if="!data">
+          <div v-for="n in 4" :key="n" class="ops-mx-row" aria-hidden="true">
+            <span class="skeleton" style="width: 70%"></span>
+            <span class="skeleton ops-mx-skeleton"></span>
+          </div>
+        </template>
         <p v-if="data && !matrix.plots.length" class="ops-placeholder">
           这座农场还没有地块。
         </p>

@@ -106,7 +106,9 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="device-manager">
-    <div class="workspace-stats">
+    <div
+      :class="['workspace-stats', { 'numbers-loading': busy && !devices.length }]"
+    >
       <article>
         <span>设备台账</span
         ><strong>{{ devices.length }}<small>台</small></strong>
@@ -193,6 +195,13 @@ onBeforeUnmount(() => {
               <th>操作</th>
             </tr>
           </thead>
+          <tbody v-if="busy && !rows.length" aria-hidden="true">
+            <tr v-for="n in 5" :key="n" class="skeleton-row">
+              <td v-for="c in 6" :key="c">
+                <span class="skeleton" :style="{ width: 40 + ((n * c) % 4) * 12 + '%' }"></span>
+              </td>
+            </tr>
+          </tbody>
           <tbody>
             <tr
               v-for="device in rows"
@@ -257,14 +266,13 @@ onBeforeUnmount(() => {
           </tbody>
         </table>
       </div>
-      <p v-if="!rows.length" class="empty">
-        {{
-          busy
-            ? "正在加载设备…"
-            : "没有符合筛选条件的设备。管理员可以新增设备，配置指标与接入方式。"
-        }}
+      <p v-if="busy && !rows.length" class="sr-only" role="status">
+        正在加载设备…
       </p>
-      <div class="pagination">
+      <p v-else-if="!rows.length" class="empty">
+        没有符合筛选条件的设备。管理员可以新增设备，配置指标与接入方式。
+      </p>
+      <div v-if="!(busy && !devices.length)" class="pagination">
         <span>共 {{ filtered.length }} 台 · 每页 15 台</span
         ><button class="outline" @click="page--" :disabled="page <= 1">
           上一页</button

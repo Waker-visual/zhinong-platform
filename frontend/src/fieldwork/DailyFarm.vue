@@ -162,14 +162,18 @@ async function load() {
     if (alive && run === seq) loading.value = false;
   }
 }
+// 切换农场才清空；同一农场刷新时先保留旧数据，避免列表闪空、数字闪成 0
 watch(
   () => [props.farmId, props.revision],
-  () => {
-    data.value = { tasks: [], issues: [], crew: [], today: "" };
+  ([farm], previous) => {
+    if (!previous || farm !== previous[0])
+      data.value = { tasks: [], issues: [], crew: [], today: "" };
     load();
   },
   { immediate: true },
 );
+// 首次读取（还没有服务器日期）时显示骨架屏，而不是 0 或“暂无”
+const firstLoad = computed(() => loading.value && !data.value.today);
 onBeforeUnmount(() => {
   alive = false;
   ++seq;
@@ -342,7 +346,7 @@ async function history(row) {
           添加第一块田</button
         ><span v-else>请联系农场主添加地块。</span>
       </p>
-      <div class="daily-kpis">
+      <div :class="['daily-kpis', { 'numbers-loading': firstLoad }]">
         <article>
           <small>{{ mine ? "我的待办（含未分配）" : "农场待办" }}</small
           ><strong>{{ myPending.length }}<span>项</span></strong>
@@ -414,9 +418,18 @@ async function history(row) {
             aria-label="搜索农事"
             placeholder="搜索地块、任务或负责人"
           />
-          <p v-if="loading" class="daily-empty" role="status">
-            正在读取农场任务…
-          </p>
+          <div v-if="firstLoad" role="status" aria-label="正在读取农场任务">
+            <div
+              v-for="n in 3"
+              :key="n"
+              class="daily-task skeleton-task"
+              aria-hidden="true"
+            >
+              <span class="skeleton" :style="{ width: 40 + n * 6 + '%' }"></span>
+              <span class="skeleton" style="width: 78%"></span>
+              <span class="skeleton skeleton-button"></span>
+            </div>
+          </div>
           <p v-else-if="!taskList.length" class="daily-empty">
             {{
               search
@@ -490,7 +503,11 @@ async function history(row) {
               <span class="count">{{ openIssues.length }}</span>
             </div>
             <p class="muted">上报 → 安排 → 作业回执 → 复核关闭</p>
-            <p v-if="!openIssues.length" class="daily-empty">
+            <div v-if="firstLoad" aria-hidden="true" class="skeleton-issues">
+              <span class="skeleton" style="width: 64%"></span>
+              <span class="skeleton" style="width: 88%"></span>
+            </div>
+            <p v-else-if="!openIssues.length" class="daily-empty">
               暂无待跟进问题。巡田发现异常时可随时上报。
             </p>
             <article

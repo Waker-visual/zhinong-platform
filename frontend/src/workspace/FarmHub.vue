@@ -151,7 +151,7 @@ onBeforeUnmount(() => {
         <h2>从一张农场图，进入生产现场。</h2>
         <p>查看地块布局、设备点位与经营数据，让每条记录都能找到所属的田地。</p>
       </div>
-      <div class="hub-totals">
+      <div :class="['hub-totals', { 'numbers-loading': busy && !farms.length }]">
         <span
           ><b>{{ farms.length }}</b
           >农场</span
@@ -181,6 +181,21 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="error && !dialog" class="error" role="alert">{{ error }}</p>
     <div class="farm-card-grid">
+      <template v-if="busy && !farms.length">
+        <article
+          v-for="n in 3"
+          :key="'s' + n"
+          class="farm-card skeleton-card"
+          aria-hidden="true"
+        >
+          <span class="skeleton skeleton-block skeleton-cover"></span>
+          <div class="farm-card-body">
+            <span class="skeleton" style="width: 55%; height: 18px"></span>
+            <span class="skeleton" style="width: 80%"></span>
+            <span class="skeleton" style="width: 68%"></span>
+          </div>
+        </article>
+      </template>
       <article
         v-for="farm in filtered"
         :key="farm.id"
@@ -235,11 +250,12 @@ onBeforeUnmount(() => {
         </div>
       </article>
     </div>
-    <div v-if="!filtered.length" class="panel empty">
+    <p v-if="busy && !farms.length" class="sr-only" role="status">
+      正在加载农场…
+    </p>
+    <div v-else-if="!filtered.length" class="panel empty">
       {{
-        busy
-          ? "正在加载农场…"
-          : search
+        search
             ? "没有匹配的农场。"
             : "暂无农场，请先新增农场，再建立地块和设备。"
       }}

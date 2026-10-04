@@ -370,7 +370,7 @@ async function toggleTheme() {
     accountUpdated(await api("/account/appearance", "PUT", next));
   } catch (e) {
     applyAppearance(previous);
-    error.value = "主题未保存：" + e.message;
+    reportFailure({ ...e, message: "主题未保存：" + e.message }, toggleTheme);
   }
 }
 function choosePalette(item) {
@@ -501,13 +501,28 @@ async function transition(row, status) {
     await load();
   }, "状态已更新", "status:" + row.id + ":" + status);
 }
+// 启用/停用是可逆的轻操作：界面立即切换，请求失败再回滚并常驻报错（清单：乐观更新）
+const toggling = new Set();
 async function toggle(row) {
-  await action(async () => {
-    await api("/" + page.value + "/" + row.id, "PATCH", {
-      enabled: !row.enabled,
-    });
-    await load();
-  }, "启用状态已更新", "toggle:" + row.id);
+  if (toggling.has(row.id)) return;
+  const target = page.value,
+    next = !row.enabled,
+    name = row.displayName || row.name || row.username;
+  const record = rows.value.find((r) => r.id === row.id);
+  toggling.add(row.id);
+  record.enabled = next;
+  try {
+    await api("/" + target + "/" + row.id, "PATCH", { enabled: next });
+    message(`已${next ? "启用" : "停用"}“${name}”`);
+  } catch (e) {
+    record.enabled = !next;
+    reportFailure(
+      { ...e, message: `未能${next ? "启用" : "停用"}“${name}”：${e.message}` },
+      () => toggle({ ...row, enabled: !next }),
+    );
+  } finally {
+    toggling.delete(row.id);
+  }
 }
 async function sample(row) {
   await action(async () => {
@@ -932,11 +947,14 @@ onUnmounted(() => {
                           录入数据
                         </button></template
                       >
+                      <span
+                        v-if="page === 'members' && row.id === identity.memberId"
+                        class="muted"
+                        >当前登录账号</span
+                      >
                       <button
-                        v-if="['members', 'platform/tenants'].includes(page)"
+                        v-else-if="['members', 'platform/tenants'].includes(page)"
                         @click="toggle(row)"
-                        :disabled="busy || row.id === identity.memberId"
-                        :aria-busy="pending === 'toggle:' + row.id"
                       >
                         {{ row.enabled ? "停用" : "启用" }}
                       </button>

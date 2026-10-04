@@ -1349,3 +1349,10 @@
 .map-legend .stale-dot {
   border-radius: 2px;
 }
+
+/* 农场卡片骨架：封面与正文按真实卡片比例占位 */
+.farm-card .skeleton-cover {
+  display: block;
+  width: 100%;
+  height: 190px;
+}
