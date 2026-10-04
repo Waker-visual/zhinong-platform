@@ -625,15 +625,26 @@ button[aria-busy="true"]::after {
   z-index: 12500;
   display: grid;
   gap: 8px;
+  justify-items: end;
   pointer-events: none;
 }
+.toast-stack {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+.toast-stack:empty {
+  display: none;
+}
 .toast {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  max-width: min(420px, calc(100vw - 32px));
+  gap: 10px;
+  max-width: min(440px, calc(100vw - 32px));
   margin: 0;
   padding: 10px 8px 10px 16px;
+  overflow: hidden;
   border-radius: var(--radius-sm);
   background: var(--primary-bg);
   color: var(--primary-fg);
@@ -643,21 +654,123 @@ button[aria-busy="true"]::after {
   pointer-events: auto;
   animation: toast-in 220ms var(--ease-expo);
 }
+.toast-text {
+  flex: 1;
+  min-width: 0;
+}
 .toast button {
-  flex: 0 0 28px;
-  height: 28px;
+  flex: none;
+  min-width: 32px;
+  height: 32px;
   border-radius: var(--radius-xs);
   color: inherit;
+}
+.toast-close {
   font-size: 18px;
   opacity: 0.7;
 }
-.toast button:hover {
+.toast-close:hover {
   opacity: 1;
+}
+/* 补救操作：在深色提示条上用描边按钮，和关闭按钮拉开层级 */
+.toast-action {
+  padding: 0 12px;
+  border: 1px solid color-mix(in srgb, currentColor 45%, transparent);
+  font-weight: 600;
+}
+.toast-action:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+}
+/* 撤销倒计时：剩余时间一目了然，悬停或聚焦时随计时一起暂停 */
+.toast-countdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: color-mix(in srgb, currentColor 55%, transparent);
+  transform-origin: left;
+  animation: toast-countdown var(--toast-duration) linear forwards;
+}
+.toast:hover .toast-countdown,
+.toast:focus-within .toast-countdown {
+  animation-play-state: paused;
+}
+.toast-failure {
+  border: 1px solid var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger);
+  box-shadow: var(--shadow-lg);
+}
+.toast-mark {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--danger-bg);
+  font-size: 13px;
+  font-weight: 700;
 }
 @keyframes toast-in {
   from {
     opacity: 0;
     transform: translateY(8px);
+  }
+}
+@keyframes toast-countdown {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+/* 顶栏状态胶囊：一眼看到与本地服务的连接与最近同步时间，点击刷新当前页面 */
+.status-capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 11px 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--subtle-bg);
+  color: var(--text-2);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition:
+    background 0.2s var(--ease-exit),
+    border-color 0.2s var(--ease-exit);
+}
+.status-capsule:hover {
+  background: var(--control-hover);
+}
+.status-capsule .connection-dot {
+  margin: 0;
+}
+.status-capsule.syncing .connection-dot {
+  background: var(--info);
+  animation: capsule-pulse 1s ease-in-out infinite;
+}
+.status-capsule.unknown .connection-dot {
+  background: var(--label-fg);
+}
+.status-capsule.offline {
+  border-color: var(--danger-line);
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.status-capsule.offline .connection-dot {
+  background: var(--danger);
+}
+.capsule-short {
+  display: none;
+}
+@keyframes capsule-pulse {
+  50% {
+    opacity: 0.35;
   }
 }
 
@@ -811,7 +924,7 @@ button[aria-busy="true"]::after {
     display: inline-grid;
     margin-left: auto;
   }
-  .topbar-farm + .topbar-meta + .topbar-search {
+  .topbar-farm ~ .topbar-search {
     margin-left: 4px;
   }
   .main-shell main {
@@ -874,8 +987,30 @@ button[aria-busy="true"]::after {
     right: 16px;
     bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   }
+  .toast-region,
+  .toast-stack {
+    justify-items: stretch;
+  }
   .toast {
     max-width: none;
+  }
+  .topbar .status-capsule:not(.offline) {
+    display: none;
+  }
+  /* 手机顶栏空间有限：中断时只显示“离线”，详细说明在页面顶部的连接提示里 */
+  .topbar .status-capsule {
+    flex: none;
+    padding: 0 9px 0 8px;
+  }
+  .topbar .capsule-full {
+    display: none;
+  }
+  .topbar .capsule-short {
+    display: inline;
+  }
+  .topbar-brand {
+    flex: none;
+    white-space: nowrap;
   }
   /* 手机上命令面板从底部弹出，兼作完整菜单 */
   .command-palette {
@@ -900,6 +1035,8 @@ button[aria-busy="true"]::after {
   .page-loading.active::after,
   .skeleton,
   .toast,
+  .toast-countdown,
+  .status-capsule .connection-dot,
   .action-menu-list,
   button[aria-busy="true"]::after {
     animation: none;

@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue";
-import { api } from "../api";
+import { api, loadError } from "../api";
 import AppIcon from "../ui/AppIcon.vue";
 import "./operations.css";
 
@@ -30,7 +30,7 @@ async function load() {
       focusIndex.value = result.slices.length - 1;
     }
   } catch (e) {
-    if (ticket === sequence) error.value = e.message;
+    if (ticket === sequence) error.value = loadError(e);
   } finally {
     if (ticket === sequence) loading.value = false;
   }

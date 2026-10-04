@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
-import { api } from "../api";
+import { api, loadError } from "../api";
 import { labels } from "../catalog";
 import "./daily-farm.css";
 import ActionMenu from "../ui/ActionMenu.vue";
@@ -157,7 +157,7 @@ async function load() {
     );
     if (alive && run === seq) data.value = result;
   } catch (e) {
-    if (alive && run === seq) error.value = e.message;
+    if (alive && run === seq) error.value = loadError(e);
   } finally {
     if (alive && run === seq) loading.value = false;
   }

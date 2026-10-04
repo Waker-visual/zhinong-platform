@@ -260,6 +260,38 @@ async function main() {
   check("Quarterly scenario history retains farm and renders results");
   await owner
     .getByRole("navigation")
+    .getByRole("button", { name: "地块管理", exact: true })
+    .click();
+  const temp = "验收临时地块" + tag;
+  await owner.getByRole("button", { name: /新增地块/ }).click();
+  const plotDialog = owner.getByRole("dialog");
+  await plotDialog.locator("select").first().selectOption(fixture.farmId);
+  await plotDialog.getByLabel("地块名称").fill(temp);
+  await plotDialog.getByLabel("面积（亩）").fill("2");
+  await plotDialog.getByRole("button", { name: /保存/ }).click();
+  const tempRow = owner
+    .getByRole("row")
+    .filter({ has: owner.getByRole("cell", { name: temp, exact: true }) });
+  await tempRow.waitFor();
+  await tempRow.getByRole("button", { name: "删除", exact: true }).click();
+  await tempRow.waitFor({ state: "detached" });
+  await owner
+    .locator(".toast-snackbar")
+    .getByRole("button", { name: "撤销", exact: true })
+    .click();
+  await tempRow.waitFor();
+  await tempRow.getByRole("button", { name: "删除", exact: true }).click();
+  await owner
+    .locator(".toast-snackbar")
+    .getByRole("button", { name: "关闭提示", exact: true })
+    .click();
+  await owner.waitForTimeout(600);
+  await owner.getByRole("button", { name: "刷新数据", exact: true }).click();
+  await owner.waitForTimeout(600);
+  assert.equal(await tempRow.count(), 0);
+  check("Plot deletion offers undo, then commits when accepted");
+  await owner
+    .getByRole("navigation")
     .getByRole("button", { name: "今日农场", exact: true })
     .click();
   await owner.waitForTimeout(300);

@@ -7,7 +7,7 @@ import {
   watch,
   nextTick,
 } from "vue";
-import { api } from "../api";
+import { api, loadError } from "../api";
 import FarmMap from "./FarmMap.vue";
 import MapSettings from "./MapSettings.vue";
 const geo = ref(null),
@@ -15,6 +15,7 @@ const geo = ref(null),
 import DataChart from "./DataChart.vue";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
+import { reportFailure } from "../ui/feedback";
 import {
   typeNames,
   typeIcons,
@@ -165,7 +166,7 @@ async function load(silent = false) {
     error.value = "";
     if (selectedDeviceId.value) loadHistory();
   } catch (e) {
-    if (alive) error.value = e.message;
+    if (alive) error.value = loadError(e);
   } finally {
     if (alive && current === loadId) busy.value = false;
   }
@@ -183,7 +184,7 @@ async function loadHistory() {
     );
     if (alive && current === historyId) history.value = data;
   } catch (e) {
-    if (alive) error.value = e.message;
+    if (alive) error.value = loadError(e);
   }
 }
 function selectDevice(id) {
@@ -207,7 +208,7 @@ async function saveLayout(input) {
     mapRef.value.finishEditing();
     await load();
   } catch (e) {
-    error.value = e.message;
+    reportFailure(e, () => saveLayout(input));
   } finally {
     busy.value = false;
   }
@@ -233,7 +234,7 @@ async function collect() {
     await api("/assets/" + selectedDeviceId.value + "/collect", "POST");
     await load();
   } catch (e) {
-    error.value = e.message;
+    reportFailure(e, collect);
   } finally {
     busy.value = false;
   }

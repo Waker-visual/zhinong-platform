@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
-import { api, setToken } from "./api";
+import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
 import DeviceManager from "./workspace/DeviceManager.vue";
@@ -14,7 +14,17 @@ import AppIcon from "./ui/AppIcon.vue";
 import CommandPalette from "./ui/CommandPalette.vue";
 import ModalDialog from "./ui/ModalDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
-import { confirmAction } from "./ui/confirm";
+import FeedbackRegion from "./ui/FeedbackRegion.vue";
+import StatusCapsule from "./ui/StatusCapsule.vue";
+import {
+  deferDelete,
+  failure,
+  flushPending,
+  pendingIds,
+  reportFailure,
+  resetFeedback,
+  toast,
+} from "./ui/feedback";
 import "./ui/shell.css";
 
 const identity = ref(null);
@@ -35,16 +45,17 @@ function accountUpdated(value) {
   identity.value.displayName = value.displayName;
   applyAppearance(value);
 }
+// 改密后回到登录页，提示常驻在登录表单里，直到重新登录
+const loginNotice = ref("");
 function passwordChanged() {
   expire();
-  message("密码已修改，请使用新密码重新登录。");
+  loginNotice.value = "密码已修改，请使用新密码重新登录。";
 }
 const page = ref("daily");
 const moduleRevision = ref(0);
 const farmToOpen = ref("");
 const navigationRevision = ref(0);
 const error = ref("");
-const notice = ref("");
 // busy 只锁写操作；页面加载用 loading，导航不再被写操作或加载阻塞。
 const busy = ref(false);
 const loading = ref(false);
@@ -180,9 +191,15 @@ const decorated = computed(() =>
   })),
 );
 const filtered = computed(() =>
-  decorated.value.filter((row) =>
-    JSON.stringify(row).toLowerCase().includes(search.value.toLowerCase()),
+  decorated.value.filter(
+    (row) =>
+      !pendingIds.has(row.id) &&
+      JSON.stringify(row).toLowerCase().includes(search.value.toLowerCase()),
   ),
+);
+// 撤销期内的农场不出现在顶栏选择里
+const farmOptions = computed(() =>
+  farmRows.value.filter((f) => !pendingIds.has(f.id)),
 );
 const statCards = computed(() => [
   ["管理农场", dashboard.value.farms || 0, "个"],
@@ -196,15 +213,10 @@ const today = new Intl.DateTimeFormat("zh-CN", {
   day: "numeric",
   weekday: "long",
 }).format(new Date());
-let timer;
 let loadSequence = 0;
 
 function message(value) {
-  notice.value = value;
-  clearTimeout(timer);
-  timer = setTimeout(() => {
-    notice.value = "";
-  }, 3500);
+  toast(value);
 }
 function display(value) {
   if (typeof value === "boolean") return value ? "已启用" : "已停用";
@@ -244,7 +256,10 @@ async function action(work, success, key = "") {
     await work();
     if (success) message(success);
   } catch (e) {
-    error.value = e.message;
+    // 登录页和对话框里的报错就近显示；页面上的操作失败用常驻报错条，不会滚出视线
+    if (!identity.value || dialog.value || captureDevice.value)
+      error.value = e.message;
+    else reportFailure(e, () => action(work, success, key));
   } finally {
     busy.value = false;
     pending.value = "";
@@ -313,7 +328,7 @@ async function reload() {
   try {
     await load();
   } catch (e) {
-    if (ticket === reloadTicket) error.value = e.message;
+    if (ticket === reloadTicket && !isConnectionError(e)) error.value = e.message;
   } finally {
     if (ticket === reloadTicket) loading.value = false;
   }
@@ -381,6 +396,7 @@ async function signIn() {
     setToken(result.token);
     identity.value = result.identity;
     login.password = "";
+    loginNotice.value = "";
     page.value =
       result.identity.role === "PLATFORM_ADMIN" ? "platform/tenants" : "daily";
     await loadAccount();
@@ -388,6 +404,7 @@ async function signIn() {
   });
 }
 async function signOut() {
+  await flushPending();
   await action(async () => {
     try {
       await api("/auth/logout", "POST");
@@ -398,6 +415,7 @@ async function signOut() {
   });
 }
 function expire() {
+  resetFeedback();
   setToken("");
   identity.value = null;
   account.value = null;
@@ -461,18 +479,21 @@ async function save() {
     await load();
   }, "已保存", "save");
 }
-async function remove(row) {
-  const ok = await confirmAction({
-    title: `删除“${row.name}”`,
-    message: "删除后无法恢复。已被其他业务记录引用的记录不能删除。",
-    confirmLabel: "删除",
-    danger: true,
+// 普通删除不再弹确认框：先隐藏，提示条上 6 秒内可撤销，到时才提交（清单：事后撤销替代二次确认）
+function remove(row) {
+  const target = page.value;
+  const linked = tasks.value.filter((t) => t.plotId === row.id).length;
+  if (target === "plots" && linked) {
+    failure(`“${row.name}”还有 ${linked} 项农事任务，不能删除地块。`);
+    return;
+  }
+  deferDelete({
+    id: row.id,
+    label: row.name,
+    commit: (keepalive) =>
+      api("/" + target + "/" + row.id, "DELETE", undefined, { keepalive }),
+    settled: reload,
   });
-  if (!ok) return;
-  await action(async () => {
-    await api("/" + page.value + "/" + row.id, "DELETE");
-    await load();
-  }, "已删除", "delete:" + row.id);
 }
 async function transition(row, status) {
   await action(async () => {
@@ -508,8 +529,12 @@ async function recordObservation() {
     await load();
   }, "监测记录已保存", "observe");
 }
+function flushOnLeave() {
+  flushPending(true);
+}
 onMounted(async () => {
   window.addEventListener("session-expired", expire);
+  window.addEventListener("pagehide", flushOnLeave);
   window.addEventListener("keydown", onShortcut);
   if (!sessionStorage.getItem("zhinong-session")) return;
   await action(async () => {
@@ -521,8 +546,8 @@ onMounted(async () => {
 });
 onUnmounted(() => {
   window.removeEventListener("session-expired", expire);
+  window.removeEventListener("pagehide", flushOnLeave);
   window.removeEventListener("keydown", onShortcut);
-  clearTimeout(timer);
 });
 </script>
 
@@ -568,7 +593,9 @@ onUnmounted(() => {
             autocomplete="current-password"
         /></label>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
-        <p v-if="notice" role="status" class="success">{{ notice }}</p>
+        <p v-if="loginNotice" role="status" class="success">
+          {{ loginNotice }}
+        </p>
         <button class="primary login-button" :disabled="busy" :aria-busy="busy">
           {{ busy ? "正在登录…" : "进入工作空间 →" }}
         </button>
@@ -714,13 +741,12 @@ onUnmounted(() => {
             @change="selectFarm"
           >
             <option value="" :disabled="farmRequired">全部农场</option>
-            <option v-for="f in farmRows" :key="f.id" :value="f.id">
+            <option v-for="f in farmOptions" :key="f.id" :value="f.id">
               {{ f.name }}
             </option>
           </select></label
-        ><span class="topbar-meta"
-          >{{ today }} <i class="connection-dot"></i> 本地服务</span
-        >
+        ><span class="topbar-meta">{{ today }}</span
+        ><StatusCapsule @refresh="refreshActive" />
         <button
           type="button"
           class="icon-button topbar-search"
@@ -746,6 +772,10 @@ onUnmounted(() => {
             <AppIcon name="refresh" />{{ loading ? "正在加载…" : "刷新数据" }}
           </button>
         </div>
+        <p v-if="connection.state === 'offline'" role="alert" class="error">
+          无法连接本地服务，页面上的数据可能不是最新的。
+          <button class="text-button" @click="refreshActive">重新连接</button>
+        </p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <DailyFarm
           v-if="page === 'daily'"
@@ -771,6 +801,7 @@ onUnmounted(() => {
           :revision="moduleRevision"
           :initial-farm-id="farmToOpen"
           @farm="farmScope = $event"
+          @changed="reload"
         />
         <DeviceManager
           v-else-if="page === 'devices'"
@@ -1011,14 +1042,7 @@ onUnmounted(() => {
       :items="paletteItems"
       @choose="choosePalette"
     />
-    <div class="toast-region" aria-live="polite" aria-atomic="true">
-      <p v-if="notice" class="toast" role="status">
-        <span>{{ notice }}</span
-        ><button type="button" aria-label="关闭提示" @click="notice = ''">
-          ×
-        </button>
-      </p>
-    </div>
+    <FeedbackRegion />
     <SettingsDialog
       v-if="settingsOpen && account"
       :account="account"

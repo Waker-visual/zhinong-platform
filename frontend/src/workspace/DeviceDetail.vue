@@ -9,6 +9,7 @@ import {
 } from "vue";
 import { api } from "../api";
 import { confirmAction } from "../ui/confirm";
+import { reportFailure } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
 import {
   typeNames,
@@ -78,7 +79,8 @@ async function action(work) {
   try {
     await work();
   } catch (e) {
-    if (alive) error.value = e.message;
+    // 详情可能已滚到下方的告警区，报错用常驻提示条，不放在面板顶部
+    if (alive) reportFailure(e, () => action(work));
   } finally {
     if (alive) busy.value = false;
   }

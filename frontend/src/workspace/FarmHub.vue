@@ -8,8 +8,8 @@ import {
   watch,
   nextTick,
 } from "vue";
-import { api } from "../api";
-import { confirmAction } from "../ui/confirm";
+import { api, loadError } from "../api";
+import { deferDelete, failure, pendingIds } from "../ui/feedback";
 import FarmThumbnail from "./FarmThumbnail.vue";
 import FarmWorkspace from "./FarmWorkspace.vue";
 import { num } from "./presentation";
@@ -18,7 +18,7 @@ const props = defineProps({
   revision: Number,
   initialFarmId: String,
 });
-const emit = defineEmits(["farm"]);
+const emit = defineEmits(["farm", "changed"]);
 const farms = ref([]),
   selected = ref(props.initialFarmId || ""),
   search = ref(""),
@@ -36,10 +36,12 @@ let alive = true,
   sequence = 0;
 const filtered = computed(() =>
   farms.value
-    .filter((f) =>
-      (f.name + " " + f.description + " " + f.region)
-        .toLowerCase()
-        .includes(search.value.toLowerCase()),
+    .filter(
+      (f) =>
+        !pendingIds.has(f.id) &&
+        (f.name + " " + f.description + " " + f.region)
+          .toLowerCase()
+          .includes(search.value.toLowerCase()),
     )
     .sort(
       (a, b) =>
@@ -60,7 +62,7 @@ async function load() {
     const data = await api("/farm-workspaces");
     if (alive && run === sequence) farms.value = data;
   } catch (e) {
-    if (alive) error.value = e.message;
+    if (alive) error.value = loadError(e);
   } finally {
     if (alive) busy.value = false;
   }
@@ -85,26 +87,32 @@ async function save() {
     else await api("/farm-workspaces", "POST", model);
     dialog.value = false;
     await load();
+    // 顶栏的“当前农场”列表同步更新
+    emit("changed");
   } catch (e) {
     error.value = e.message;
   } finally {
     busy.value = false;
   }
 }
-async function remove(farm) {
-  const ok = await confirmAction({
-    title: `删除“${farm.name}”`,
-    message: "删除后无法恢复。农场下还有地块或设备时不能删除。",
-    confirmLabel: "删除",
-    danger: true,
-  });
-  if (!ok) return;
-  try {
-    await api("/farms/" + farm.id, "DELETE");
-    await load();
-  } catch (e) {
-    error.value = e.message;
+// 还有地块或设备的农场不能删除：点击时直接说明原因，而不是等撤销期结束后才失败
+function remove(farm) {
+  if (farm.plotCount || farm.deviceCount) {
+    failure(
+      `“${farm.name}”下还有 ${farm.plotCount} 块地块、${farm.deviceCount} 台设备，请先删除或移走它们再删除农场。`,
+    );
+    return;
   }
+  deferDelete({
+    id: farm.id,
+    label: farm.name,
+    commit: (keepalive) =>
+      api("/farms/" + farm.id, "DELETE", undefined, { keepalive }),
+    settled: async () => {
+      await load();
+      emit("changed");
+    },
+  });
 }
 watch(() => props.revision, load);
 watch(
@@ -217,7 +225,7 @@ onBeforeUnmount(() => {
             ><button v-if="role === 'ADMIN'" @click="openForm(farm)">
               编辑资料</button
             ><button
-              v-if="role === 'ADMIN' && !farm.plotCount && !farm.deviceCount"
+              v-if="role === 'ADMIN'"
               class="danger-text"
               @click="remove(farm)"
             >

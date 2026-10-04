@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { api } from "../api";
+import { api, loadError } from "../api";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
+import { reportFailure } from "../ui/feedback";
 import {
   typeNames,
   typeIcons,
@@ -65,7 +66,7 @@ async function load() {
     error.value = "";
     page.value = Math.min(page.value, pageCount.value);
   } catch (e) {
-    if (alive) error.value = e.message;
+    if (alive) error.value = loadError(e);
   } finally {
     if (alive) busy.value = false;
   }
@@ -90,7 +91,7 @@ async function collect(device) {
     await api("/assets/" + device.id + "/collect", "POST");
     await load();
   } catch (e) {
-    error.value = e.message;
+    reportFailure(e, () => collect(device));
   } finally {
     busy.value = false;
   }
