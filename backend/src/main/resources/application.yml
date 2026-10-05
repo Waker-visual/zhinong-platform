@@ -18,3 +18,10 @@ farm:
   demo: ${FARM_DEMO:false}
   demo-rich: ${FARM_DEMO_RICH:true}
   bootstrap-password: ${FARM_BOOTSTRAP_PASSWORD:}
+  llm:
+    url: ${FARM_LLM_URL:}
+    api-key: ${FARM_LLM_API_KEY:}
+    model: ${FARM_LLM_MODEL:}
+    fallback-url: ${FARM_LLM_FALLBACK_URL:}
+    fallback-model: ${FARM_LLM_FALLBACK_MODEL:}
+    timeout-seconds: ${FARM_LLM_TIMEOUT:20}
