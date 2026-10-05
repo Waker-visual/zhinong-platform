@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
 import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
@@ -11,6 +11,9 @@ import SimulationPage from "./simulation/SimulationPage.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
 import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
+import FarmSelect from "./ui/FarmSelect.vue";
+import SelectMenu from "./ui/SelectMenu.vue";
+import DatePicker from "./ui/DatePicker.vue";
 import CommandPalette from "./ui/CommandPalette.vue";
 import ModalDialog from "./ui/ModalDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
@@ -25,6 +28,7 @@ import {
   reportFailure,
   resetFeedback,
   toast,
+  important,
 } from "./ui/feedback";
 import "./ui/shell.css";
 
@@ -206,6 +210,10 @@ const scopePlots = computed(() =>
 const farmOptions = computed(() =>
   farmRows.value.filter((f) => !pendingIds.has(f.id)),
 );
+const farmSelectOptions = computed(() => [
+  ...farmOptions.value.map((farm) => ({ value: farm.id, label: farm.name })),
+]);
+const activeMorph = ref("");
 const statCards = computed(() => [
   ["管理农场", dashboard.value.farms || 0, "个"],
   ["地块总面积", dashboard.value.areaMu || 0, "亩"],
@@ -221,6 +229,10 @@ const today = new Intl.DateTimeFormat("zh-CN", {
 let loadSequence = 0;
 
 function message(value) {
+  if (value && typeof value === "object") {
+    (value.placement === "top" ? important : toast)(value.text);
+    return;
+  }
   toast(value);
 }
 function display(value) {
@@ -253,6 +265,16 @@ function options(field) {
       label: r.name,
     }));
   return field.options.map((value) => ({ value, label: display(value) }));
+}
+const formFarmOptions = computed(() => [
+  { value: "", label: "选择农场" },
+  ...farmRows.value.map((farm) => ({ value: farm.id, label: farm.name })),
+]);
+function selectOptions(field) {
+  return [
+    { value: "", label: "请选择", disabled: true },
+    ...options(field),
+  ];
 }
 // key 标记触发本次写操作的按钮：只有它显示加载中，其余按钮在保存期间禁用以免重复提交。
 async function action(work, success, key = "") {
@@ -344,6 +366,8 @@ async function reload() {
 async function refreshActive() {
   moduleRevision.value++;
   await reload();
+  if (!error.value)
+    toast(page.value === "daily" ? "今日农场已刷新" : "数据已刷新");
 }
 async function dailyNavigate({ page: target, farmId, create }) {
   farmScope.value = farmId;
@@ -355,13 +379,34 @@ async function launchFarm(id) {
   await navigate("dashboard");
   farmToOpen.value = id;
 }
-async function navigate(id) {
-  page.value = id;
-  navigationRevision.value++;
-  // 农场概览直接打开顶栏选中的农场；选“全部农场”时显示农场列表
-  farmToOpen.value = id === "dashboard" ? farmScope.value : "";
-  search.value = "";
-  rows.value = [];
+async function navigate(payload) {
+  const id = typeof payload === "string" ? payload : payload.page;
+  const morph = typeof payload === "string" ? "" : payload.morph || "";
+  const update = async () => {
+    page.value = id;
+    navigationRevision.value++;
+    // 农场概览直接打开顶栏选中的农场；未选农场时显示农场列表
+    farmToOpen.value = id === "dashboard" ? farmScope.value : "";
+    search.value = "";
+    rows.value = [];
+    await nextTick();
+  };
+  if (
+    !morph ||
+    !document.startViewTransition ||
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  ) {
+    activeMorph.value = "";
+    await update();
+    await reload();
+    return;
+  }
+  activeMorph.value = morph;
+  document.documentElement.classList.add("ops-morphing");
+  const transition = document.startViewTransition(update);
+  await transition.finished.catch(() => {});
+  activeMorph.value = "";
+  document.documentElement.classList.remove("ops-morphing");
   await reload();
 }
 async function toggleTheme() {
@@ -376,6 +421,7 @@ async function toggleTheme() {
   applyAppearance(next);
   try {
     accountUpdated(await api("/account/appearance", "PUT", next));
+    toast("主题已切换");
   } catch (e) {
     applyAppearance(previous);
     reportFailure({ ...e, message: "主题未保存：" + e.message }, toggleTheme);
@@ -668,7 +714,7 @@ onUnmounted(() => {
           <AppIcon name="sidebar" />
         </button>
       </div>
-      <div class="tenant-box" :title="identity.tenantName">
+      <div class="tenant-box">
         <span class="tenant-dot"></span>
         <div class="sidebar-label">
           {{ identity.tenantName }}<small>{{ display(identity.role) }}</small>
@@ -715,29 +761,34 @@ onUnmounted(() => {
         </div>
       </nav>
       <div class="sidebar-bottom">
-        <button
-          class="account-entry"
-          aria-label="账号设置"
-          :title="collapsed ? '账号设置' : undefined"
-          @click="settingsOpen = true"
+        <div
+          class="sidebar-avatar"
+          role="img"
+          aria-label="当前用户头像"
         >
           <img
             v-if="account?.avatarData"
             class="avatar"
             :src="account.avatarData"
-            alt="头像"
+            alt=""
+            aria-hidden="true"
           />
-          <span v-else class="avatar">{{
+          <span v-else class="avatar" aria-hidden="true">{{
             identity.displayName.slice(0, 1)
           }}</span>
-          <span class="sidebar-label"
-            >{{ identity.displayName
-            }}<small>{{ identity.username }} · 设置</small></span
-          >
+        </div>
+        <button
+          type="button"
+          class="icon-button sidebar-action"
+          aria-label="账号设置"
+          :title="collapsed ? '账号设置' : undefined"
+          @click="settingsOpen = true"
+        >
+          <AppIcon name="settings" />
         </button>
         <button
           type="button"
-          class="icon-button"
+          class="icon-button sidebar-action"
           :aria-label="colorMode === 'DARK' ? '切换到浅色主题' : '切换到深色主题'"
           :title="colorMode === 'DARK' ? '切换到浅色主题' : '切换到深色主题'"
           :disabled="!account"
@@ -747,7 +798,7 @@ onUnmounted(() => {
         </button>
         <button
           type="button"
-          class="icon-button"
+          class="icon-button sidebar-action"
           @click="signOut"
           title="退出登录"
           aria-label="退出登录"
@@ -763,22 +814,14 @@ onUnmounted(() => {
           ><span class="brand-mark">禾</span>智禾农场</span
         ><span class="topbar-trail"
           >工作空间 <b>/</b> {{ current.title }}</span
-        ><label
+        ><FarmSelect
           v-if="!platform && farmRows.length && !account?.mustChangePassword"
-          class="topbar-farm"
-          ><span class="tenant-dot" aria-hidden="true"></span
-          ><select
-            v-model="farmScope"
-            aria-label="当前农场"
-            :disabled="loading"
-            @change="selectFarm"
-          >
-            <option value="" :disabled="farmRequired">全部农场</option>
-            <option v-for="f in farmOptions" :key="f.id" :value="f.id">
-              {{ f.name }}
-            </option>
-          </select></label
-        ><span class="topbar-meta">{{ today }}</span
+          v-model="farmScope"
+          :options="farmSelectOptions"
+          :disabled="loading"
+          @change="selectFarm"
+        />
+        <span class="topbar-meta">{{ today }}</span
         ><StatusCapsule @refresh="refreshActive" />
         <button
           type="button"
@@ -790,7 +833,10 @@ onUnmounted(() => {
           <AppIcon name="search" />
         </button>
       </header>
-      <main v-if="account && !account.mustChangePassword">
+      <main
+        v-if="account && !account.mustChangePassword"
+        :style="activeMorph && page !== 'operations' ? { viewTransitionName: 'ops-morph' } : null"
+      >
         <div class="page-heading">
           <div>
             <h1>{{ current.title }}</h1>
@@ -1148,39 +1194,40 @@ onUnmounted(() => {
     >
         <div class="section-title">
           <h2>{{ editing ? "编辑" : "新增" }}{{ current.noun }}</h2>
-          <button @click="dialog = false" :disabled="busy" aria-label="关闭">
+          <button
+            class="close-button"
+            @click="dialog = false"
+            :disabled="busy"
+            aria-label="关闭"
+          >
             ×
           </button>
         </div>
         <form v-validate @submit.prevent="save">
           <label v-if="fields.some((f) => f.source === 'plots')"
-            >所属农场<select
+            >所属农场<SelectMenu
               v-model="formFarm"
               aria-label="表单所属农场"
+              :options="formFarmOptions"
               @change="model.plotId = ''"
-            >
-              <option value="">全部农场</option>
-              <option v-for="f in farmRows" :key="f.id" :value="f.id">
-                {{ f.name }}
-              </option>
-            </select></label
+            /></label
           >
           <label v-for="field in fields" :key="field.key"
             >{{ field.label }}<small v-if="field.optional">（选填）</small
-            ><select
+            ><SelectMenu
               v-if="field.type === 'select'"
               v-model="model[field.key]"
+              :options="selectOptions(field)"
+              :aria-label="field.label"
               required
-            >
-              <option value="" disabled>请选择</option>
-              <option
-                v-for="option in options(field)"
-                :value="option.value"
-                :key="option.value"
-              >
-                {{ option.label }}
-              </option></select
-            ><input
+            />
+            <DatePicker
+              v-else-if="field.type === 'date'"
+              v-model="model[field.key]"
+              :aria-label="field.label"
+              :required="!field.optional"
+            />
+            <input
               v-else
               v-model="model[field.key]"
               :type="field.type"

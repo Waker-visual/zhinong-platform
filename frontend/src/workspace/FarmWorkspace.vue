@@ -10,12 +10,13 @@ import {
 import { api, loadError } from "../api";
 import FarmMap from "./FarmMap.vue";
 import MapSettings from "./MapSettings.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
 const geo = ref(null),
   mapSettings = ref(false);
 import DataChart from "./DataChart.vue";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
-import { reportFailure } from "../ui/feedback";
+import { important, reportFailure, toast } from "../ui/feedback";
 import {
   typeNames,
   typeIcons,
@@ -45,6 +46,8 @@ const deviceType = ref(""),
   autoRefresh = ref(true),
   editingMap = ref(false);
 const detailId = ref(""),
+  detailMorphSource = ref(""),
+  detailMorphActive = ref(false),
   editor = ref(false),
   editAsset = ref(null),
   mapRef = ref(null),
@@ -76,6 +79,42 @@ const filteredDevices = computed(
         (!deviceType.value || d.deviceType === deviceType.value) &&
         (!selectedPlotId.value || d.plotId === selectedPlotId.value),
     ) || [],
+);
+const deviceTypeOptions = computed(() => [
+  { value: "", label: "全部设备类型" },
+  ...Object.entries(typeNames).map(([value, label]) => ({ value, label })),
+]);
+const cropOptions = computed(() => [
+  { value: "", label: "全部作物地块" },
+  ...(workspace.value?.analytics.cropArea || []).map((item) => ({
+    value: item.name,
+    label: item.name,
+  })),
+]);
+const productionRangeOptions = [
+  { value: 30, label: "近 30 天" },
+  { value: 90, label: "近 90 天" },
+  { value: 180, label: "近 180 天" },
+  { value: 365, label: "近 365 天" },
+];
+const monitorRangeOptions = [
+  { value: 24, label: "24 小时" },
+  { value: 168, label: "7 天" },
+  { value: 720, label: "30 天" },
+];
+const taskStatusOptions = computed(() => [
+  { value: "", label: "全部状态" },
+  ...["PENDING", "RUNNING", "COMPLETED", "CANCELLED"].map((value) => ({
+    value,
+    label: stateNames[value],
+  })),
+]);
+const metricOptions = computed(
+  () =>
+    selectedDevice.value?.channels.map((c) => ({
+      value: c.metric,
+      label: `${selectedDevice.value.name} · ${c.name}`,
+    })) || [],
 );
 const filteredTasks = computed(
   () =>
@@ -207,6 +246,7 @@ async function saveLayout(input) {
     await api(`/farms/${props.farmId}/layout`, "PUT", input);
     mapRef.value.finishEditing();
     await load();
+    important("平面图已保存");
   } catch (e) {
     reportFailure(e, () => saveLayout(input));
   } finally {
@@ -219,13 +259,58 @@ function newDevice() {
 }
 function editDevice(asset) {
   detailId.value = "";
+  detailMorphSource.value = "";
+  detailMorphActive.value = false;
   editAsset.value = asset;
   editor.value = true;
 }
+function canMorph() {
+  return (
+    document.startViewTransition &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+async function openDeviceDetail(id, source) {
+  if (!canMorph()) {
+    detailId.value = id;
+    detailMorphSource.value = "";
+    detailMorphActive.value = false;
+    return;
+  }
+  detailMorphSource.value = source;
+  detailMorphActive.value = true;
+  document.documentElement.classList.add("device-morphing");
+  const transition = document.startViewTransition(async () => {
+    detailId.value = id;
+    await nextTick();
+  });
+  await transition.finished.catch(() => {});
+  detailMorphActive.value = false;
+  document.documentElement.classList.remove("device-morphing");
+}
+async function closeDeviceDetail() {
+  if (!detailId.value || !canMorph() || !detailMorphSource.value) {
+    detailId.value = "";
+    detailMorphSource.value = "";
+    detailMorphActive.value = false;
+    return;
+  }
+  detailMorphActive.value = true;
+  document.documentElement.classList.add("device-morphing");
+  const transition = document.startViewTransition(() => {
+    detailId.value = "";
+  });
+  await transition.finished.catch(() => {});
+  detailMorphActive.value = false;
+  detailMorphSource.value = "";
+  document.documentElement.classList.remove("device-morphing");
+}
 async function savedDevice(result) {
+  const created = !editAsset.value;
   editor.value = false;
   await load();
   selectDevice(result.id);
+  toast(created ? "设备已创建" : "设备资料已保存");
 }
 async function collect() {
   if (!selectedDevice.value) return;
@@ -233,6 +318,7 @@ async function collect() {
   try {
     await api("/assets/" + selectedDeviceId.value + "/collect", "POST");
     await load();
+    toast("模拟采集已完成");
   } catch (e) {
     reportFailure(e, collect);
   } finally {
@@ -410,25 +496,16 @@ onBeforeUnmount(() => {
       <div class="workspace-main-grid">
         <div>
           <div class="map-filters">
-            <select v-model="deviceType" aria-label="地图设备类型">
-              <option value="">全部设备类型</option>
-              <option
-                v-for="(name, code) in typeNames"
-                :value="code"
-                :key="code"
-              >
-                {{ name }}
-              </option></select
-            ><select v-model="crop" aria-label="地图作物筛选">
-              <option value="">全部作物地块</option>
-              <option
-                v-for="item in workspace.analytics.cropArea"
-                :key="item.name"
-                :value="item.name"
-              >
-                {{ item.name }}
-              </option></select
-            ><button
+            <SelectMenu
+              v-model="deviceType"
+              aria-label="地图设备类型"
+              :options="deviceTypeOptions"
+            /><SelectMenu
+              v-model="crop"
+              aria-label="地图作物筛选"
+              :options="cropOptions"
+            />
+            <button
               @click="
                 crop = '';
                 deviceType = '';
@@ -494,7 +571,14 @@ onBeforeUnmount(() => {
           </section>
         </div>
         <aside class="workspace-side">
-          <section class="panel device-inspector">
+          <section
+            class="panel device-inspector"
+            :style="
+              detailMorphActive && detailMorphSource === 'inspector'
+                ? { viewTransitionName: 'device-morph' }
+                : null
+            "
+          >
             <div class="section-title">
               <h3>点位详情</h3>
               <span class="muted">点击地图设备切换</span>
@@ -534,7 +618,10 @@ onBeforeUnmount(() => {
                 最近上报：{{ timeText(selectedDevice.lastReceivedAt) }}
               </p>
               <div class="inline-controls">
-                <button class="outline" @click="detailId = selectedDevice.id">
+                <button
+                  class="outline"
+                  @click="openDeviceDetail(selectedDevice.id, 'inspector')"
+                >
                   完整详情与历史</button
                 ><button
                   v-if="
@@ -561,7 +648,12 @@ onBeforeUnmount(() => {
               v-for="alert in workspace.alerts.slice(0, 5)"
               :key="alert.id"
               class="alert-preview-item"
-              @click="detailId = alert.deviceId"
+              :style="
+                detailMorphActive && detailMorphSource === `alert:${alert.id}`
+                  ? { viewTransitionName: 'device-morph' }
+                  : null
+              "
+              @click="openDeviceDetail(alert.deviceId, `alert:${alert.id}`)"
             >
               <strong>{{ alert.message }}</strong
               ><span
@@ -582,12 +674,11 @@ onBeforeUnmount(() => {
           >
         </div>
         <label
-          >生产统计范围<select v-model.number="days">
-            <option :value="30">近 30 天</option>
-            <option :value="90">近 90 天</option>
-            <option :value="180">近 180 天</option>
-            <option :value="365">近 365 天</option>
-          </select></label
+          >生产统计范围<SelectMenu
+            v-model="days"
+            aria-label="生产统计范围"
+            :options="productionRangeOptions"
+          /></label
         >
       </div>
       <div class="analytics-grid">
@@ -659,25 +750,19 @@ onBeforeUnmount(() => {
         <section class="panel">
           <div class="section-title">
             <h3>环境监测趋势</h3>
-            <select v-model.number="hours" aria-label="大屏监测时间">
-              <option :value="24">24 小时</option>
-              <option :value="168">7 天</option>
-              <option :value="720">30 天</option>
-            </select>
+            <SelectMenu
+              v-model="hours"
+              aria-label="大屏监测时间"
+              :options="monitorRangeOptions"
+            />
           </div>
-          <select
+          <SelectMenu
             v-if="selectedDevice"
             v-model="metric"
             aria-label="大屏监测指标"
-          >
-            <option
-              v-for="c in selectedDevice.channels"
-              :key="c.metric"
-              :value="c.metric"
-            >
-              {{ selectedDevice.name }} · {{ c.name }}
-            </option></select
-          ><DataChart
+            :options="metricOptions"
+          />
+          <DataChart
             v-if="history?.points.length"
             :option="monitorChart"
             :scope="screenMode ? 'screen' : 'page'"
@@ -702,6 +787,11 @@ onBeforeUnmount(() => {
             :key="d.id"
             class="device-list-row"
             :class="{ selected: selectedDeviceId === d.id }"
+            :style="
+              detailMorphActive && detailMorphSource === `list:${d.id}`
+                ? { viewTransitionName: 'device-morph' }
+                : null
+            "
             @click="selectDevice(d.id)"
           >
             <span
@@ -719,16 +809,11 @@ onBeforeUnmount(() => {
         <section class="panel">
           <div class="section-title">
             <h3>农事进度</h3>
-            <select v-model="taskStatus" aria-label="大屏任务状态">
-              <option value="">全部状态</option>
-              <option
-                v-for="code in ['PENDING', 'RUNNING', 'COMPLETED', 'CANCELLED']"
-                :key="code"
-                :value="code"
-              >
-                {{ stateNames[code] }}
-              </option>
-            </select>
+            <SelectMenu
+              v-model="taskStatus"
+              aria-label="大屏任务状态"
+              :options="taskStatusOptions"
+            />
           </div>
           <div
             v-for="task in filteredTasks.slice(0, 10)"
@@ -758,7 +843,8 @@ onBeforeUnmount(() => {
       v-if="detailId"
       :id="detailId"
       :role="role"
-      @close="detailId = ''"
+      :transition-name="detailMorphActive ? 'device-morph' : ''"
+      @close="closeDeviceDetail"
       @edit="editDevice"
       @changed="load(true)"
     />
@@ -770,6 +856,7 @@ onBeforeUnmount(() => {
       @saved="
         geo = $event;
         mapSettings = false;
+        important('地图位置已保存');
       "
     />
     <DeviceEditor

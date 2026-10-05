@@ -28,9 +28,23 @@
   color: var(--label-fg);
   font-size: 13px;
 }
-.ops-label .app-icon {
+.ops-label .app-icon,
+.ops-metric-icon {
   width: 18px;
   height: 18px;
+  object-fit: contain;
+  filter: var(--icon-art-filter);
+}
+.ops-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ops-section-icon {
+  width: 23px;
+  height: 23px;
+  object-fit: contain;
+  filter: var(--icon-art-filter);
 }
 .ops-value {
   font-size: 30px;
@@ -97,7 +111,10 @@
   font-size: 12px;
 }
 .ops-range {
-  width: auto;
+  width: 148px;
+  padding: 0;
+}
+.ops-range .select-menu-trigger {
   padding: 4px 8px;
   font-size: 12px;
 }
@@ -159,6 +176,10 @@
   gap: 2px;
   height: 64px;
 }
+.ops-slice-chart {
+  position: relative;
+  margin-bottom: 28px;
+}
 .ops-slice {
   flex: 1 1 0;
   min-width: 0;
@@ -198,17 +219,32 @@
   stroke: var(--text);
   stroke-width: 2;
   stroke-linecap: round;
-  stroke-linejoin: round;
+  stroke-linejoin: miter;
   vector-effect: non-scaling-stroke;
 }
 .ops-line path.halo {
   stroke: var(--surface);
   stroke-width: 5;
 }
+.ops-points {
+  position: absolute;
+  inset: 8px 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.ops-point {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--surface);
+  border-radius: 50%;
+  background: var(--text);
+  transform: translate(-50%, -50%);
+}
 .ops-run .skeleton.ops-art {
   flex: none;
-  width: 44px;
-  height: 44px;
+  width: 76px;
+  height: 76px;
   border-radius: var(--radius-sm);
 }
 .ops-mx-skeleton {
@@ -222,6 +258,29 @@
   font-size: 13px;
 }
 .ops-readout {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  z-index: 4;
+  width: max-content;
+  max-width: min(360px, calc(100% - 16px));
+  margin: 0;
+  padding: 8px 11px;
+  border: 1px solid var(--dark-control-line);
+  border-radius: var(--radius-sm);
+  background: var(--dark-navigation);
+  box-shadow: var(--shadow-lg);
+  color: var(--on-image);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+  transform: translateX(-50%);
+  white-space: pre-line;
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+.ops-readout-hint {
   min-height: 1.5em;
   margin: 10px 0 2px;
   color: var(--text);
@@ -276,14 +335,16 @@
   display: grid;
   flex: none;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 76px;
+  height: 76px;
   border-radius: var(--radius-sm);
   color: var(--on-module);
 }
-.ops-art .app-icon {
-  width: 22px;
-  height: 22px;
+.ops-icon-art {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
 }
 .ops-run-body {
   display: grid;

@@ -35,8 +35,11 @@ function show(item, duration) {
   arm(duration);
 }
 
-export function toast(text, duration = 3500) {
-  show({ kind: "toast", text }, duration);
+export function toast(text, duration = 3500, options = {}) {
+  show({ kind: "toast", text, placement: options.placement || "bottom" }, duration);
+}
+export function important(text, duration = 3500) {
+  toast(text, duration, { placement: "top" });
 }
 export function snackbar(text, { actionLabel, onAction, onExpire, duration = 6000 }) {
   show({ kind: "snackbar", text, actionLabel, onAction, onExpire }, duration);

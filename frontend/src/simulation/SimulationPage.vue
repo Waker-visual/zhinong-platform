@@ -3,6 +3,9 @@ import { ref, reactive, computed, onMounted } from "vue";
 import { api } from "../api";
 import DataChart from "../workspace/DataChart.vue";
 import { num } from "../workspace/presentation";
+import SelectMenu from "../ui/SelectMenu.vue";
+import DatePicker from "../ui/DatePicker.vue";
+import { important, toast } from "../ui/feedback";
 const props = defineProps({ role: String, initialFarmId: String });
 const emit = defineEmits(["farm"]);
 const farms = ref([]),
@@ -42,6 +45,34 @@ const events = computed(() =>
     (e) => !plotFilter.value || e.plotId === plotFilter.value,
   ),
 );
+const farmOptions = computed(() => [
+  { value: "", label: "选择农场", disabled: true },
+  ...farms.value.map((farm) => ({ value: farm.id, label: farm.name })),
+]);
+const cycleOptions = [
+  { value: 90, label: "季度 · 90 天" },
+  { value: 365, label: "年度 · 365 天（单季种植）" },
+];
+const cropOptions = computed(() =>
+  (catalog.value?.crops || []).map((crop) => ({
+    value: crop.id,
+    label: `${crop.name} · ${crop.duration} 天 · ${crop.yieldKgMu} kg/亩`,
+  })),
+);
+const historyOptions = computed(() => [
+  { value: "", label: "选择已保存的运行", disabled: true },
+  ...runs.value.map((run) => ({
+    value: run.id,
+    label: `${run.label} · ${new Date(run.createdAt).toLocaleString("zh-CN")}`,
+  })),
+]);
+const eventPlotOptions = computed(() => [
+  { value: "", label: "全部地块" },
+  ...(selected.value?.plots || []).map((plot) => ({
+    value: plot.plotId,
+    label: plot.name,
+  })),
+]);
 const comparison = computed(() => ({
   tooltip: { trigger: "axis", renderMode: "richText" },
   legend: { bottom: 0 },
@@ -198,6 +229,7 @@ async function execute() {
     runs.value = await api(
       "/simulations?farmId=" + encodeURIComponent(form.farmId),
     );
+    important("三方案对照已完成");
   });
 }
 async function open(id) {
@@ -206,6 +238,7 @@ async function open(id) {
     result.value = data.result;
     runId.value = id;
     plotFilter.value = "";
+    toast("历史模拟已加载");
   });
 }
 function download() {
@@ -269,36 +302,30 @@ onMounted(() =>
       <form v-validate @submit.prevent="execute">
         <div class="simulation-fields">
           <label
-            >模拟农场<select
+            >模拟农场<SelectMenu
               aria-label="模拟农场"
               v-model="form.farmId"
+              :options="farmOptions"
               required
               :disabled="busy"
               @change="work(farmChanged)"
-            >
-              <option value="" disabled>选择农场</option>
-              <option v-for="f in farms" :key="f.id" :value="f.id">
-                {{ f.name }}
-              </option>
-            </select></label
+            /></label
           ><label
-            >模拟周期<select
+            >模拟周期<SelectMenu
               aria-label="模拟周期"
-              v-model.number="form.days"
+              v-model="form.days"
+              :options="cycleOptions"
               @change="cycle"
-            >
-              <option :value="90">季度 · 90 天</option>
-              <option :value="365">年度 · 365 天（单季种植）</option>
-            </select></label
+            /></label
           ><label
             >情景名称<input
               v-model.trim="form.label"
               required
               maxlength="100" /></label
           ><label
-            >开始日期<input
+            >开始日期<DatePicker
               v-model="form.startDate"
-              type="date"
+              aria-label="开始日期"
               min="2025-01-01"
               max="2025-10-03"
               :disabled="form.days === 365"
@@ -401,13 +428,11 @@ onMounted(() =>
           </p>
           <div class="simulation-fields">
             <label v-for="p in plots" :key="p.id"
-              >{{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩<select
+              >{{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩<SelectMenu
                 v-model="form.cropModels[p.id]"
-              >
-                <option v-for="c in catalog?.crops" :key="c.id" :value="c.id">
-                  {{ c.name }} · {{ c.duration }} 天 · {{ c.yieldKgMu }} kg/亩
-                </option>
-              </select></label
+                :options="cropOptions"
+                :aria-label="`${p.name} 作物模型`"
+              /></label
             >
           </div>
         </details>
@@ -426,17 +451,13 @@ onMounted(() =>
     </section>
     <section class="panel simulation-history">
       <label
-        >历史模拟<select
+        >历史模拟<SelectMenu
           aria-label="历史模拟"
           v-model="runId"
-          @change="open($event.target.value)"
+          :options="historyOptions"
+          @change="open"
           :disabled="busy"
-        >
-          <option value="" disabled>选择已保存的运行</option>
-          <option v-for="r in runs" :key="r.id" :value="r.id">
-            {{ r.label }} · {{ new Date(r.createdAt).toLocaleString("zh-CN") }}
-          </option>
-        </select></label
+        /></label
       ><span class="muted">保留输入、天气指纹、地块快照及每日结果</span>
     </section>
     <section
@@ -543,16 +564,11 @@ onMounted(() =>
         <details>
           <summary>逐日事件与处理依据 · {{ events.length }} 条</summary>
           <label
-            >筛选事件地块<select v-model="plotFilter">
-              <option value="">全部地块</option>
-              <option
-                v-for="p in selected.plots"
-                :key="p.plotId"
-                :value="p.plotId"
-              >
-                {{ p.name }}
-              </option>
-            </select></label
+            >筛选事件地块<SelectMenu
+              v-model="plotFilter"
+              :options="eventPlotOptions"
+              aria-label="筛选事件地块"
+            /></label
           >
           <div class="simulation-events">
             <div v-for="(e, i) in events" :key="i">

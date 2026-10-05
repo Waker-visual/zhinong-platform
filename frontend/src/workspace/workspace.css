@@ -18,13 +18,6 @@
   display: inline-block;
   margin: 0;
 }
-.workspace-overlay .modal .section-title button {
-  font-size: 13px;
-  color: var(--link-fg);
-}
-.workspace-overlay > .modal > .section-title > button {
-  font-size: 26px;
-}
 .farm-hub,
 .farm-workspace,
 .device-manager {
@@ -248,18 +241,25 @@
   gap: 10px;
 }
 .workspace-stats article > span {
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-2);
 }
 .workspace-stats strong {
-  font-size: 28px;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 26px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--text);
+  line-height: 1;
 }
 .workspace-stats strong small {
-  font-size: 12px;
-  font-weight: 400;
-  margin-left: 7px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+  margin-left: 0;
 }
 .workspace-stats .attention {
   border-color: var(--amber-line);
@@ -283,9 +283,8 @@
   margin: 0 0 10px;
   align-items: center;
 }
-.map-filters select {
+.map-filters :is(select, .select-menu) {
   max-width: 170px;
-  padding: 9px;
 }
 .map-filters > button {
   white-space: nowrap;
@@ -460,11 +459,19 @@
   left: 40px;
   right: 40px;
   padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--text-2);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  font-family: var(--font-sans);
+  line-height: 1.5;
   text-align: center;
   pointer-events: none;
-  border-radius: var(--radius-sm);
 }
 .map-editor {
   background: var(--sunken);
@@ -567,7 +574,7 @@
   font-size: 12px;
   display: inline-block;
   padding: 5px 8px;
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   color: var(--text-2);
   background: var(--neutral-bg);
   white-space: nowrap;
@@ -576,9 +583,15 @@
   color: var(--ok);
   background: var(--ok-bg);
 }
-.status-chip.stale {
-  color: var(--amber);
-  background: var(--amber-bg);
+.status-chip.stale,
+.status-chip.alert,
+.status-chip.error {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.status-chip.no_data {
+  color: var(--text-2);
+  background: var(--neutral-bg);
 }
 .status-chip.maintenance,
 .status-chip.disabled {
@@ -662,10 +675,9 @@
   color: var(--text-2);
   white-space: nowrap;
 }
-.analytics-toolbar select {
+.analytics-toolbar :is(select, .select-menu) {
   margin: 0;
   width: 130px;
-  padding: 9px;
 }
 .analytics-grid {
   display: grid;
@@ -693,7 +705,7 @@
   padding: 4px 7px;
   font-size: 12px;
   background: var(--sunken);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
 }
 .chart-filter-chips .selected {
@@ -705,15 +717,11 @@
   gap: 18px;
   margin-top: 18px;
 }
-.analytics-bottom .section-title select {
+.analytics-bottom .section-title :is(select, .select-menu) {
   width: 105px;
-  padding: 6px;
-  font-size: 12px;
 }
-.analytics-bottom > .panel > select {
-  padding: 6px;
+.analytics-bottom > .panel > :is(select, .select-menu) {
   margin-top: 12px;
-  font-size: 12px;
 }
 .yield-ranking {
   display: flex;
@@ -732,10 +740,8 @@
   gap: 18px;
   margin-top: 18px;
 }
-.workspace-lists .section-title select {
+.workspace-lists .section-title :is(select, .select-menu) {
   width: 110px;
-  padding: 7px;
-  font-size: 12px;
 }
 .device-list-row {
   display: flex;
@@ -744,7 +750,7 @@
   align-items: center;
   gap: 10px;
   text-align: left;
-  padding: 13px 0;
+  padding: 13px 12px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
@@ -758,6 +764,7 @@
 }
 .device-list-row.selected {
   background: var(--nav-selected-bg);
+  border-radius: var(--radius-sm);
 }
 .workspace-footnote {
   font-size: 12px;
@@ -772,6 +779,7 @@
   width: min(880px, 94vw) !important;
   max-height: 92vh !important;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 .form-grid {
   display: grid;
@@ -823,6 +831,7 @@
   width: min(1020px, 95vw) !important;
   max-height: 93vh !important;
   overflow: auto;
+  scrollbar-gutter: stable;
 }
 .detail-facts {
   display: grid;
@@ -981,6 +990,7 @@
   flex: 1;
   min-width: 200px;
 }
+.device-filter-toolbar .select-menu,
 .device-filter-toolbar select {
   width: 145px;
 }
@@ -1117,7 +1127,7 @@
   .integration-guide > div {
     grid-template-columns: 1fr 1fr;
   }
-  .device-filter-toolbar select {
+  .device-filter-toolbar :is(select, .select-menu) {
     flex: 1;
     min-width: 120px;
   }
@@ -1175,7 +1185,7 @@
   .map-filters {
     flex-wrap: wrap;
   }
-  .map-filters select {
+  .map-filters :is(select, .select-menu) {
     max-width: calc(50% - 5px);
     flex: 1;
   }
@@ -1237,6 +1247,9 @@
     padding: 20px;
     max-height: 94vh !important;
   }
+  .workspace-overlay .modal > .section-title {
+    margin-top: -20px;
+  }
   .alert-item {
     align-items: flex-start;
     flex-direction: column;
@@ -1293,7 +1306,7 @@
   .screen-mode .map-filters {
     flex-wrap: wrap;
   }
-  .screen-mode .map-filters select {
+.screen-mode .map-filters :is(select, .select-menu) {
     max-width: 150px;
     flex: 1;
   }
@@ -1394,7 +1407,225 @@
   height: 100%;
   object-fit: cover;
 }
+/* 设备行/点位卡片 ⇄ 设备详情：保留同一容器的边界，让详情从来源位置自然展开。 */
+::view-transition-group(device-morph) {
+  animation-duration: 420ms;
+  animation-timing-function: var(--ease-expo);
+}
+::view-transition-old(device-morph),
+::view-transition-new(device-morph) {
+  height: 100%;
+  overflow: clip;
+  border-radius: var(--radius-lg);
+}
 ::view-transition-old(root),
 ::view-transition-new(root) {
   animation-duration: 200ms;
+}
+
+/* 设备台账：建立稳定的数值组块、紧凑行高和可读的状态语义。 */
+.device-manager .workspace-stats {
+  gap: 16px;
+}
+.device-manager .workspace-stats article {
+  min-height: 108px;
+  padding: 16px 18px;
+  gap: 9px;
+}
+.device-manager .workspace-stats article > span {
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+.device-manager .workspace-stats strong {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--text);
+  font-family: "DIN Alternate", "Inter", "Bahnschrift", sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.device-manager .workspace-stats strong small {
+  margin-left: 0;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.device-filter-toolbar {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) repeat(3, minmax(110px, 0.55fr)) auto;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.device-filter-toolbar input,
+.device-filter-toolbar .select-menu,
+.device-filter-toolbar select,
+.device-filter-toolbar button {
+  width: 100%;
+  min-width: 0;
+  height: 40px;
+  min-height: 40px;
+}
+.device-filter-toolbar .primary {
+  width: auto;
+  min-width: 118px;
+  padding-top: 12px;
+  padding-bottom: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.add-device-icon {
+  display: inline-block;
+  margin-right: 4px;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1;
+  vertical-align: -1px;
+}
+.asset-table {
+  font-size: 13px;
+}
+.asset-table th {
+  padding: 13px 20px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+.asset-table td {
+  padding: 14px 20px;
+  vertical-align: top !important;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.asset-table small {
+  margin-top: 5px;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.asset-name {
+  display: inline-block;
+  max-width: 100%;
+  color: var(--link-fg);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.asset-meta {
+  max-width: 100%;
+}
+.asset-code {
+  display: inline-block;
+  max-width: 21ch;
+  overflow: hidden;
+  font-family: "SFMono-Regular", "JetBrains Mono", Consolas, monospace;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.asset-type {
+  font-family: inherit;
+}
+.metric-reading {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.metric-key {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.metric-value {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.metric-value b {
+  font-weight: 600;
+}
+.metric-unit {
+  margin-left: 3px;
+  color: var(--text-2);
+  font-size: 13px;
+  font-weight: 500;
+}
+.metric-count {
+  color: var(--text-3) !important;
+}
+.asset-table .status-chip {
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.asset-table .status-chip.fresh {
+  background: var(--ok-bg);
+  border-color: var(--border);
+  color: var(--ok);
+}
+.asset-table .status-chip.stale {
+  background: var(--danger-bg);
+  border-color: var(--danger-line);
+  color: var(--danger);
+}
+.asset-table .status-chip.no_data,
+.asset-table .status-chip.maintenance,
+.asset-table .status-chip.disabled {
+  background: var(--neutral-bg);
+  border-color: var(--border);
+  color: var(--text-2);
+}
+.asset-table .actions {
+  white-space: nowrap;
+}
+.asset-table .actions button {
+  min-height: 30px;
+  padding: 3px 6px;
+  color: var(--link-fg);
+  font-size: 13px;
+}
+.asset-table .alarm-text {
+  color: var(--danger) !important;
+}
+
+@media (max-width: 850px) {
+  .device-filter-toolbar {
+    grid-template-columns: minmax(170px, 1fr) repeat(2, minmax(110px, 0.55fr));
+  }
+}
+@media (max-width: 600px) {
+  .device-filter-toolbar {
+    grid-template-columns: 1fr 1fr;
+  }
+  .device-filter-toolbar input,
+  .device-filter-toolbar .primary {
+    grid-column: 1 / -1;
+  }
+  .device-filter-toolbar .select-menu,
+  .device-filter-toolbar select {
+    width: 100%;
+  }
+  .device-manager .workspace-stats strong {
+    font-size: 24px;
+  }
+  .asset-table th,
+  .asset-table td {
+    padding-inline: 14px;
+  }
+  .asset-code {
+    max-width: 17ch;
+  }
 }

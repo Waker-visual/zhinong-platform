@@ -11,7 +11,9 @@ import {
 </script>
 
 <template>
-  <div class="toast-region">
+  <div
+    :class="['toast-region', { 'toast-region-top': feedback.notice?.placement === 'top' }]"
+  >
     <!-- 报错常驻：读屏软件立即播报，用户手动关闭或重试 -->
     <div class="toast-stack" aria-live="assertive">
       <p
@@ -52,6 +54,7 @@ import {
         @focusin="pauseNotice"
         @focusout="resumeNotice"
       >
+        <span class="toast-info-mark" aria-hidden="true">i</span>
         <span class="toast-text">{{ feedback.notice.text }}</span>
         <button
           v-if="feedback.notice.actionLabel"

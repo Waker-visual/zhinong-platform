@@ -13,6 +13,8 @@ import { deferDelete, failure, pendingIds } from "../ui/feedback";
 import FarmThumbnail from "./FarmThumbnail.vue";
 import FarmWorkspace from "./FarmWorkspace.vue";
 import { num } from "./presentation";
+import SelectMenu from "../ui/SelectMenu.vue";
+import { important } from "../ui/feedback";
 const props = defineProps({
   role: String,
   revision: Number,
@@ -55,6 +57,12 @@ const totals = computed(() => ({
   plots: farms.value.reduce((n, f) => n + f.plotCount, 0),
   devices: farms.value.reduce((n, f) => n + f.deviceCount, 0),
 }));
+const farmTypeOptions = [
+  { value: "FIELD", label: "大田种植" },
+  { value: "GREENHOUSE", label: "设施农业" },
+  { value: "ORCHARD", label: "果园" },
+  { value: "MIXED", label: "综合经营" },
+];
 async function load() {
   const run = ++sequence;
   busy.value = true;
@@ -82,11 +90,13 @@ async function save() {
   busy.value = true;
   error.value = "";
   try {
+    const creating = !editing.value;
     if (editing.value)
       await api("/farms/" + editing.value.id + "/profile", "PUT", model);
     else await api("/farm-workspaces", "POST", model);
     dialog.value = false;
     await load();
+    important(creating ? "农场已创建" : "农场资料已保存");
     // 顶栏的“当前农场”列表同步更新
     emit("changed");
   } catch (e) {
@@ -313,7 +323,7 @@ onBeforeUnmount(() => {
       >
         <div class="section-title">
           <h2>{{ editing ? "编辑农场资料" : "新增农场" }}</h2>
-          <button aria-label="关闭农场表单" @click="dialog = false">×</button>
+          <button class="close-button" aria-label="关闭农场表单" @click="dialog = false">×</button>
         </div>
         <form v-validate @submit.prevent="save">
           <label
@@ -327,12 +337,11 @@ onBeforeUnmount(() => {
               maxlength="120"
               placeholder="例如：东区生产基地" /></label
           ><label
-            >经营类型<select v-model="model.farmType">
-              <option value="FIELD">大田种植</option>
-              <option value="GREENHOUSE">设施农业</option>
-              <option value="ORCHARD">果园</option>
-              <option value="MIXED">综合经营</option>
-            </select></label
+            >经营类型<SelectMenu
+              v-model="model.farmType"
+              :options="farmTypeOptions"
+              aria-label="经营类型"
+            /></label
           ><label
             >经营说明<textarea
               v-model="model.description"

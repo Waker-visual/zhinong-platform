@@ -55,7 +55,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutside));
 </script>
 
 <template>
-  <div ref="root" class="action-menu">
+  <div ref="root" :class="['action-menu', { open }]">
     <button
       ref="trigger"
       type="button"
@@ -76,7 +76,12 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutside));
       role="menu"
       @keydown="onMenuKey"
     >
-      <li v-for="item in items" :key="item.key" role="none">
+      <li
+        v-for="item in items"
+        :key="item.key"
+        role="none"
+        :class="{ 'danger-row': item.danger }"
+      >
         <button
           type="button"
           role="menuitem"
@@ -84,6 +89,7 @@ onBeforeUnmount(() => document.removeEventListener("pointerdown", onOutside));
           :class="{ danger: item.danger }"
           @click="choose(item)"
         >
+          <AppIcon :name="item.icon || 'more'" />
           {{ item.label }}
         </button>
       </li>

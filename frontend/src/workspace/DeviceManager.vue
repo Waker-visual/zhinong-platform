@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
 import { api, loadError } from "../api";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
-import { reportFailure } from "../ui/feedback";
+import SelectMenu from "../ui/SelectMenu.vue";
+import { reportFailure, toast } from "../ui/feedback";
 import {
   typeNames,
   typeIcons,
@@ -27,7 +28,9 @@ const devices = ref([]),
   page = ref(1);
 const editor = ref(false),
   editAsset = ref(null),
-  detailId = ref("");
+  detailId = ref(""),
+  detailMorphSource = ref(""),
+  detailMorphActive = ref(false);
 let alive = true,
   sequence = 0;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
@@ -48,6 +51,20 @@ const pageCount = computed(() =>
   rows = computed(() =>
     filtered.value.slice((page.value - 1) * 15, page.value * 15),
   );
+const farmOptions = computed(() => [
+  { value: "", label: "选择农场" },
+  ...farms.value.map((farm) => ({ value: farm.id, label: farm.name })),
+]);
+const typeOptions = computed(() => [
+  { value: "", label: "全部类型" },
+  ...Object.entries(typeNames).map(([value, label]) => ({ value, label })),
+]);
+const statusOptions = [
+  { value: "", label: "全部上报状态" },
+  ...["FRESH", "STALE", "NO_DATA", "MAINTENANCE", "DISABLED"].map(
+    (value) => ({ value, label: stateNames[value] }),
+  ),
+];
 async function load() {
   const current = ++sequence;
   busy.value = true;
@@ -77,19 +94,65 @@ function create() {
 }
 function edit(asset) {
   detailId.value = "";
+  detailMorphSource.value = "";
+  detailMorphActive.value = false;
   editAsset.value = asset;
   editor.value = true;
 }
+function canMorph() {
+  return (
+    document.startViewTransition &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+async function openDetail(id) {
+  if (!canMorph()) {
+    detailId.value = id;
+    detailMorphSource.value = "";
+    detailMorphActive.value = false;
+    return;
+  }
+  detailMorphSource.value = `row:${id}`;
+  detailMorphActive.value = true;
+  document.documentElement.classList.add("device-morphing");
+  const transition = document.startViewTransition(async () => {
+    detailId.value = id;
+    await nextTick();
+  });
+  await transition.finished.catch(() => {});
+  detailMorphActive.value = false;
+  document.documentElement.classList.remove("device-morphing");
+}
+async function closeDetail() {
+  if (!detailId.value || !canMorph() || !detailMorphSource.value) {
+    detailId.value = "";
+    detailMorphSource.value = "";
+    detailMorphActive.value = false;
+    return;
+  }
+  detailMorphActive.value = true;
+  document.documentElement.classList.add("device-morphing");
+  const transition = document.startViewTransition(() => {
+    detailId.value = "";
+  });
+  await transition.finished.catch(() => {});
+  detailMorphActive.value = false;
+  detailMorphSource.value = "";
+  document.documentElement.classList.remove("device-morphing");
+}
 async function saved(asset) {
+  const created = !editAsset.value;
   editor.value = false;
   await load();
   detailId.value = asset.id;
+  toast(created ? "设备已创建" : "设备资料已保存");
 }
 async function collect(device) {
   busy.value = true;
   try {
     await api("/assets/" + device.id + "/collect", "POST");
     await load();
+    toast("模拟采集已完成");
   } catch (e) {
     reportFailure(e, () => collect(device));
   } finally {
@@ -152,38 +215,26 @@ onBeforeUnmount(() => {
           autocomplete="off"
           aria-label="搜索设备"
           placeholder="搜索设备名称、编码、型号…"
-        /><select v-model="farmId" aria-label="筛选设备农场">
-          <option value="">全部农场</option>
-          <option v-for="farm in farms" :key="farm.id" :value="farm.id">
-            {{ farm.name }}
-          </option></select
-        ><select v-model="type" aria-label="筛选设备类型">
-          <option value="">全部类型</option>
-          <option v-for="(name, code) in typeNames" :key="code" :value="code">
-            {{ name }}
-          </option></select
-        ><select v-model="status" aria-label="筛选上报状态">
-          <option value="">全部上报状态</option>
-          <option
-            v-for="code in [
-              'FRESH',
-              'STALE',
-              'NO_DATA',
-              'MAINTENANCE',
-              'DISABLED',
-            ]"
-            :key="code"
-            :value="code"
-          >
-            {{ stateNames[code] }}
-          </option></select
-        ><button
+        /><SelectMenu
+          v-model="farmId"
+          aria-label="筛选设备农场"
+          :options="farmOptions"
+        /><SelectMenu
+          v-model="type"
+          aria-label="筛选设备类型"
+          :options="typeOptions"
+        /><SelectMenu
+          v-model="status"
+          aria-label="筛选上报状态"
+          :options="statusOptions"
+        />
+        <button
           v-if="role === 'ADMIN'"
           class="primary"
           @click="create"
           :disabled="!catalog || !farms.length"
         >
-          ＋ 新增设备
+          <span class="add-device-icon" aria-hidden="true">＋</span>新增设备
         </button>
       </div>
       <div class="table-scroll">
@@ -212,13 +263,22 @@ onBeforeUnmount(() => {
               :key="device.id"
               :data-asset-id="device.id"
               role="row"
+              :style="
+                detailMorphActive && detailMorphSource === `row:${device.id}`
+                  ? { viewTransitionName: 'device-morph' }
+                  : null
+              "
             >
               <td role="cell" class="stack-head">
-                <button class="asset-name" @click="detailId = device.id">
+                <button class="asset-name" @click="openDetail(device.id)">
                   {{ typeIcons[device.deviceType] }} {{ device.name }}</button
-                ><small
-                  >{{ device.code }} · {{ typeNames[device.deviceType] }}</small
-                >
+                ><small class="asset-meta"
+                  ><span class="asset-code" :title="device.code">{{
+                    device.code
+                  }}</span
+                  ><span class="asset-type">
+                    · {{ typeNames[device.deviceType] }}</span
+                ></small>
               </td>
               <td role="cell" data-label="农场 / 地块">
                 <button @click="emit('farm', device.farmId)">
@@ -236,12 +296,18 @@ onBeforeUnmount(() => {
                 ><small>{{ sourceNames[device.protocol] }}</small>
               </td>
               <td role="cell" data-label="最新监测">
-                <div v-for="c in device.channels.slice(0, 2)" :key="c.metric">
-                  {{ c.name }}
-                  <b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b>
-                  {{ c.unit }}
+                <div
+                  v-for="c in device.channels.slice(0, 2)"
+                  :key="c.metric"
+                  class="metric-reading"
+                >
+                  <span class="metric-key">{{ c.name }}</span>
+                  <span class="metric-value"
+                    ><b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b
+                    ><span class="metric-unit">{{ c.unit }}</span></span
+                >
                 </div>
-                <small v-if="device.channels.length > 2"
+                <small v-if="device.channels.length > 2" class="metric-count"
                   >共 {{ device.channels.length }} 个指标</small
                 >
               </td>
@@ -252,7 +318,7 @@ onBeforeUnmount(() => {
                 >
               </td>
               <td class="actions" role="cell" data-label="操作">
-                <button @click="detailId = device.id">详情</button
+                <button @click="openDetail(device.id)">详情</button
                 ><button v-if="role === 'ADMIN'" @click="edit(device)">
                   编辑</button
                 ><button
@@ -341,7 +407,8 @@ onBeforeUnmount(() => {
       :key="detailId"
       :id="detailId"
       :role="role"
-      @close="detailId = ''"
+      :transition-name="detailMorphActive ? 'device-morph' : ''"
+      @close="closeDetail"
       @edit="edit"
       @changed="load"
     />

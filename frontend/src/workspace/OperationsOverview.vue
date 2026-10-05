@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { api, loadError } from "../api";
 import AppIcon from "../ui/AppIcon.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
 import "./operations.css";
 
 // 农场运行概览：结构沿用磐隐运维概览——指标卡给结论，时间片健康条看趋势，流水线卡与地块矩阵看明细。
@@ -13,6 +14,12 @@ const hours = ref(168),
   error = ref(""),
   readout = ref(""),
   focusIndex = ref(0);
+const morphId = ref("");
+const rangeOptions = [
+  { value: 24, label: "近 24 小时" },
+  { value: 168, label: "近 7 天" },
+  { value: 720, label: "近 30 天" },
+];
 let sequence = 0;
 
 async function load() {
@@ -56,12 +63,12 @@ function tone(health) {
         ? "orange"
         : "red";
 }
-const moisturePath = computed(() => {
+const moistureLine = computed(() => {
   const values = slices.value.map((s) =>
     s.moisture === null ? null : Number(s.moisture),
   );
   const present = values.filter((v) => v !== null);
-  if (!present.length) return "";
+  if (!present.length) return { path: "", points: [] };
   const pad = Math.max(1, (Math.max(...present) - Math.min(...present)) * 0.15);
   const lo = Math.min(...present) - pad,
     hi = Math.max(...present) + pad;
@@ -69,18 +76,19 @@ const moisturePath = computed(() => {
   const maxGap = Math.max(1, Math.round(180 / data.value.window.sliceMinutes));
   let path = "",
     last = -Infinity;
+  const points = [];
   values.forEach((v, i) => {
     if (v === null) return;
     const x = (i + 0.5) * (1000 / values.length),
       y = 48 - ((v - lo) / (hi - lo)) * 48;
-    // 新起一段时补一个零长度线段，配合圆头线帽让孤立读数显示为一个点
+    points.push({ x: x.toFixed(1), y: y.toFixed(1) });
     path +=
       i - last <= maxGap
         ? `L${x.toFixed(1)} ${y.toFixed(1)}`
-        : `M${x.toFixed(1)} ${y.toFixed(1)}l0 0`;
+        : `M${x.toFixed(1)} ${y.toFixed(1)}`;
     last = i;
   });
-  return path;
+  return { path, points };
 });
 function when(value) {
   if (!value) return "";
@@ -117,9 +125,27 @@ function sliceText(s) {
     ` · 土壤水分均值 ${s.moisture === null ? "—（无读数）" : s.moisture + "%"}`
   );
 }
+function tooltipWhen(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+function sliceTooltip(s) {
+  const span = `${tooltipWhen(s.start)}–${tooltipWhen(s.end)}（UTC+8）`;
+  if (s.health === null) return `${span}\n设备尚未开始上报 · 无样本`;
+  return `${span}\n正常上报 ${s.onTime}/${s.observed} 台 · 健康 ${s.health}%\n土壤水分均值 ${s.moisture === null ? "—（无读数）" : s.moisture + "%"}`;
+}
 function show(index) {
   focusIndex.value = index;
-  readout.value = sliceText(slices.value[index]);
+  readout.value = sliceTooltip(slices.value[index]);
 }
 function onSliceKey(event) {
   const last = slices.value.length - 1;
@@ -132,6 +158,10 @@ function onSliceKey(event) {
   event.preventDefault();
   show(next);
   event.currentTarget.querySelectorAll(".ops-slice")[next]?.focus();
+}
+function openPipeline(card) {
+  morphId.value = card.key;
+  emit("navigate", { page: card.target, morph: card.key });
 }
 
 const pipeline = computed(() => {
@@ -214,7 +244,10 @@ function rowSummary(plot) {
     </p>
     <div class="ops-metrics">
       <article class="ops-card ops-metric">
-        <div class="ops-label"><span>农场待办</span><AppIcon name="tasks" /></div>
+        <div class="ops-label">
+          <span>农场待办</span
+          ><img class="ops-metric-icon" src="/icons/operations/tasks-summary.png" alt="" />
+        </div>
         <div class="ops-value">
           <span v-if="!data" class="skeleton skeleton-number"></span
           ><template v-else>{{ summary.openTasks }}<small>项</small></template>
@@ -235,7 +268,8 @@ function rowSummary(plot) {
       </article>
       <article class="ops-card ops-metric">
         <div class="ops-label">
-          <span>此刻设备上报健康度</span><AppIcon name="devices" />
+          <span>此刻设备上报健康度</span
+          ><img class="ops-metric-icon" src="/icons/operations/health-summary.png" alt="" />
         </div>
         <div
           :class="[
@@ -265,7 +299,8 @@ function rowSummary(plot) {
       </article>
       <article class="ops-card ops-metric">
         <div class="ops-label">
-          <span>未关闭现场问题</span><AppIcon name="patrol" />
+          <span>未关闭现场问题</span
+          ><img class="ops-metric-icon" src="/icons/operations/issue-summary.png" alt="" />
         </div>
         <div class="ops-value">
           <span v-if="!data" class="skeleton skeleton-number"></span
@@ -282,13 +317,15 @@ function rowSummary(plot) {
 
     <section class="ops-card ops-chart" aria-labelledby="ops-chart-title">
       <div class="ops-chart-head">
-        <div>
+        <div class="ops-section-title">
+          <img class="ops-section-icon" src="/icons/operations/monitor-chart.png" alt="" />
           <h3 id="ops-chart-title">设备上报与土壤水分</h3>
-          <select v-model.number="hours" aria-label="统计范围" class="ops-range">
-            <option :value="24">近 24 小时</option>
-            <option :value="168">近 7 天</option>
-            <option :value="720">近 30 天</option>
-          </select>
+          <SelectMenu
+            v-model="hours"
+            aria-label="统计范围"
+            class="ops-range"
+            :options="rangeOptions"
+          />
           <p>
             100 个等距时间片 · 每片约
             {{
@@ -312,43 +349,58 @@ function rowSummary(plot) {
         ><span class="hc-none"><i></i>无样本</span
         ><span class="line-key"><i></i>土壤水分均值</span>
       </div>
-      <div
-        class="ops-slices"
-        role="group"
-        aria-label="各时间片的设备上报健康度与土壤水分，左右方向键切换时间片"
-        @keydown="onSliceKey"
-      >
-        <svg
-          class="ops-line"
-          viewBox="0 0 1000 48"
-          preserveAspectRatio="none"
-          aria-hidden="true"
+      <div class="ops-slice-chart">
+        <div
+          class="ops-slices"
+          role="group"
+          aria-label="各时间片的设备上报健康度与土壤水分，左右方向键切换时间片"
+          @keydown="onSliceKey"
         >
-          <path class="halo" :d="moisturePath" /><path :d="moisturePath" />
-        </svg>
-        <button
-          v-for="(s, i) in slices"
-          :key="s.start"
-          type="button"
-          :class="['ops-slice', 'hc-' + tone(s.health)]"
-          :tabindex="i === focusIndex ? 0 : -1"
-          :aria-label="`时间片 ${i + 1}：${sliceText(s)}`"
-          @mouseenter="show(i)"
-          @focus="show(i)"
-        >
-          <i></i>
-        </button>
-        <span
-          v-if="loading && !slices.length"
-          class="skeleton skeleton-block"
-          aria-hidden="true"
-        ></span>
-        <p v-if="loading && !slices.length" class="sr-only" role="status">
-          正在汇总上报记录…
+          <svg
+            class="ops-line"
+            viewBox="0 0 1000 48"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path class="halo" :d="moistureLine.path" /><path
+              :d="moistureLine.path"
+            />
+          </svg>
+          <div class="ops-points" aria-hidden="true">
+            <span
+              v-for="(point, i) in moistureLine.points"
+              :key="`${point.x}-${point.y}-${i}`"
+              class="ops-point"
+              :style="{ left: `${point.x / 10}%`, top: `${(point.y / 48) * 100}%` }"
+            ></span>
+          </div>
+          <button
+            v-for="(s, i) in slices"
+            :key="s.start"
+            type="button"
+            :class="['ops-slice', 'hc-' + tone(s.health)]"
+            :tabindex="i === focusIndex ? 0 : -1"
+            :aria-label="`时间片 ${i + 1}：${sliceText(s)}`"
+            @mouseenter="show(i)"
+            @focus="show(i)"
+          >
+            <i></i>
+          </button>
+          <span
+            v-if="loading && !slices.length"
+            class="skeleton skeleton-block"
+            aria-hidden="true"
+          ></span>
+          <p v-if="loading && !slices.length" class="sr-only" role="status">
+            正在汇总上报记录…
+          </p>
+        </div>
+        <p v-if="readout" class="ops-readout" aria-live="polite">
+          {{ readout }}
         </p>
       </div>
-      <p class="ops-readout" aria-live="polite">
-        {{ readout || "悬停或用左右方向键查看某个时间片的上报情况与读数。" }}
+      <p class="ops-readout-hint" aria-live="polite">
+        {{ readout ? "悬停或用左右方向键切换时间片。" : "悬停或用左右方向键查看某个时间片的上报情况与读数。" }}
       </p>
       <div class="ops-axis">
         <span>{{ data ? when(data.window.start) : "" }}</span
@@ -376,10 +428,15 @@ function rowSummary(plot) {
         :key="card.key"
         type="button"
         class="ops-card ops-run"
-        @click="emit('navigate', card.target)"
+        :style="morphId === card.key ? { viewTransitionName: 'ops-morph' } : null"
+        @click="openPipeline(card)"
       >
         <span class="ops-art" :style="{ background: card.module }"
-          ><AppIcon :name="card.key"
+          ><img
+            class="ops-icon-art"
+            :src="`/icons/operations/${card.key}.png`"
+            alt=""
+            aria-hidden="true"
         /></span>
         <span class="ops-run-body">
           <b>{{ card.title }}</b>
@@ -392,6 +449,7 @@ function rowSummary(plot) {
     </div>
 
     <div class="ops-sechead">
+      <img class="ops-section-icon" src="/icons/operations/soil-matrix.png" alt="" />
       <h3>地块 × 日期 · 土壤水分</h3>
       <span>每格一天，按设备配置的上下限判定</span>
     </div>

@@ -4,6 +4,8 @@ import { api, loadError } from "../api";
 import { labels } from "../catalog";
 import "./daily-farm.css";
 import ActionMenu from "../ui/ActionMenu.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
+import DatePicker from "../ui/DatePicker.vue";
 const props = defineProps({
   identity: Object,
   farms: Array,
@@ -31,7 +33,9 @@ const modal = ref(""),
   dialogElement = ref(null),
   target = ref(null),
   issueId = ref(""),
-  logs = ref([]);
+  logs = ref([]),
+  dailyMorphSource = ref(""),
+  dailyMorphActive = ref(false);
 const form = reactive({});
 const methods = {
   UNCONFIRMED: "资源待确认",
@@ -73,11 +77,11 @@ function statusTone(t) {
 function moreActions(t) {
   const live = admin.value && ["PENDING", "RUNNING"].includes(t.status);
   return [
-    { key: "history", label: "记录" },
+    { key: "history", label: "记录", icon: "history" },
     ...(live
       ? [
-          { key: "plan", label: "调整安排" },
-          { key: "cancel", label: "取消任务", danger: true },
+          { key: "plan", label: "调整安排", icon: "edit" },
+          { key: "cancel", label: "取消任务", icon: "trash", danger: true },
         ]
       : []),
   ];
@@ -139,6 +143,40 @@ const word = (value) =>
     RESOLVED: "已复核关闭",
   }[value] ||
   value;
+const plotOptions = computed(() => [
+  { value: "", label: "选择地块", disabled: true },
+  ...farmPlots.value.map((p) => ({
+    value: p.id,
+    label: `${p.name} · ${p.crop} · ${p.areaMu} 亩`,
+  })),
+]);
+const categoryOptions = Object.entries(categories).map(([value, label]) => ({
+  value,
+  label,
+}));
+const severityOptions = [
+  { value: "HIGH", label: "优先处理" },
+  { value: "NORMAL", label: "常规跟进" },
+];
+const taskTypeOptions = [
+  "INSPECTION",
+  "PROTECTION",
+  "IRRIGATION",
+  "FERTILIZING",
+  "SOWING",
+  "HARVEST",
+].map((value) => ({ value, label: word(value) }));
+const crewOptions = computed(() => [
+  { value: "", label: "选择执行人员", disabled: true },
+  ...data.value.crew.map((member) => ({
+    value: member.id,
+    label: `${member.displayName} · ${word(member.role)}`,
+  })),
+]);
+const methodOptions = Object.entries(methods).map(([value, label]) => ({
+  value,
+  label,
+}));
 function jump(page, create = false) {
   emit("navigate", { page, farmId: props.farmId, create });
 }
@@ -178,9 +216,36 @@ onBeforeUnmount(() => {
   alive = false;
   ++seq;
 });
+function canMorph() {
+  return (
+    document.startViewTransition &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+function morphSourceFor(row) {
+  if (!row) return "";
+  return row.category ? `issue:${row.id}` : `task:${row.id}`;
+}
+async function showDialog() {
+  await nextTick();
+  if (!dailyMorphSource.value || !canMorph()) {
+    dailyMorphActive.value = false;
+    dialogElement.value?.showModal();
+    return;
+  }
+  dailyMorphActive.value = true;
+  document.documentElement.classList.add("daily-morphing");
+  const transition = document.startViewTransition(() =>
+    dialogElement.value?.showModal(),
+  );
+  await transition.finished.catch(() => {});
+  dailyMorphActive.value = false;
+  document.documentElement.classList.remove("daily-morphing");
+}
 async function open(kind, row = null, status = "") {
   modal.value = kind;
   target.value = row;
+  dailyMorphSource.value = morphSourceFor(row);
   issueId.value = "";
   error.value = "";
   Object.keys(form).forEach((k) => delete form[k]);
@@ -219,19 +284,33 @@ async function open(kind, row = null, status = "") {
       actualAreaMu: status === "COMPLETED" ? Number(row.plotAreaMu) : 0,
     });
   if (kind === "review") Object.assign(form, { note: "" });
-  await nextTick();
-  dialogElement.value?.showModal();
+  await showDialog();
 }
-function close() {
-  if (saving.value) return;
-  dialogElement.value?.close();
-  modal.value = "";
+async function close() {
+  if (!dailyMorphSource.value || !canMorph()) {
+    dialogElement.value?.close();
+    modal.value = "";
+    dailyMorphSource.value = "";
+    dailyMorphActive.value = false;
+    return;
+  }
+  dailyMorphActive.value = true;
+  document.documentElement.classList.add("daily-morphing");
+  const transition = document.startViewTransition(() => {
+    dialogElement.value?.close();
+    modal.value = "";
+  });
+  await transition.finished.catch(() => {});
+  dailyMorphActive.value = false;
+  dailyMorphSource.value = "";
+  document.documentElement.classList.remove("daily-morphing");
 }
 async function submit() {
   if (saving.value) return;
   saving.value = true;
   error.value = "";
   try {
+    const completedKind = modal.value;
     if (modal.value === "issue") await api("/field-work/issues", "POST", form);
     if (modal.value === "plan")
       await api(
@@ -247,9 +326,13 @@ async function submit() {
       await api(`/field-work/tasks/${target.value.id}/progress`, "PATCH", form);
     if (modal.value === "review")
       await api(`/field-work/issues/${target.value.id}/resolve`, "POST", form);
-    dialogElement.value.close();
-    modal.value = "";
-    emit("notice", "记录已保存，农场待办已更新。");
+    await close();
+    emit("notice", {
+      text: "记录已保存，农场待办已更新。",
+      placement: ["progress", "review"].includes(completedKind)
+        ? "top"
+        : "bottom",
+    });
     await load();
   } catch (e) {
     error.value = e.message;
@@ -262,8 +345,8 @@ async function history(row) {
   logs.value = [];
   target.value = row;
   modal.value = "history";
-  await nextTick();
-  dialogElement.value.showModal();
+  dailyMorphSource.value = morphSourceFor(row);
+  await showDialog();
   try {
     logs.value = await api(`/field-work/tasks/${row.id}/logs`);
   } catch (e) {
@@ -465,6 +548,11 @@ async function history(row) {
             :key="t.id"
             class="daily-task"
             :data-task-id="t.id"
+            :style="
+              dailyMorphActive && dailyMorphSource === `task:${t.id}`
+                ? { viewTransitionName: 'daily-morph' }
+                : null
+            "
           >
             <div class="daily-task-line">
               <span :class="['daily-status', statusTone(t)]">{{
@@ -538,6 +626,11 @@ async function history(row) {
               :key="i.id"
               class="daily-issue"
               :data-issue-id="i.id"
+              :style="
+                dailyMorphActive && dailyMorphSource === `issue:${i.id}`
+                  ? { viewTransitionName: 'daily-morph' }
+                  : null
+              "
             >
               <div class="daily-task-line">
                 <b>{{ i.plotName }}</b
@@ -614,6 +707,9 @@ async function history(row) {
     <dialog
       ref="dialogElement"
       class="daily-dialog"
+      :style="
+        dailyMorphActive ? { viewTransitionName: 'daily-morph' } : null
+      "
       @cancel="saving ? $event.preventDefault() : close()"
     >
       <template v-if="modal"
@@ -631,6 +727,7 @@ async function history(row) {
           </h3>
           <button
             type="button"
+            class="close-button"
             aria-label="关闭表单"
             @click="close"
             :disabled="saving"
@@ -641,31 +738,29 @@ async function history(row) {
         <form v-validate v-if="modal !== 'history'" @submit.prevent="submit">
           <template v-if="modal === 'issue' || modal === 'plan'"
             ><label
-              >所属地块<select
+              >所属地块<SelectMenu
                 v-model="form.plotId"
+                :options="plotOptions"
+                aria-label="所属地块"
                 required
                 :disabled="modal === 'plan' && !!target"
-              >
-                <option value="" disabled>选择地块</option>
-                <option v-for="p in farmPlots" :key="p.id" :value="p.id">
-                  {{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩
-                </option>
-              </select></label
+              /></label
             ></template
           >
           <template v-if="modal === 'issue'"
             ><div class="daily-form-grid">
               <label
-                >问题类型<select v-model="form.category">
-                  <option v-for="(v, k) in categories" :key="k" :value="k">
-                    {{ v }}
-                  </option>
-                </select></label
+                >问题类型<SelectMenu
+                  v-model="form.category"
+                  :options="categoryOptions"
+                  aria-label="问题类型"
+                /></label
               ><label
-                >跟进优先级<select v-model="form.severity">
-                  <option value="HIGH">优先处理</option>
-                  <option value="NORMAL">常规跟进</option>
-                </select></label
+                >跟进优先级<SelectMenu
+                  v-model="form.severity"
+                  :options="severityOptions"
+                  aria-label="跟进优先级"
+                /></label
               >
             </div>
             <label
@@ -686,39 +781,32 @@ async function history(row) {
             /></label>
             <div class="daily-form-grid">
               <label
-                >农事类型<select v-model="form.taskType">
-                  <option
-                    v-for="k in [
-                      'INSPECTION',
-                      'PROTECTION',
-                      'IRRIGATION',
-                      'FERTILIZING',
-                      'SOWING',
-                      'HARVEST',
-                    ]"
-                    :key="k"
-                    :value="k"
-                  >
-                    {{ word(k) }}
-                  </option>
-                </select></label
+                >农事类型<SelectMenu
+                  v-model="form.taskType"
+                  :options="taskTypeOptions"
+                  aria-label="农事类型"
+                /></label
               ><label
-                >计划日期<input type="date" v-model="form.dueDate" required
-              /></label>
+                >计划日期<DatePicker
+                  v-model="form.dueDate"
+                  aria-label="计划日期"
+                  required
+                /></label
+              >
             </div>
             <label
-              >负责人<select v-model="form.assigneeId" required>
-                <option value="" disabled>选择执行人员</option>
-                <option v-for="m in data.crew" :key="m.id" :value="m.id">
-                  {{ m.displayName }} · {{ word(m.role) }}
-                </option>
-              </select></label
+              >负责人<SelectMenu
+                v-model="form.assigneeId"
+                :options="crewOptions"
+                aria-label="负责人"
+                required
+              /></label
             ><label
-              >计划作业方式<select v-model="form.method">
-                <option v-for="(v, k) in methods" :key="k" :value="k">
-                  {{ v }}
-                </option>
-              </select></label
+              >计划作业方式<SelectMenu
+                v-model="form.method"
+                :options="methodOptions"
+                aria-label="计划作业方式"
+              /></label
             ><label
               >安排说明<textarea
                 v-model="form.note"
@@ -732,11 +820,11 @@ async function history(row) {
               {{ target.plotName }} · {{ target.title }}
             </p>
             <label
-              >实际作业方式<select v-model="form.method">
-                <option v-for="(v, k) in methods" :key="k" :value="k">
-                  {{ v }}
-                </option>
-              </select></label
+              >实际作业方式<SelectMenu
+                v-model="form.method"
+                :options="methodOptions"
+                aria-label="实际作业方式"
+              /></label
             ><label v-if="form.status === 'COMPLETED'"
               >实际完成面积（亩）<input
                 type="number"

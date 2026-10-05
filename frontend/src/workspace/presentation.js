@@ -56,7 +56,7 @@ export function cropColor(crop = "") {
 export function timeText(value) {
   return value
     ? new Date(value).toLocaleString("zh-CN", { hour12: false })
-    : "暂无记录";
+    : "—";
 }
 export function num(value, digits = 1) {
   return Number(value || 0).toLocaleString("zh-CN", {

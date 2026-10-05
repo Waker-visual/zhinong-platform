@@ -11,6 +11,7 @@ import { api } from "../api";
 import { confirmAction, promptText } from "../ui/confirm";
 import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
 import {
   typeNames,
   sourceNames,
@@ -20,7 +21,11 @@ import {
   lineOption,
   exportHistory,
 } from "./presentation";
-const props = defineProps({ id: String, role: String });
+const props = defineProps({
+  id: String,
+  role: String,
+  transitionName: { type: String, default: "" },
+});
 const emit = defineEmits(["close", "edit", "changed"]);
 const device = ref(null),
   error = ref(""),
@@ -34,6 +39,11 @@ const device = ref(null),
 let alive = true,
   sequence = 0;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
+const hoursOptions = [
+  { value: 24, label: "近 24 小时" },
+  { value: 168, label: "近 7 天" },
+  { value: 720, label: "近 30 天" },
+];
 const chart = computed(() =>
   lineOption(history.value?.points || [], history.value?.metric?.unit || ""),
 );
@@ -91,6 +101,7 @@ async function sample() {
     await refresh();
     await loadHistory();
     emit("changed");
+    toast("模拟采集已完成");
   });
 }
 async function saveManual() {
@@ -105,6 +116,7 @@ async function saveManual() {
     await loadHistory();
     emit("changed");
     note.value = "监测数据已保存";
+    toast("监测数据已保存");
   });
 }
 // 凭据按 4 位分组显示，便于逐段核对；分组靠间距，选中复制得到的仍是原文
@@ -134,6 +146,7 @@ async function rotate() {
     key.value = result.key;
     await refresh();
     emit("changed");
+    toast("接入凭据已重新生成");
   });
 }
 async function handle(alert, status) {
@@ -150,6 +163,7 @@ async function handle(alert, status) {
     await api("/alerts/" + alert.id, "PATCH", { status, note: text.trim() });
     await refresh();
     emit("changed");
+    toast(closing ? "告警已关闭" : "告警已确认");
   });
 }
 watch([metric, hours], () => {
@@ -170,13 +184,14 @@ onBeforeUnmount(() => {
       role="dialog"
       aria-modal="true"
       aria-label="设备详情"
+      :style="props.transitionName ? { viewTransitionName: props.transitionName } : null"
     >
       <div class="section-title">
         <div>
           <p class="eyebrow">设备详情</p>
           <h2>{{ device?.name || "正在加载设备…" }}</h2>
         </div>
-        <button aria-label="关闭设备详情" @click="emit('close')">×</button>
+        <button class="close-button" aria-label="关闭设备详情" @click="emit('close')">×</button>
       </div>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <template v-if="device">
@@ -241,11 +256,11 @@ onBeforeUnmount(() => {
           <div class="section-title">
             <h3>监测趋势</h3>
             <div class="inline-controls">
-              <select v-model.number="hours" aria-label="历史时间范围">
-                <option :value="24">近 24 小时</option>
-                <option :value="168">近 7 天</option>
-                <option :value="720">近 30 天</option></select
-              ><button
+              <SelectMenu
+                v-model="hours"
+                :options="hoursOptions"
+                aria-label="历史时间范围"
+              /><button
                 class="outline"
                 @click="history && exportHistory(history)"
                 :disabled="!history?.points.length"

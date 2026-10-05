@@ -297,9 +297,34 @@
   background: var(--surface);
   color: var(--text);
 }
+.daily-dialog > .daily-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  align-items: flex-start;
+  margin: -26px 0 18px;
+  padding: 16px 0 12px;
+  background: var(--surface);
+}
+.daily-dialog > .daily-section-title h3 {
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.25;
+}
 .daily-dialog::backdrop {
   background: var(--backdrop);
   backdrop-filter: blur(3px);
+}
+/* 任务/问题卡片 ⇄ 记录弹窗：弹窗沿用来源卡片的容器边界展开。 */
+::view-transition-group(daily-morph) {
+  animation-duration: 420ms;
+  animation-timing-function: var(--ease-expo);
+}
+::view-transition-old(daily-morph),
+::view-transition-new(daily-morph) {
+  height: 100%;
+  overflow: clip;
+  border-radius: var(--radius-lg);
 }
 .daily-dialog textarea {
   resize: vertical;

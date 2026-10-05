@@ -107,7 +107,7 @@ function onKey(event) {
         placeholder="搜索页面或操作…"
         @keydown="onKey"
       />
-      <button type="button" class="icon-button" aria-label="关闭" @click="close">
+      <button type="button" class="close-button" aria-label="关闭" @click="close">
         ×
       </button>
     </div>

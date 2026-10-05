@@ -23,6 +23,33 @@ button {
   background: none;
   color: inherit;
 }
+/* 滚动条融入圆角容器：轨道透明，滑块内缩并保持圆角，不额外制造直角边框。 */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+:where(*) {
+  scrollbar-color: var(--scroll-thumb) transparent;
+  scrollbar-width: thin;
+}
+:where(*)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+:where(*)::-webkit-scrollbar-track {
+  background: transparent;
+}
+:where(*)::-webkit-scrollbar-thumb {
+  min-height: 36px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scroll-thumb);
+  background-clip: padding-box;
+}
+:where(*)::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  background-clip: padding-box;
+}
 button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -36,6 +63,13 @@ select {
   outline: none;
   width: 100%;
   color: var(--text);
+}
+option {
+  background: var(--surface);
+  color: var(--text);
+}
+option:disabled {
+  color: var(--text-3);
 }
 /* 搜索框保留清除按钮，但不用 Safari 的圆角原生外观 */
 input[type="search"] {
@@ -206,16 +240,21 @@ label select {
   margin-top: 24px;
 }
 .primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--primary-bg);
   color: var(--primary-fg);
   border: 1px solid var(--primary-bg);
   border-radius: var(--radius-sm);
-  padding: 11px 17px;
+  padding: 12px 17px 10px;
   font-size: 13px;
   font-weight: 500;
+  line-height: 1;
 }
 .primary:hover {
   background: var(--primary-hover);
+  border-color: var(--primary-hover);
 }
 .outline {
   border: 1px solid var(--border);
@@ -256,9 +295,15 @@ main {
   margin-bottom: 26px;
 }
 .page-heading h1 {
-  font-size: 27px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
 }
 .page-heading .muted {
+  color: var(--text-2);
+  font-size: 14px;
+  line-height: 1.5;
   margin-top: 9px;
 }
 .welcome-banner {
@@ -455,6 +500,18 @@ main {
 .badge.cancelled {
   color: var(--label-fg);
 }
+.badge.alert,
+.badge.error,
+.badge.stale {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+.badge.no_data,
+.badge.maintenance,
+.badge.disabled {
+  background: var(--neutral-bg);
+  color: var(--text-2);
+}
 .farm-card {
   padding: 20px 0;
   display: flex;
@@ -551,22 +608,24 @@ table {
   width: 100%;
   border-collapse: collapse;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
 }
 th {
   background: var(--subtle-bg);
-  font-weight: 500;
   color: var(--text-2);
-  padding: 14px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 13px 20px;
   white-space: nowrap;
 }
 td {
-  padding: 20px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
   color: var(--text);
   max-width: 300px;
-  line-height: 1.7;
+  line-height: 1.55;
+  vertical-align: top;
   overflow-wrap: anywhere;
 }
 tbody tr:last-child td {
@@ -654,10 +713,6 @@ footer {
 .modal label {
   margin-top: 18px;
 }
-.modal .section-title button {
-  font-size: 25px;
-  color: var(--label-fg);
-}
 .modal-actions {
   display: flex;
   gap: 12px;
@@ -692,7 +747,7 @@ footer {
     padding: 32px;
   }
   .page-heading h1 {
-    font-size: 24px;
+    font-size: 20px;
   }
   .page-heading .muted {
     font-size: 12px;

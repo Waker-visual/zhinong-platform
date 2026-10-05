@@ -12,6 +12,7 @@ import "leaflet/dist/leaflet.css";
 import { AuthenticatedTileLayer } from "./AuthenticatedTileLayer";
 import { cropColor, typeIcons, typeNames, stateNames } from "./presentation";
 import { tokenColor } from "../ui/tokens";
+import SelectMenu from "../ui/SelectMenu.vue";
 const props = defineProps({
   geo: Object,
   plots: Array,
@@ -82,6 +83,19 @@ const shownDevices = computed(() =>
     (d) => !props.typeFilter || d.deviceType === props.typeFilter,
   ),
 );
+const mapModeOptions = [
+  { value: "SATELLITE", label: "卫星影像" },
+  { value: "STREET", label: "街道地图" },
+  { value: "PLAN", label: "离线平面图" },
+];
+const plotOptions = computed(() => [
+  { value: "", label: "选择地块" },
+  ...props.plots.map((plot) => ({ value: plot.id, label: plot.name })),
+]);
+const deviceOptions = computed(() => [
+  { value: "", label: "选择设备" },
+  ...props.devices.map((device) => ({ value: device.id, label: device.name })),
+]);
 function label(text) {
   const node = document.createElement("span");
   node.textContent = text;
@@ -432,11 +446,12 @@ onBeforeUnmount(() => {
         ><small>{{ geo?.locationLabel || "示例位置待校准" }}</small>
       </div>
       <div class="map-layer-controls">
-        <select v-model="viewMode" aria-label="地图底图" :disabled="editing">
-          <option value="SATELLITE">卫星影像</option>
-          <option value="STREET">街道地图</option>
-          <option value="PLAN">离线平面图</option>
-        </select>
+        <SelectMenu
+          v-model="viewMode"
+          aria-label="地图底图"
+          :options="mapModeOptions"
+          :disabled="editing"
+        />
         <button
           v-if="editable"
           class="light-button"
@@ -510,12 +525,11 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="editing" class="map-editor">
       <div class="map-editor-row">
-        <select v-model="targetPlot" aria-label="绘制地块">
-          <option value="">选择地块</option>
-          <option v-for="p in plots" :value="p.id" :key="p.id">
-            {{ p.name }}
-          </option></select
-        ><button @click="startDraw">绘制边界</button
+        <SelectMenu
+          v-model="targetPlot"
+          aria-label="绘制地块"
+          :options="plotOptions"
+        /><button @click="startDraw">绘制边界</button
         ><button @click="completeDraw" :disabled="tool !== 'plot'">
           完成边界</button
         ><button
@@ -529,12 +543,11 @@ onBeforeUnmount(() => {
         ><button @click="clearShape" :disabled="!targetPlot">清除边界</button>
       </div>
       <div class="map-editor-row">
-        <select v-model="targetDevice" aria-label="定位设备">
-          <option value="">选择设备</option>
-          <option v-for="d in devices" :value="d.id" :key="d.id">
-            {{ d.name }}
-          </option></select
-        ><button
+        <SelectMenu
+          v-model="targetDevice"
+          aria-label="定位设备"
+          :options="deviceOptions"
+        /><button
           @click="
             tool = 'place';
             hint = '在地图点击设备安装位置';
@@ -569,7 +582,8 @@ onBeforeUnmount(() => {
       }}</span>
     </div>
     <p v-if="!plots.some((p) => p.boundary?.length)" class="map-empty-tip">
-      尚未绘制地块。管理员可选择“编辑平面图”，为已建档地块绘制边界并放置设备。
+      <span class="toast-info-mark" aria-hidden="true">i</span>
+      <span>尚未绘制地块。管理员可选择“编辑平面图”，为已建档地块绘制边界并放置设备。</span>
     </p>
   </section>
 </template>

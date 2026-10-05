@@ -1,7 +1,17 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+} from "vue";
 import { api } from "../api";
 import { labels } from "../catalog";
+import AppIcon from "../ui/AppIcon.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
+import { important, toast } from "../ui/feedback";
 import { applyAppearance } from "./appearance";
 const props = defineProps({ account: Object });
 const emit = defineEmits(["close", "updated", "password-changed"]);
@@ -10,7 +20,9 @@ const tab = ref(props.account.mustChangePassword ? "security" : "profile"),
   message = ref(""),
   busy = ref(false),
   members = ref([]),
-  memberSearch = ref("");
+  memberSearch = ref(""),
+  settingsSearch = ref("");
+const settingsSearchInput = ref(null);
 const profile = reactive({
   displayName: props.account.displayName,
   avatarData: props.account.avatarData || "",
@@ -33,20 +45,35 @@ const newMember = reactive({
   password: "",
   role: "OPERATOR",
 });
+const themeModeOptions = [
+  { value: "SYSTEM", label: "跟随系统" },
+  { value: "LIGHT", label: "浅色" },
+  { value: "DARK", label: "深色" },
+];
+const memberRoleOptions = [
+  { value: "OPERATOR", label: "操作员" },
+  { value: "VIEWER", label: "查看者" },
+  { value: "ADMIN", label: "租户管理员" },
+];
 const reset = reactive({ currentPassword: "", newPassword: "" });
 const tabs = computed(() =>
   props.account.mustChangePassword
-    ? [{ id: "security", name: "账号安全", icon: "◇" }]
+    ? [{ id: "security", name: "账号安全", icon: "security" }]
     : [
-        { id: "profile", name: "个人资料", icon: "◉" },
-        { id: "security", name: "账号安全", icon: "◇" },
-        { id: "appearance", name: "外观设置", icon: "◐" },
+        { id: "profile", name: "个人资料", icon: "profile" },
+        { id: "security", name: "账号安全", icon: "security" },
+        { id: "appearance", name: "外观设置", icon: "appearance" },
         ...(props.account.role === "ADMIN"
-          ? [{ id: "team", name: "成员管理", icon: "♙" }]
+          ? [{ id: "team", name: "成员管理", icon: "team" }]
           : []),
-        { id: "about", name: "系统信息", icon: "ⓘ" },
+        { id: "about", name: "系统信息", icon: "info" },
       ],
 );
+const filteredTabs = computed(() => {
+  const query = settingsSearch.value.trim().toLowerCase();
+  if (!query) return tabs.value;
+  return tabs.value.filter((item) => item.name.toLowerCase().includes(query));
+});
 const filteredMembers = computed(() =>
   members.value.filter((m) =>
     (m.username + " " + m.displayName)
@@ -84,6 +111,7 @@ function saveProfile() {
     const data = await api("/account/profile", "PUT", profile);
     emit("updated", data);
     message.value = "个人资料已保存";
+    important("个人资料已保存");
   });
 }
 function preview() {
@@ -95,6 +123,7 @@ function saveAppearance() {
     emit("updated", data);
     applyAppearance(data);
     message.value = "外观已保存，并在此账号下同步";
+    important("外观已保存，并在此账号下同步");
   });
 }
 function changePassword() {
@@ -165,6 +194,7 @@ function createMember() {
     newMember.password = "";
     await loadMembers();
     message.value = "成员已创建，请将初始密码交给本人";
+    toast("成员已创建");
   });
 }
 function toggleMember(member) {
@@ -172,6 +202,7 @@ function toggleMember(member) {
     await api("/members/" + member.id, "PATCH", { enabled: !member.enabled });
     await loadMembers();
     message.value = "成员状态已更新";
+    toast("成员状态已更新");
   });
 }
 function openReset(member) {
@@ -194,9 +225,11 @@ function resetPassword() {
     reset.newPassword = "";
     await loadMembers();
     message.value = "密码已重置；成员旧会话已退出，下次登录必须设置新密码";
+    toast("成员密码已重置");
   });
 }
 onMounted(() => work(loadMembers));
+onMounted(() => nextTick(() => settingsSearchInput.value?.focus()));
 onBeforeUnmount(() => applyAppearance(props.account));
 </script>
 <template>
@@ -213,34 +246,37 @@ onBeforeUnmount(() => applyAppearance(props.account));
       <aside class="settings-nav">
         <div class="settings-title">
           <h2>设置</h2>
-          <button
-            v-if="!account.mustChangePassword"
-            aria-label="关闭设置"
-            @click="emit('close')"
-          >
-            ×
-          </button>
         </div>
+        <label class="settings-search">
+          <AppIcon name="search" />
+          <input
+            ref="settingsSearchInput"
+            v-model="settingsSearch"
+            type="search"
+            autocomplete="off"
+            placeholder="搜索设置"
+            aria-label="搜索设置"
+          />
+        </label>
         <button
-          v-for="item in tabs"
+          v-for="item in filteredTabs"
           :key="item.id"
           :class="{ active: tab === item.id }"
           @click="switchTab(item.id)"
           :disabled="busy"
         >
-          <span>{{ item.icon }}</span
-          >{{ item.name }}</button
-        ><small>{{ account.tenantName }}<br />{{ labels[account.role] }}</small>
+          <AppIcon :name="item.icon" />{{ item.name }}</button
+        ><p v-if="!filteredTabs.length" class="settings-empty">没有匹配的设置</p>
+        <small>{{ account.tenantName }}<br />{{ labels[account.role] }}</small>
       </aside>
       <div class="settings-content">
         <header>
           <div>
-            <p class="eyebrow">账号设置</p>
             <h2>{{ tabs.find((t) => t.id === tab)?.name }}</h2>
           </div>
           <button
             v-if="!account.mustChangePassword"
-            class="settings-close"
+            class="close-button settings-close"
             aria-label="返回工作空间"
             @click="emit('close')"
           >
@@ -339,20 +375,23 @@ onBeforeUnmount(() => applyAppearance(props.account));
           </div>
         </form>
         <form v-validate v-if="tab === 'appearance'" @submit.prevent="saveAppearance">
-          <p class="muted">先预览再保存。未保存关闭设置时恢复原来的外观。</p>
+          <p class="muted">
+            先预览再保存。未保存关闭设置时恢复原来的外观；跟随系统时按本地时区的冬、夏令时日间时段自动切换。
+          </p>
           <label
-            >显示模式<select v-model="appearance.themeMode" @change="preview">
-              <option value="SYSTEM">跟随系统</option>
-              <option value="LIGHT">浅色</option>
-              <option value="DARK">深色</option>
-            </select></label
+            >显示模式<SelectMenu
+              v-model="appearance.themeMode"
+              :options="themeModeOptions"
+              aria-label="显示模式"
+              @change="preview"
+            /></label
           >
           <h3>主题颜色</h3>
           <div class="accent-options">
             <button
               type="button"
               v-for="item in [
-                { code: 'FOREST', name: '田园绿' },
+                { code: 'FOREST', name: '默认黑白' },
                 { code: 'BLUE', name: '湖泊蓝' },
                 { code: 'AMBER', name: '麦穗金' },
                 { code: 'ROSE', name: '玫瑰紫' },
@@ -371,7 +410,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
           <div class="appearance-preview">
             <h3>你的农场工作空间</h3>
             <p>
-              主题颜色用于品牌标识和当前菜单的指示条；按钮、任务状态和底色保持固定配色，便于区分。
+              主题颜色会应用到品牌标识、主操作、链接、焦点环和当前菜单指示条；任务状态色保持固定，避免混淆含义。
             </p>
             <div class="appearance-preview-nav" aria-hidden="true">
               <b>禾</b>今日农场
@@ -418,11 +457,11 @@ onBeforeUnmount(() => applyAppearance(props.account));
                 required
                 maxlength="80" /></label
             ><label
-              >成员角色<select v-model="newMember.role">
-                <option value="OPERATOR">操作员</option>
-                <option value="VIEWER">查看者</option>
-                <option value="ADMIN">租户管理员</option>
-              </select></label
+              >成员角色<SelectMenu
+                v-model="newMember.role"
+                :options="memberRoleOptions"
+                aria-label="成员角色"
+              /></label
             ><label
               >初始密码<input
                 type="password"

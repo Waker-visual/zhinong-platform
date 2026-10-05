@@ -1,7 +1,7 @@
 /* 智禾农场设计令牌。
  * 沿用磐隐情报系统的两层结构：第一层是取样定下的角色色，第二层是组件引用的语义别名。
  * 组件样式只引用第二层，不写色值；tools/check_project.cjs 会检查本文件以外的样式色值。
- * 主题由 appearance.js 写入 html[data-theme]；data-accent 只改变品牌标识与当前菜单指示条。 */
+ * 主题由 appearance.js 写入 html[data-theme]；data-accent 负责品牌、主操作、链接、焦点和选中态。 */
 :root {
   /* 浅色角色色 */
   --light-page: #fcfcfb;
@@ -34,32 +34,35 @@
   --dark-primary: #ffffff;
   --dark-link: #8dc3fb;
   --dark-focus: #2a78d6;
-  /* 主题色：账号可选四种，每种分浅色与深色两档 */
-  --accent-forest: #2f7346;
-  --accent-forest-soft: #e0f5e5;
-  --accent-forest-dark: #79c58e;
-  --accent-forest-dark-soft: #193521;
-  --accent-forest-dark-on: #0a2011;
-  --accent-blue: #32669a;
-  --accent-blue-soft: #e0f1ff;
-  --accent-blue-dark: #79b6f4;
-  --accent-blue-dark-soft: #192f46;
-  --accent-blue-dark-on: #0b1c2c;
-  --accent-amber: #875814;
-  --accent-amber-soft: #fcecd9;
-  --accent-amber-dark: #dea45f;
-  --accent-amber-dark-soft: #3e290f;
-  --accent-amber-dark-on: #261704;
-  --accent-rose: #8d4a6b;
-  --accent-rose-soft: #ffe7f1;
-  --accent-rose-dark: #e694bb;
-  --accent-rose-dark-soft: #412331;
-  --accent-rose-dark-on: #28121d;
+  /* 主题色：按常见开源设计系统的浅色 50/700、深色 300/950 对照搭配 */
+  /* FOREST 是历史存储值，视觉上作为默认黑白主题保留兼容。 */
+  --accent-forest: #18181b;
+  --accent-forest-soft: #f4f4f5;
+  --accent-forest-dark: #f4f4f5;
+  --accent-forest-dark-soft: #27272a;
+  --accent-forest-dark-on: #18181b;
+  --accent-blue: #2563eb;
+  --accent-blue-soft: #dbeafe;
+  --accent-blue-dark: #60a5fa;
+  --accent-blue-dark-soft: #172554;
+  --accent-blue-dark-on: #081a3a;
+  --accent-amber: #b45309;
+  --accent-amber-soft: #fef3c7;
+  --accent-amber-dark: #fbbf24;
+  --accent-amber-dark-soft: #451a03;
+  --accent-amber-dark-on: #291000;
+  --accent-rose: #be185d;
+  --accent-rose-soft: #fce7f3;
+  --accent-rose-dark: #f472b6;
+  --accent-rose-dark-soft: #4a0d25;
+  --accent-rose-dark-on: #2c0717;
   --brand-light: var(--accent-forest);
   --brand-light-soft: var(--accent-forest-soft);
   --brand-dark: var(--accent-forest-dark);
   --brand-dark-soft: var(--accent-forest-dark-soft);
   --brand-dark-on: var(--accent-forest-dark-on);
+  --brand-light-hover: color-mix(in srgb, var(--brand-light) 88%, #000000);
+  --brand-dark-hover: color-mix(in srgb, var(--brand-dark) 84%, #ffffff);
   /* 模块色：取自磐隐流水线卡底色，两种主题都不翻转，上面的文字和图标用 --on-module */
   --module-patrol: #e3dacc;
   --module-irrigation: #6a9bcc;
@@ -69,6 +72,7 @@
   --module-harvest: #f2c14e;
   --module-simulation: #bcd1ca;
   --on-module: #141413;
+  --icon-art-filter: none;
   /* 叠在卫星影像与照片上的元素，与界面主题无关 */
   --on-image: #ffffff;
   --image-scrim: rgba(11, 11, 11, 0.72);
@@ -100,11 +104,14 @@
   --border-strong: var(--light-strong-line);
   /* 输入框边界需 ≥3:1，磐隐原值 #dededd 只有 1.33:1 */
   --input-line: var(--light-muted);
-  --link-fg: var(--light-link);
-  --focus-ring: var(--light-focus);
-  --primary-bg: var(--light-text);
+  --link-fg: var(--brand-light);
+  --focus-ring: var(--brand-light);
+  --date-selected: var(--light-focus);
+  --date-selected-fg: var(--light-surface);
+  /* 主操作按钮使用当前主题色；悬停时沿同一色阶变化。 */
+  --primary-bg: var(--brand-light);
   --primary-fg: var(--light-surface);
-  --primary-hover: var(--light-secondary);
+  --primary-hover: var(--brand-light-hover);
   --brand: var(--brand-light);
   --brand-soft: var(--brand-light-soft);
   --on-brand: var(--light-surface);
@@ -123,7 +130,15 @@
   --danger: #be3b2b;
   --danger-bg: #fbefec;
   --danger-line: #ebd5d0;
+  --danger-on: var(--light-surface);
   --neutral-bg: var(--light-control);
+  /* 普通提示沿用当前主题的表面层，避免浅色主题出现黑底、深色主题出现白底。 */
+  --toast-bg: var(--light-surface);
+  --toast-fg: var(--light-text);
+  --toast-line: var(--light-line);
+  --toast-shadow: 0 12px 28px -2px rgba(11, 11, 11, 0.16), 0 0 0 1px rgba(11, 11, 11, 0.04);
+  --scroll-thumb: var(--light-strong-line);
+  --scroll-thumb-hover: var(--light-label);
   /* 浅色下健康色加深一档，色块对页面底 ≥3:1 */
   --health-green: #5f8f1f;
   --health-brown: #a8841a;
@@ -143,6 +158,7 @@
   --font-sans: "Zhihe Latin", "Zhihe Han", "PingFang SC", "Microsoft YaHei UI",
     "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Zhihe Han", monospace;
+  --font-serif: Georgia, "Songti SC", "STSong", "SimSun", serif;
   /* 展开用磐隐的 expo，收起用加速曲线 */
   --ease-expo: cubic-bezier(0.19, 1, 0.22, 1);
   --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
@@ -189,11 +205,13 @@ html[data-theme="dark"],
   --border: var(--dark-line);
   --border-strong: var(--dark-control-line);
   --input-line: var(--dark-text-muted);
-  --link-fg: var(--dark-link);
-  --focus-ring: var(--dark-focus);
-  --primary-bg: var(--dark-primary);
-  --primary-fg: var(--dark-page);
-  --primary-hover: var(--dark-text);
+  --link-fg: var(--brand-dark);
+  --focus-ring: var(--brand-dark);
+  --date-selected: var(--dark-focus);
+  --date-selected-fg: var(--dark-primary);
+  --primary-bg: var(--brand-dark);
+  --primary-fg: var(--brand-dark-on);
+  --primary-hover: var(--brand-dark-hover);
   --brand: var(--brand-dark);
   --brand-soft: var(--brand-dark-soft);
   --on-brand: var(--brand-dark-on);
@@ -210,7 +228,15 @@ html[data-theme="dark"],
   --danger: #f0876f;
   --danger-bg: #3c0e0e;
   --danger-line: #5a2420;
+  --danger-on: var(--dark-text);
   --neutral-bg: var(--dark-control);
+  --toast-bg: var(--dark-surface);
+  --toast-fg: var(--dark-text);
+  --toast-line: var(--dark-line);
+  --toast-shadow: 0 12px 28px -2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --scroll-thumb: var(--dark-control-line);
+  --scroll-thumb-hover: var(--dark-text-muted);
+  --icon-art-filter: invert(1) opacity(0.9);
   --health-green: #76ad2a;
   --health-brown: #d2a92a;
   --hero-bg: color-mix(in srgb, var(--module-patrol) 12%, var(--dark-surface));
@@ -247,10 +273,10 @@ html .app-layout {
   padding: 20px;
 }
 .settings-dialog {
-  width: min(1000px, 96vw);
+  width: min(1040px, 96vw);
   height: min(740px, 92vh);
   display: grid;
-  grid-template-columns: 210px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   overflow: hidden;
   background: var(--surface);
   color: var(--text);
@@ -261,32 +287,80 @@ html .app-layout {
 .settings-nav {
   background: var(--nav-bg);
   border-right: 1px solid var(--border);
-  padding: 24px 15px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 .settings-title {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px 20px;
+  padding: 2px 8px 14px;
 }
 .settings-title h2 {
   margin: 0;
   font-size: 22px;
+  font-weight: 600;
+  line-height: 1.2;
 }
-.settings-title button {
-  display: none;
+.settings-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin: 0 0 10px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--input-bg);
+  color: var(--label-fg);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+.settings-search:focus-within {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.settings-search .app-icon {
+  width: 17px;
+  height: 17px;
+  flex: none;
+  align-self: center;
+}
+.settings-search input {
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  display: block;
+  font-size: 14px;
+  line-height: 1.4;
+}
+.settings-search input:focus-visible {
+  border: 0;
+  outline: none;
 }
 .settings-nav > button {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 13px;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
   text-align: left;
   color: var(--text-2);
   border-radius: var(--radius-sm);
+  font-size: 14px;
+}
+.settings-nav > button .app-icon {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--label-fg);
+  stroke-width: 1.6;
 }
 .settings-nav > button:hover {
   background: var(--control-hover);
@@ -296,29 +370,56 @@ html .app-layout {
   color: var(--text);
   font-weight: 600;
 }
+.settings-nav > button.active .app-icon {
+  color: currentColor;
+}
+.settings-empty {
+  margin: 6px 10px;
+  color: var(--label-fg);
+  font-size: 13px;
+}
 .settings-nav > small {
   margin-top: auto;
-  padding: 14px;
-  line-height: 1.9;
+  padding: 8px;
+  line-height: 1.6;
   color: var(--label-fg);
 }
 .settings-content {
-  padding: 30px 34px;
+  position: relative;
+  padding: 30px 34px 34px;
   overflow: auto;
   min-width: 0;
+  scrollbar-gutter: stable;
 }
 .settings-content > header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  min-height: 40px;
+  margin: -30px 48px 24px 0;
+  padding: 16px 0 12px;
+  background: var(--surface);
 }
 .settings-content > header h2 {
-  margin: 3px 0;
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
 }
 .settings-close {
-  font-size: 26px;
-  color: var(--label-fg);
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+.settings-dialog .settings-close {
+  border-color: transparent;
+  background: transparent;
+}
+.settings-dialog .settings-close:hover:not(:disabled),
+.settings-dialog .settings-close:focus-visible {
+  border-color: transparent;
+  background: var(--control-hover);
 }
 .settings-content form > label {
   margin-bottom: 20px;
@@ -583,7 +684,7 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
     padding: 20px;
   }
   .settings-content > header {
-    margin-bottom: 20px;
+    margin: -20px 48px 20px 0;
   }
   .settings-facts {
     grid-template-columns: 1fr;
