@@ -13,6 +13,7 @@ import { AuthenticatedTileLayer } from "./AuthenticatedTileLayer";
 import { cropColor, typeIcons, typeNames, stateNames } from "./presentation";
 import { tokenColor } from "../ui/tokens";
 import SelectMenu from "../ui/SelectMenu.vue";
+import { planToWgs84, wgs84ToPlan, assetPlanPoint } from "./coordinates";
 const props = defineProps({
   geo: Object,
   plots: Array,
@@ -48,27 +49,24 @@ const viewMode = ref(props.geo?.mode || "SATELLITE"),
   failedTiles = ref(0),
   slowLoad = ref(false);
 const geographic = computed(() => viewMode.value !== "PLAN");
-function extent() {
-  const g = props.geo || {
-    latitude: 47.26,
-    longitude: 132.73,
-    widthMeters: 1600,
-    heightMeters: 1120,
-  };
-  const dy = g.heightMeters / 111320,
-    dx = g.widthMeters / (111320 * Math.cos((g.latitude * Math.PI) / 180));
-  return { west: g.longitude - dx / 2, north: g.latitude + dy / 2, dx, dy };
+function reference() {
+  return (
+    props.geo || {
+      latitude: 47.26,
+      longitude: 132.73,
+      widthMeters: 1600,
+      heightMeters: 1120,
+    }
+  );
 }
 const xy = (p) => {
   if (!geographic.value) return L.latLng(700 - p[1], p[0]);
-  const b = extent();
-  return L.latLng(b.north - (p[1] / 700) * b.dy, b.west + (p[0] / 1000) * b.dx);
+  return L.latLng(planToWgs84(p, reference()));
 };
 const fromLatLng = (p) => {
-  const b = extent();
   return (
     geographic.value
-      ? [((p.lng - b.west) / b.dx) * 1000, ((b.north - p.lat) / b.dy) * 700]
+      ? wgs84ToPlan(p.lat, p.lng, reference())
       : [p.lng, 700 - p.lat]
   ).map((n) => Math.round(n * 100) / 100);
 };
@@ -110,6 +108,9 @@ function begin() {
     deviceId: d.id,
     x: d.planX,
     y: d.planY,
+    locationMode: d.locationMode || "LOCAL_PLAN",
+    latitude: d.latitude ?? null,
+    longitude: d.longitude ?? null,
   }));
   baseRevision.value = props.revision;
   editing.value = true;
@@ -134,8 +135,47 @@ function plotPoints(p) {
 function devicePoint(d) {
   const p = editing.value
     ? positions.value.find((p) => p.deviceId === d.id)
-    : { x: d.planX, y: d.planY };
-  return p?.x == null || p?.y == null ? null : [Number(p.x), Number(p.y)];
+    : { ...d, x: d.planX, y: d.planY };
+  return p
+    ? assetPlanPoint({ ...p, planX: p.x, planY: p.y }, reference())
+    : null;
+}
+function placeDevice(id, point) {
+  const position = positions.value.find((p) => p.deviceId === id);
+  if (geographic.value || position.locationMode === "WGS84") {
+    const [latitude, longitude] = planToWgs84(point, reference());
+    Object.assign(position, {
+      x: null,
+      y: null,
+      locationMode: "WGS84",
+      latitude,
+      longitude,
+    });
+  } else {
+    Object.assign(position, {
+      x: point[0],
+      y: point[1],
+      locationMode: "LOCAL_PLAN",
+      latitude: null,
+      longitude: null,
+    });
+  }
+}
+function clearPosition() {
+  const position = positions.value.find(
+    (p) => p.deviceId === targetDevice.value,
+  );
+  if (position)
+    Object.assign(position, {
+      x: null,
+      y: null,
+      locationMode: "LOCAL_PLAN",
+      latitude: null,
+      longitude: null,
+    });
+  tool.value = "select";
+  hint.value = "点位已清除，保存后生效；设备台账和历史保留。";
+  render();
 }
 function render() {
   if (!map) return;
@@ -148,7 +188,9 @@ function render() {
       if (points.length < 3) continue;
       const polygon = L.polygon(points.map(xy), {
         color: paint(
-          props.selectedPlot === p.id ? "var(--module-harvest)" : "var(--on-image)",
+          props.selectedPlot === p.id
+            ? "var(--module-harvest)"
+            : "var(--on-image)",
         ),
         weight: props.selectedPlot === p.id ? 4 : 2,
         fillColor: paint(cropColor(p.crop)),
@@ -222,10 +264,7 @@ function render() {
           render();
           return;
         }
-        Object.assign(
-          positions.value.find((v) => v.deviceId === d.id),
-          { x: p[0], y: p[1] },
-        );
+        placeDevice(d.id, p);
         hint.value = "点位已调整，点击保存平面图后生效。";
       });
       marker.getElement()?.setAttribute("data-device-id", d.id);
@@ -288,10 +327,7 @@ function clickMap(event) {
     render();
   }
   if (tool.value === "place" && targetDevice.value) {
-    Object.assign(
-      positions.value.find((v) => v.deviceId === targetDevice.value),
-      { x: p[0], y: p[1] },
-    );
+    placeDevice(targetDevice.value, p);
     tool.value = "select";
     hint.value = "设备点位已设置，保存后生效。";
     render();
@@ -299,7 +335,12 @@ function clickMap(event) {
 }
 function resetView() {
   map?.invalidateSize({ pan: false });
-  map?.fitBounds(bounds(), { padding: [20, 20] });
+  const all = bounds();
+  for (const d of shownDevices.value) {
+    const point = devicePoint(d);
+    if (point) all.extend(xy(point));
+  }
+  map?.fitBounds(all, { padding: [32, 32] });
 }
 function initializeMap() {
   if (!host.value) return;
@@ -370,8 +411,7 @@ function initializeMap() {
     }).addTo(map);
     L.control.scale({ imperial: false }).addTo(map);
   } else {
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="${paint("var(--border)")}"/></pattern></defs><rect width="1000" height="700" fill="${paint("var(--surface)")}"/><rect width="1000" height="700" fill="url(#grid)"/></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="${paint("var(--border)")}"/></pattern></defs><rect width="1000" height="700" fill="${paint("var(--surface)")}"/><rect width="1000" height="700" fill="url(#grid)"/></svg>`;
     L.imageOverlay(
       "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
       bounds(),
@@ -555,6 +595,8 @@ onBeforeUnmount(() => {
           :disabled="!targetDevice"
         >
           点击定位</button
+        ><button @click="clearPosition" :disabled="!targetDevice">
+          清除点位</button
         ><button
           class="primary"
           @click="emit('save', { revision: baseRevision, shapes, positions })"
@@ -583,7 +625,9 @@ onBeforeUnmount(() => {
     </div>
     <p v-if="!plots.some((p) => p.boundary?.length)" class="map-empty-tip">
       <span class="toast-info-mark" aria-hidden="true">i</span>
-      <span>尚未绘制地块。管理员可选择“编辑平面图”，为已建档地块绘制边界并放置设备。</span>
+      <span
+        >尚未绘制地块。管理员可选择“编辑平面图”，为已建档地块绘制边界并放置设备。</span
+      >
     </p>
   </section>
 </template>

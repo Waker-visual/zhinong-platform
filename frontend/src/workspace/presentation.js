@@ -4,6 +4,11 @@ export const typeNames = {
   WATER: "水情监测",
   GATEWAY: "采集网关",
   OTHER: "通用设备",
+  GATE: "灌溉闸门",
+  PUMP: "泵房控制器",
+  PEST: "虫情监测",
+  CAMERA: "视频监测",
+  MACHINERY: "农机终端",
 };
 export const typeIcons = {
   WEATHER: "☀",
@@ -11,6 +16,11 @@ export const typeIcons = {
   WATER: "≈",
   GATEWAY: "⌘",
   OTHER: "◉",
+  GATE: "⊞",
+  PUMP: "↥",
+  PEST: "♧",
+  CAMERA: "▣",
+  MACHINERY: "⚙",
 };
 export const sourceNames = {
   SIMULATED: "模拟数据",
@@ -120,7 +130,10 @@ export function lineOption(points, unit = "", compact = false) {
         borderColor: "var(--border)",
         backgroundColor: "var(--subtle-bg)",
         fillerColor: "var(--nav-selected-bg)",
-        handleStyle: { color: "var(--surface)", borderColor: "var(--border-strong)" },
+        handleStyle: {
+          color: "var(--surface)",
+          borderColor: "var(--border-strong)",
+        },
         moveHandleStyle: { color: "var(--border-strong)" },
         textStyle: { color: "var(--label-fg)" },
       },

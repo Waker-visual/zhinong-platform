@@ -47,6 +47,10 @@ public class TenantService {
       id
     );
     if (count == 0) throw ApiException.missing();
+    if (!enabled) db.update("""
+      UPDATE device_commands SET status='CANCELLED',result_note='租户停用，原指令失效',finished_at=CURRENT_TIMESTAMP
+      WHERE tenant_id=? AND status IN ('PENDING','DISPATCHED')
+      """, id);
     store.audit(enabled ? "ENABLE_TENANT" : "DISABLE_TENANT", id);
   }
 

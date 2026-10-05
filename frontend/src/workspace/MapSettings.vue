@@ -46,7 +46,8 @@ async function save() {
     >
       <h2>地图位置校准</h2>
       <p>
-        将原有地块和设备布局映射到真实位置。调整中心和覆盖范围会移动全部叠加点位；保存后请对照影像重新绘制实际边界。
+        将地块和示意布局映射到实际位置。调整中心和覆盖范围会移动平面地块及平面设备点位，独立保存的
+        WGS84 安装位置保持不变；保存后请核对边界。
       </p>
       <p class="muted">
         默认位置为建三江公开农业区域，示例地块不代表实际权属。使用 WGS84
@@ -97,8 +98,7 @@ async function save() {
             v-model="model.mode"
             :options="modeOptions"
             aria-label="默认底图"
-          /></label
-        >
+        /></label>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div class="modal-actions">
           <button type="button" @click="emit('close')" :disabled="busy">

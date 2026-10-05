@@ -19,12 +19,14 @@ public class TelemetryService {
   private final JdbcTemplate db;
   private final Store store;
   private final AssetService assets;
+  private final DeviceCredentials credentials;
   private final SecureRandom random = new SecureRandom();
 
-  public TelemetryService(Store store, AssetService assets) {
+  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials) {
     this.db = store.db();
     this.store = store;
     this.assets = assets;
+    this.credentials = credentials;
   }
 
   public Map<String, Object> collect(String id) {
@@ -43,6 +45,12 @@ public class TelemetryService {
           m.min(),
           Math.min(m.max(), m.normal() + Math.sin(phase + (m.code().hashCode() % 9)) * amplitude)
         );
+        // Control feedback must not drift when a user samples environmental metrics.
+        if (Set.of("GATE_OPENING", "PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT", "CURRENT", "FLOW").contains(m.code())) {
+          var prior = assets.latest(Identity.tenant(), id, m.code());
+          number = prior == null ? m.normal() : ((Number) prior.get("value")).doubleValue();
+        }
+        if (MetricCatalog.discrete(m.code())) number = Math.round(number);
         return new WorkspaceInputs.Reading(
           m.code(),
           BigDecimal.valueOf(number).setScale(3, RoundingMode.HALF_UP)
@@ -96,40 +104,15 @@ public class TelemetryService {
       Identity.tenant(),
       id
     );
+    DeviceCommandService.cancelPending(db, Identity.tenant(), id, "接入凭据已轮换，原指令失效");
     store.audit("ROTATE_DEVICE_KEY", id);
     return Map.of("key", key, "deviceId", id, "note", "凭据仅显示一次，重新生成会使旧凭据失效");
   }
 
   public Map<String, Object> ingest(String key, WorkspaceInputs.Ingest input) {
-    if (key == null || key.length() < 32 || key.length() > 128) throw new ApiException(
-      401,
-      "设备接入凭据无效"
-    );
-    var matches = db.queryForList(
-      """
-      SELECT p.tenant_id,p.device_id FROM asset_profiles p JOIN tenants t ON t.id=p.tenant_id
-      WHERE p.credential_hash=? AND p.protocol='HTTP_PUSH' AND p.lifecycle='ACTIVE' AND t.enabled=TRUE
-      """,
-      hash(key)
-    );
-    if (matches.isEmpty()) throw new ApiException(401, "设备接入凭据无效或设备/租户已停用");
-    String tenant = matches.getFirst().get("TENANT_ID").toString(),
-      id = matches.getFirst().get("DEVICE_ID").toString();
-    // Same locking order as management writes; validate credentials again after acquiring the lock.
-    db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE", tenant, id);
-    long valid = db.queryForObject(
-      """
-      SELECT COUNT(*) FROM asset_profiles p JOIN tenants t ON t.id=p.tenant_id
-      WHERE p.tenant_id=? AND p.device_id=? AND p.credential_hash=?
-      AND p.protocol='HTTP_PUSH' AND p.lifecycle='ACTIVE' AND t.enabled=TRUE
-      """,
-      Long.class,
-      tenant,
-      id,
-      hash(key)
-    );
-    if (valid != 1) throw new ApiException(401, "设备接入凭据已失效");
-    String payload = hash(input.measuredAt() + "|" + input.readings().toString());
+    var device = credentials.authenticate(key);
+    String tenant = device.tenant(), id = device.id();
+    String payload = hash(input.measuredAt() + "|" + canonical(input.readings()));
     var previous = db.queryForList(
       "SELECT payload_hash FROM ingestion_batches WHERE tenant_id=? AND device_id=? AND message_id=?",
       tenant,
@@ -137,10 +120,17 @@ public class TelemetryService {
       input.messageId()
     );
     if (!previous.isEmpty()) {
-      if (!payload.equals(previous.getFirst().get("PAYLOAD_HASH"))) throw new ApiException(
-        409,
-        "消息编号已使用，重试内容必须相同"
-      );
+      if (!payload.equals(previous.getFirst().get("PAYLOAD_HASH"))) {
+        // Preserve retries for batches written before optional units/canonical signatures existed.
+        String legacy = hash(input.measuredAt() + "|" + input.readings().stream()
+          .map(r -> "Reading[metric=" + r.metric() + ", value=" + r.value() + "]")
+          .collect(java.util.stream.Collectors.joining(", ", "[", "]")));
+        if (input.readings().stream().anyMatch(r -> r.unit() != null) || !legacy.equals(previous.getFirst().get("PAYLOAD_HASH"))) {
+          throw new ApiException(409, "消息编号已使用，重试内容必须相同");
+        }
+        db.update("UPDATE ingestion_batches SET payload_hash=? WHERE tenant_id=? AND device_id=? AND message_id=?",
+          payload, tenant, id, input.messageId());
+      }
       return Map.of("accepted", true, "duplicate", true, "count", input.readings().size());
     }
     write(tenant, id, input.measuredAt(), input.readings(), "HTTP_PUSH", "DEVICE_HTTP");
@@ -155,7 +145,7 @@ public class TelemetryService {
     return Map.of("accepted", true, "duplicate", false, "count", input.readings().size());
   }
 
-  private void write(
+  void write(
     String tenant,
     String id,
     Instant time,
@@ -164,6 +154,8 @@ public class TelemetryService {
     String actor
   ) {
     if (time.isAfter(Instant.now())) throw new ApiException(400, "采集时间不能晚于当前时间");
+    readings = readings.stream().map(r -> new WorkspaceInputs.Reading(r.metric(),
+      MetricCatalog.normalize(r.metric(), r.value(), r.unit()))).toList();
     var channels = assets.channels(tenant, id);
     var seen = new HashSet<String>();
     for (var r : readings) {
@@ -214,6 +206,12 @@ public class TelemetryService {
       id,
       LocalDateTime.now()
     );
+  }
+
+  static String canonical(List<WorkspaceInputs.Reading> readings) {
+    return readings.stream().sorted(Comparator.comparing(WorkspaceInputs.Reading::metric))
+      .map(r -> r.metric() + "=" + MetricCatalog.normalize(r.metric(), r.value(), r.unit()).stripTrailingZeros().toPlainString())
+      .collect(java.util.stream.Collectors.joining("|"));
   }
 
   private void evaluateAlert(

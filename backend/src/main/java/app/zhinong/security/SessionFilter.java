@@ -37,8 +37,13 @@ public class SessionFilter extends OncePerRequestFilter {
       if (path.startsWith("/api/")) {
         response.setHeader("Cache-Control", "no-store");
         boolean deviceIngest =
-          path.equals("/api/ingest/telemetry") &&
+          (path.equals("/api/ingest/telemetry") || path.equals("/api/ingest/commands/poll")
+            || path.matches("/api/ingest/commands/[A-Za-z0-9-]+/receipt")) &&
           request.getMethod().equals("POST");
+        if (deviceIngest && (request.getHeader("X-Tenant-Id") != null || request.getHeader("tenantId") != null
+            || request.getParameter("tenantId") != null)) {
+          throw new ApiException(403, "设备租户由接入凭据决定，不能通过请求指定");
+        }
         if (!path.equals("/api/auth/login") && !deviceIngest) {
           String header = request.getHeader("Authorization");
           if (

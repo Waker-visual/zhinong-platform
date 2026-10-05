@@ -180,3 +180,26 @@ CREATE TABLE IF NOT EXISTS field_work_logs (
 );
 CREATE INDEX IF NOT EXISTS ix_field_issues_plot ON field_issues(tenant_id,plot_id,status);
 CREATE INDEX IF NOT EXISTS ix_field_logs_task ON field_work_logs(tenant_id,task_id,occurred_at);
+
+-- Additive calibration: no customer locations, credentials or device inventory are embedded.
+ALTER TABLE asset_profiles ADD COLUMN IF NOT EXISTS location_mode VARCHAR(16) NOT NULL DEFAULT 'LOCAL_PLAN';
+ALTER TABLE asset_profiles ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+ALTER TABLE asset_profiles ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
+ALTER TABLE asset_profiles ADD COLUMN IF NOT EXISTS control_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE asset_profiles ADD CONSTRAINT IF NOT EXISTS ck_asset_location CHECK(
+ (location_mode='LOCAL_PLAN' AND latitude IS NULL AND longitude IS NULL) OR
+ (location_mode='WGS84' AND plan_x IS NULL AND plan_y IS NULL AND latitude IS NOT NULL AND longitude IS NOT NULL
+  AND latitude BETWEEN -80 AND 80 AND longitude BETWEEN -180 AND 180));
+
+CREATE TABLE IF NOT EXISTS device_commands (
+ id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL,
+ request_id VARCHAR(80) NOT NULL, action VARCHAR(40) NOT NULL, command_value DECIMAL(16,3),
+ protocol VARCHAR(20) NOT NULL, status VARCHAR(20) NOT NULL, actor VARCHAR(60) NOT NULL,
+ note VARCHAR(300) NOT NULL, result_note VARCHAR(300), created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ expires_at TIMESTAMP WITH TIME ZONE NOT NULL, dispatched_at TIMESTAMP WITH TIME ZONE,
+ finished_at TIMESTAMP WITH TIME ZONE, receipt_hash VARCHAR(64),
+ UNIQUE(tenant_id,device_id,request_id),
+ FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
+ CHECK(status IN ('PENDING','DISPATCHED','SUCCEEDED','FAILED','EXPIRED','CANCELLED'))
+);
+CREATE INDEX IF NOT EXISTS ix_commands_device ON device_commands(tenant_id,device_id,created_at);

@@ -1,5 +1,12 @@
 <script setup>
-import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  watch,
+} from "vue";
 import { api, loadError } from "../api";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
@@ -61,9 +68,10 @@ const typeOptions = computed(() => [
 ]);
 const statusOptions = [
   { value: "", label: "全部上报状态" },
-  ...["FRESH", "STALE", "NO_DATA", "MAINTENANCE", "DISABLED"].map(
-    (value) => ({ value, label: stateNames[value] }),
-  ),
+  ...["FRESH", "STALE", "NO_DATA", "MAINTENANCE", "DISABLED"].map((value) => ({
+    value,
+    label: stateNames[value],
+  })),
 ];
 async function load() {
   const current = ++sequence;
@@ -170,7 +178,10 @@ onBeforeUnmount(() => {
 <template>
   <section class="device-manager">
     <div
-      :class="['workspace-stats', { 'numbers-loading': busy && !devices.length }]"
+      :class="[
+        'workspace-stats',
+        { 'numbers-loading': busy && !devices.length },
+      ]"
     >
       <article>
         <span>设备台账</span
@@ -193,7 +204,7 @@ onBeforeUnmount(() => {
       <article>
         <span>未定位设备</span
         ><strong
-          >{{ devices.filter((d) => d.planX == null).length
+          >{{ devices.filter((d) => !d.positioned).length
           }}<small>台</small></strong
         >
       </article>
@@ -246,14 +257,17 @@ onBeforeUnmount(() => {
               <th role="columnheader">农场 / 地块</th>
               <th role="columnheader">接入与状态</th>
               <th role="columnheader">最新监测</th>
-              <th role="columnheader">最近上报</th>
+              <th role="columnheader">最近采样</th>
               <th role="columnheader">操作</th>
             </tr>
           </thead>
           <tbody v-if="busy && !rows.length" aria-hidden="true">
             <tr v-for="n in 5" :key="n" class="skeleton-row">
               <td v-for="c in 6" :key="c">
-                <span class="skeleton" :style="{ width: 40 + ((n * c) % 4) * 12 + '%' }"></span>
+                <span
+                  class="skeleton"
+                  :style="{ width: 40 + ((n * c) % 4) * 12 + '%' }"
+                ></span>
               </td>
             </tr>
           </tbody>
@@ -278,14 +292,15 @@ onBeforeUnmount(() => {
                   }}</span
                   ><span class="asset-type">
                     · {{ typeNames[device.deviceType] }}</span
-                ></small>
+                  ></small
+                >
               </td>
               <td role="cell" data-label="农场 / 地块">
                 <button @click="emit('farm', device.farmId)">
                   {{ device.farmName }} ↗</button
                 ><small
                   >{{ device.plotName || "公共区域" }} ·
-                  {{ device.planX == null ? "未定位" : "已定位" }}</small
+                  {{ device.positioned ? "已定位" : "未定位" }}</small
                 >
               </td>
               <td role="cell" data-label="接入与状态">
@@ -305,14 +320,14 @@ onBeforeUnmount(() => {
                   <span class="metric-value"
                     ><b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b
                     ><span class="metric-unit">{{ c.unit }}</span></span
-                >
+                  >
                 </div>
                 <small v-if="device.channels.length > 2" class="metric-count"
                   >共 {{ device.channels.length }} 个指标</small
                 >
               </td>
-              <td role="cell" data-label="最近上报">
-                {{ timeText(device.lastReceivedAt)
+              <td role="cell" data-label="最近采样">
+                {{ timeText(device.lastSampledAt)
                 }}<small v-if="device.alertCount" class="alarm-text"
                   >{{ device.alertCount }} 项告警待处理</small
                 >

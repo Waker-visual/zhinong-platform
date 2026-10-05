@@ -125,16 +125,10 @@ const filteredTasks = computed(
     ) || [],
 );
 const cropsChart = computed(() =>
-  pieOption(
-    workspace.value?.analytics.cropArea || [],
-    "作物面积 / 亩",
-  ),
+  pieOption(workspace.value?.analytics.cropArea || [], "作物面积 / 亩"),
 );
 const deviceChart = computed(() =>
-  pieOption(
-    workspace.value?.analytics.deviceTypes || [],
-    "设备分类",
-  ),
+  pieOption(workspace.value?.analytics.deviceTypes || [], "设备分类"),
 );
 const taskChart = computed(() =>
   pieOption(
@@ -486,11 +480,19 @@ onBeforeUnmount(() => {
             设备与监测：已登记的设备台数；“正常上报”指最近一次读数在设定上报间隔的
             3 倍以内（至少 3 分钟）。
           </li>
-          <li>待处理告警：超出已配置监测阈值、尚未恢复的告警，含已确认的告警。</li>
           <li>
-            近 {{ days }} 天登记产量：所选范围内实际保存的生产记录合计，不含经营模拟结果。
+            待处理告警：超出已配置监测阈值、尚未恢复的告警，含已确认的告警。
           </li>
-          <li>农事完成进度：本农场全部农事中已完成的比例，已取消的任务计入总数。</li>
+          <li>
+            近
+            {{
+              days
+            }}
+            天登记产量：所选范围内实际保存的生产记录合计，不含经营模拟结果。
+          </li>
+          <li>
+            农事完成进度：本农场全部农事中已完成的比例，已取消的任务计入总数。
+          </li>
         </ul>
       </details>
       <div class="workspace-main-grid">
@@ -615,7 +617,7 @@ onBeforeUnmount(() => {
                 </button>
               </div>
               <p class="muted">
-                最近上报：{{ timeText(selectedDevice.lastReceivedAt) }}
+                最近采样：{{ timeText(selectedDevice.lastSampledAt) }}
               </p>
               <div class="inline-controls">
                 <button
@@ -678,8 +680,7 @@ onBeforeUnmount(() => {
             v-model="days"
             aria-label="生产统计范围"
             :options="productionRangeOptions"
-          /></label
-        >
+        /></label>
       </div>
       <div class="analytics-grid">
         <section class="panel">
@@ -798,7 +799,7 @@ onBeforeUnmount(() => {
               >{{ typeIcons[d.deviceType] }} {{ d.name
               }}<small
                 >{{ d.plotName || "公共区域" }} ·
-                {{ d.planX == null ? "未定位" : "已定位" }}</small
+                {{ d.positioned ? "已定位" : "未定位" }}</small
               ></span
             ><span class="status-chip" :class="d.freshness.toLowerCase()">{{
               stateNames[d.freshness]

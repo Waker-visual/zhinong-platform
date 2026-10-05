@@ -28,7 +28,9 @@ public class AssetService {
       p.protocol AS "protocol",p.lifecycle AS "lifecycle",p.plot_id AS "plotId",
       q.name AS "plotName",p.plan_x AS "planX",p.plan_y AS "planY",p.model AS "model",
       p.notes AS "notes",p.interval_seconds AS "intervalSeconds",p.revision AS "revision",
-      p.last_received_at AS "lastReceivedAt",(p.credential_hash IS NOT NULL) AS "credentialConfigured"
+      p.last_received_at AS "lastReceivedAt",(p.credential_hash IS NOT NULL) AS "credentialConfigured",
+      p.location_mode AS "locationMode",p.latitude AS "latitude",p.longitude AS "longitude",
+      p.control_enabled AS "controlEnabled"
     FROM devices d JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
     JOIN farms f ON f.tenant_id=d.tenant_id AND f.id=d.farm_id
     LEFT JOIN plots q ON q.tenant_id=p.tenant_id AND q.id=p.plot_id
@@ -38,6 +40,8 @@ public class AssetService {
   public Map<String, Object> catalog() {
     Identity.tenant();
     return Map.of(
+      "presets", MetricCatalog.PRESETS.entrySet().stream().sorted(Map.Entry.comparingByKey())
+        .map(e -> Map.of("deviceType", e.getKey(), "metrics", e.getValue())).toList(),
       "metrics",
       MetricCatalog.METRICS,
       "types",
@@ -90,6 +94,8 @@ public class AssetService {
   private void enrich(Map<String, Object> row, String tenant) {
     String id = row.get("id").toString();
     var channels = channels(tenant, id);
+    Instant sampled = null;
+    long threshold = Math.max(180, ((Number) row.get("intervalSeconds")).longValue() * 3);
     for (var channel : channels) {
       String metric = channel.get("metric").toString();
       var spec = MetricCatalog.get(metric);
@@ -99,18 +105,16 @@ public class AssetService {
       channel.put("max", spec.max());
       var latest = latest(tenant, id, metric);
       channel.put("latest", latest);
+      Instant at = latest == null ? null : ((OffsetDateTime) latest.get("time")).toInstant();
+      channel.put("freshness", freshness(at, threshold));
+      if (at != null && (sampled == null || at.isAfter(sampled))) sampled = at;
     }
     row.put("channels", channels);
-    Object last = row.get("lastReceivedAt");
-    String freshness = "NO_DATA";
-    if (last instanceof OffsetDateTime time) {
-      long threshold = Math.max(180, ((Number) row.get("intervalSeconds")).longValue() * 3);
-      freshness = time.toInstant().isAfter(Instant.now().minusSeconds(threshold))
-        ? "FRESH"
-        : "STALE";
-    }
+    row.put("lastSampledAt", sampled);
+    String freshness = freshness(sampled, threshold);
     if (!"ACTIVE".equals(row.get("lifecycle"))) freshness = row.get("lifecycle").toString();
     row.put("freshness", freshness);
+    row.put("positioned", "WGS84".equals(row.get("locationMode")) || row.get("planX") != null);
     row.put(
       "alertCount",
       db.queryForObject(
@@ -120,6 +124,10 @@ public class AssetService {
         id
       )
     );
+  }
+
+  private static String freshness(Instant at, long threshold) {
+    return at == null ? "NO_DATA" : at.isAfter(Instant.now().minusSeconds(threshold)) ? "FRESH" : "STALE";
   }
 
   public List<Map<String, Object>> channels(String tenant, String id) {
@@ -135,7 +143,7 @@ public class AssetService {
 
   public Map<String, Object> latest(String tenant, String id, String metric) {
     var rows = db.queryForList(
-      "SELECT * FROM (" + historyUnion() + ") r ORDER BY \"time\" DESC LIMIT 1",
+      "SELECT * FROM (" + historyUnion() + ") r ORDER BY \"time\" DESC,\"receivedAt\" DESC LIMIT 1",
       tenant,
       id,
       metric,
@@ -148,11 +156,11 @@ public class AssetService {
 
   private String historyUnion() {
     return """
-    SELECT measured_at AS "time",measured_value AS "value",source AS "source"
+    SELECT measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt"
     FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=?
     UNION ALL
     SELECT CAST(o.measured_at AS TIMESTAMP WITH TIME ZONE) AS "time",
-      o.measured_value AS "value",o.source AS "source"
+      o.measured_value AS "value",o.source AS "source",CAST(o.measured_at AS TIMESTAMP WITH TIME ZONE) AS "receivedAt"
     FROM observations o JOIN devices d ON d.tenant_id=o.tenant_id AND d.id=o.device_id
     WHERE o.tenant_id=? AND o.device_id=? AND d.metric=?
     """;
@@ -248,6 +256,9 @@ public class AssetService {
     } else {
       store.lock("devices", id);
       var old = detail(id);
+      if (input.locationMode() == null && "WGS84".equals(old.get("locationMode"))) {
+        throw new ApiException(409, "该设备已有 WGS84 安装位置，请明确选择点位坐标系后保存");
+      }
       if (((Number) old.get("revision")).intValue() != input.revision()) {
         throw new ApiException(409, "设备已被其他操作更新，请刷新后重试");
       }
@@ -278,6 +289,10 @@ public class AssetService {
           id
         );
       }
+      if (!old.get("protocol").equals(input.protocol()) || !old.get("deviceType").equals(input.deviceType())
+          || !"ACTIVE".equals(input.lifecycle()) || Boolean.FALSE.equals(input.controlEnabled())) {
+        DeviceCommandService.cancelPending(db, Identity.tenant(), id, "设备配置变更，原指令失效");
+      }
       db.update(
         "UPDATE devices SET name=?,adapter=? WHERE tenant_id=? AND id=?",
         input.name().strip(),
@@ -289,7 +304,8 @@ public class AssetService {
     db.update(
       """
       UPDATE asset_profiles SET code=?,device_type=?,protocol=?,lifecycle=?,plot_id=?,plan_x=?,plan_y=?,
-      model=?,notes=?,interval_seconds=?,revision=revision+1 WHERE tenant_id=? AND device_id=?
+      model=?,notes=?,interval_seconds=?,location_mode=?,latitude=?,longitude=?,
+      control_enabled=COALESCE(?,control_enabled),revision=revision+1 WHERE tenant_id=? AND device_id=?
       """,
       input.code(),
       input.deviceType(),
@@ -301,6 +317,10 @@ public class AssetService {
       input.model(),
       input.notes(),
       input.intervalSeconds(),
+      AssetLocation.mode(input.locationMode()),
+      input.latitude(),
+      input.longitude(),
+      Set.of("GATE", "PUMP").contains(input.deviceType()) && !"MANUAL".equals(input.protocol()) ? input.controlEnabled() : Boolean.FALSE,
       Identity.tenant(),
       id
     );
@@ -342,7 +362,11 @@ public class AssetService {
     ) {
       throw new ApiException(400, "不支持的设备类型或接入方式");
     }
-    PlanGeometry.point(input.planX(), input.planY());
+    AssetLocation.validate(input.locationMode(), input.planX(), input.planY(), input.latitude(), input.longitude());
+    if (Boolean.TRUE.equals(input.controlEnabled()) &&
+        (!Set.of("GATE", "PUMP").contains(input.deviceType()) || "MANUAL".equals(input.protocol()))) {
+      throw new ApiException(400, "仅模拟或 HTTP 接入的闸门、泵房可以启用控制");
+    }
     if (
       blank(input.plotId()) != null &&
       !store.get("plots", input.plotId()).get("FARM_ID").equals(input.farmId())
@@ -362,6 +386,12 @@ public class AssetService {
       ) {
         throw new ApiException(400, "告警下限必须小于上限");
       }
+    }
+    if (Boolean.TRUE.equals(input.controlEnabled())) {
+      var required = input.deviceType().equals("GATE")
+        ? Set.of("GATE_OPENING", "REMOTE_ENABLED", "FAULT")
+        : Set.of("PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT");
+      if (!seen.containsAll(required)) throw new ApiException(400, "启用控制前需配置实际反馈、远程模式及故障指标，请应用设备指标模板");
     }
   }
 

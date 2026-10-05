@@ -12,6 +12,7 @@ import { confirmAction, promptText } from "../ui/confirm";
 import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
+import DeviceControl from "./DeviceControl.vue";
 import {
   typeNames,
   sourceNames,
@@ -69,6 +70,13 @@ async function refresh() {
   if (!metric.value) metric.value = result.channels[0]?.metric || "";
   result.channels.forEach((c) => {
     if (manual[c.metric] === undefined) manual[c.metric] = "";
+  });
+}
+async function controlChanged() {
+  await action(async () => {
+    await refresh();
+    await loadHistory();
+    emit("changed");
   });
 }
 async function loadHistory() {
@@ -155,7 +163,9 @@ async function handle(alert, status) {
     title: closing ? "记录处理结果" : "确认告警",
     message: alert.message,
     label: closing ? "处理结果（保存后关闭此告警）" : "确认说明",
-    placeholder: closing ? "例如：已现场补水，读数恢复" : "例如：已通知田间人员前往查看",
+    placeholder: closing
+      ? "例如：已现场补水，读数恢复"
+      : "例如：已通知田间人员前往查看",
     confirmLabel: closing ? "保存并关闭告警" : "确认告警",
   });
   if (!text) return;
@@ -184,14 +194,24 @@ onBeforeUnmount(() => {
       role="dialog"
       aria-modal="true"
       aria-label="设备详情"
-      :style="props.transitionName ? { viewTransitionName: props.transitionName } : null"
+      :style="
+        props.transitionName
+          ? { viewTransitionName: props.transitionName }
+          : null
+      "
     >
       <div class="section-title">
         <div>
           <p class="eyebrow">设备详情</p>
           <h2>{{ device?.name || "正在加载设备…" }}</h2>
         </div>
-        <button class="close-button" aria-label="关闭设备详情" @click="emit('close')">×</button>
+        <button
+          class="close-button"
+          aria-label="关闭设备详情"
+          @click="emit('close')"
+        >
+          ×
+        </button>
       </div>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <template v-if="device">
@@ -216,16 +236,29 @@ onBeforeUnmount(() => {
             <dd>{{ device.farmName }} / {{ device.plotName || "公共区域" }}</dd>
           </div>
           <div>
-            <dt>最近上报</dt>
+            <dt>最近接收</dt>
             <dd>{{ timeText(device.lastReceivedAt) }}</dd>
+          </div>
+          <div>
+            <dt>最近采样</dt>
+            <dd>{{ timeText(device.lastSampledAt) }}</dd>
           </div>
           <div>
             <dt>预期上报周期</dt>
             <dd>{{ device.intervalSeconds }} 秒</dd>
           </div>
           <div>
-            <dt>平面点位</dt>
-            <dd>
+            <dt>
+              {{
+                device.locationMode === "WGS84"
+                  ? "WGS84 纬度 / 经度"
+                  : "平面点位"
+              }}
+            </dt>
+            <dd v-if="device.locationMode === 'WGS84'">
+              {{ num(device.latitude, 6) }} / {{ num(device.longitude, 6) }}
+            </dd>
+            <dd v-else>
               {{ device.planX ?? "未设置" }} / {{ device.planY ?? "未设置" }}
             </dd>
           </div>
@@ -247,11 +280,19 @@ onBeforeUnmount(() => {
             ><strong
               >{{ c.latest ? num(c.latest.value, 2) : "—"
               }}<small>{{ c.unit }}</small></strong
-            ><small>{{
-              c.latest ? sourceNames[c.latest.source] : "尚无监测数据"
-            }}</small>
+            ><small
+              >{{ c.latest ? sourceNames[c.latest.source] : "尚无监测数据" }} ·
+              {{ stateNames[c.freshness] }}</small
+            ><small>{{ timeText(c.latest?.time) }}</small>
           </button>
         </div>
+        <DeviceControl
+          v-if="['GATE', 'PUMP'].includes(device.deviceType)"
+          :key="device.id"
+          :device="device"
+          :role="role"
+          @changed="controlChanged"
+        />
         <section class="detail-trend">
           <div class="section-title">
             <h3>监测趋势</h3>
@@ -303,7 +344,8 @@ onBeforeUnmount(() => {
           >
             立即模拟采集全部指标
           </button>
-          <form v-validate
+          <form
+            v-validate
             v-if="device.protocol === 'MANUAL'"
             @submit.prevent="saveManual"
           >

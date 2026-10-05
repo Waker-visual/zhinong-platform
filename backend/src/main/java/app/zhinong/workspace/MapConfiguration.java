@@ -66,6 +66,7 @@ public class MapConfiguration {
         )
       : rows.getFirst();
     result.put("configured", !rows.isEmpty());
+    result.put("coordinateSystem", "WGS84");
     result.put("imagerySource", "Esri World Imagery");
     result.put(
       "imageryNotice",
@@ -114,6 +115,13 @@ public class MapConfiguration {
         input.revision() + 1
       );
     store.audit("UPDATE_FARM_MAP", farmId);
+    store.db().update("""
+      INSERT INTO farm_profiles(tenant_id,farm_id) SELECT ?,? WHERE NOT EXISTS
+      (SELECT 1 FROM farm_profiles WHERE tenant_id=? AND farm_id=?)
+      """, Identity.tenant(), farmId, Identity.tenant(), farmId);
+    // Invalidate a layout being edited against an older map extent.
+    store.db().update("UPDATE farm_profiles SET layout_revision=layout_revision+1 WHERE tenant_id=? AND farm_id=?",
+      Identity.tenant(), farmId);
     return get(farmId);
   }
 }

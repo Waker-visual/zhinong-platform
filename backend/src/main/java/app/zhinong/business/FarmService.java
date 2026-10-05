@@ -452,6 +452,9 @@ public class FarmService {
     Identity.require("ADMIN", "OPERATOR");
     var device = store.get("devices", id);
     var profile = assets.detail(id);
+    if (!Set.of("TEMPERATURE", "HUMIDITY", "SOIL_MOISTURE").contains(device.get("METRIC").toString())) {
+      throw new ApiException(409, "此类设备请使用多指标采集接口，避免覆盖设备反馈");
+    }
     if (
       !"ACTIVE".equals(profile.get("lifecycle")) ||
       !"SIMULATED".equals(profile.get("protocol"))
