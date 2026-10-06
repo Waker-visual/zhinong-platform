@@ -11,6 +11,9 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { AuthenticatedTileLayer } from "./AuthenticatedTileLayer";
 import { cropColor, typeIcons, typeNames, stateNames } from "./presentation";
+import { tokenColor } from "../ui/tokens";
+import SelectMenu from "../ui/SelectMenu.vue";
+import { planToWgs84, wgs84ToPlan, assetPlanPoint } from "./coordinates";
 const props = defineProps({
   geo: Object,
   plots: Array,
@@ -25,6 +28,8 @@ const props = defineProps({
 });
 const emit = defineEmits(["device", "plot", "save", "editing", "configure"]);
 const host = ref(null),
+  // Leaflet 需要实际色值：从地图所在区域（深色地图面板）解析令牌
+  paint = (value) => tokenColor(value, host.value || document.documentElement),
   editing = ref(false),
   tool = ref("select"),
   targetPlot = ref(""),
@@ -44,27 +49,24 @@ const viewMode = ref(props.geo?.mode || "SATELLITE"),
   failedTiles = ref(0),
   slowLoad = ref(false);
 const geographic = computed(() => viewMode.value !== "PLAN");
-function extent() {
-  const g = props.geo || {
-    latitude: 47.26,
-    longitude: 132.73,
-    widthMeters: 1600,
-    heightMeters: 1120,
-  };
-  const dy = g.heightMeters / 111320,
-    dx = g.widthMeters / (111320 * Math.cos((g.latitude * Math.PI) / 180));
-  return { west: g.longitude - dx / 2, north: g.latitude + dy / 2, dx, dy };
+function reference() {
+  return (
+    props.geo || {
+      latitude: 47.26,
+      longitude: 132.73,
+      widthMeters: 1600,
+      heightMeters: 1120,
+    }
+  );
 }
 const xy = (p) => {
   if (!geographic.value) return L.latLng(700 - p[1], p[0]);
-  const b = extent();
-  return L.latLng(b.north - (p[1] / 700) * b.dy, b.west + (p[0] / 1000) * b.dx);
+  return L.latLng(planToWgs84(p, reference()));
 };
 const fromLatLng = (p) => {
-  const b = extent();
   return (
     geographic.value
-      ? [((p.lng - b.west) / b.dx) * 1000, ((b.north - p.lat) / b.dy) * 700]
+      ? wgs84ToPlan(p.lat, p.lng, reference())
       : [p.lng, 700 - p.lat]
   ).map((n) => Math.round(n * 100) / 100);
 };
@@ -79,6 +81,19 @@ const shownDevices = computed(() =>
     (d) => !props.typeFilter || d.deviceType === props.typeFilter,
   ),
 );
+const mapModeOptions = [
+  { value: "SATELLITE", label: "卫星影像" },
+  { value: "STREET", label: "街道地图" },
+  { value: "PLAN", label: "离线平面图" },
+];
+const plotOptions = computed(() => [
+  { value: "", label: "选择地块" },
+  ...props.plots.map((plot) => ({ value: plot.id, label: plot.name })),
+]);
+const deviceOptions = computed(() => [
+  { value: "", label: "选择设备" },
+  ...props.devices.map((device) => ({ value: device.id, label: device.name })),
+]);
 function label(text) {
   const node = document.createElement("span");
   node.textContent = text;
@@ -93,6 +108,9 @@ function begin() {
     deviceId: d.id,
     x: d.planX,
     y: d.planY,
+    locationMode: d.locationMode || "LOCAL_PLAN",
+    latitude: d.latitude ?? null,
+    longitude: d.longitude ?? null,
   }));
   baseRevision.value = props.revision;
   editing.value = true;
@@ -117,8 +135,47 @@ function plotPoints(p) {
 function devicePoint(d) {
   const p = editing.value
     ? positions.value.find((p) => p.deviceId === d.id)
-    : { x: d.planX, y: d.planY };
-  return p?.x == null || p?.y == null ? null : [Number(p.x), Number(p.y)];
+    : { ...d, x: d.planX, y: d.planY };
+  return p
+    ? assetPlanPoint({ ...p, planX: p.x, planY: p.y }, reference())
+    : null;
+}
+function placeDevice(id, point) {
+  const position = positions.value.find((p) => p.deviceId === id);
+  if (geographic.value || position.locationMode === "WGS84") {
+    const [latitude, longitude] = planToWgs84(point, reference());
+    Object.assign(position, {
+      x: null,
+      y: null,
+      locationMode: "WGS84",
+      latitude,
+      longitude,
+    });
+  } else {
+    Object.assign(position, {
+      x: point[0],
+      y: point[1],
+      locationMode: "LOCAL_PLAN",
+      latitude: null,
+      longitude: null,
+    });
+  }
+}
+function clearPosition() {
+  const position = positions.value.find(
+    (p) => p.deviceId === targetDevice.value,
+  );
+  if (position)
+    Object.assign(position, {
+      x: null,
+      y: null,
+      locationMode: "LOCAL_PLAN",
+      latitude: null,
+      longitude: null,
+    });
+  tool.value = "select";
+  hint.value = "点位已清除，保存后生效；设备台账和历史保留。";
+  render();
 }
 function render() {
   if (!map) return;
@@ -130,9 +187,13 @@ function render() {
       const points = plotPoints(p);
       if (points.length < 3) continue;
       const polygon = L.polygon(points.map(xy), {
-        color: props.selectedPlot === p.id ? "#e7ad37" : "#edf9ee",
+        color: paint(
+          props.selectedPlot === p.id
+            ? "var(--module-harvest)"
+            : "var(--on-image)",
+        ),
         weight: props.selectedPlot === p.id ? 4 : 2,
-        fillColor: cropColor(p.crop),
+        fillColor: paint(cropColor(p.crop)),
         fillOpacity: geographic.value ? 0.2 : 0.74,
       }).addTo(plotLayer);
       if (layers.value.labels)
@@ -169,13 +230,24 @@ function render() {
               : "idle";
       const marker = L.marker(xy(point), {
         draggable: editing.value,
-        title: d.name,
+        // 状态同时写进标题和角标形状，不只靠底色区分
+        title:
+          d.name +
+          "，" +
+          stateNames[d.freshness] +
+          (d.alertCount > 0 ? "，" + d.alertCount + " 条告警" : ""),
         icon: L.divIcon({
           className:
             "asset-marker " +
             mood +
             (props.selectedDevice === d.id ? " chosen" : ""),
-          html: `<span>${typeIcons[d.deviceType] || "◉"}</span>`,
+          html:
+            `<span>${typeIcons[d.deviceType] || "◉"}</span>` +
+            (mood === "alert"
+              ? '<i class="marker-badge alert" aria-hidden="true">!</i>'
+              : mood === "stale"
+                ? '<i class="marker-badge stale" aria-hidden="true">…</i>'
+                : ""),
           iconSize: [36, 36],
           iconAnchor: [18, 18],
         }),
@@ -192,10 +264,7 @@ function render() {
           render();
           return;
         }
-        Object.assign(
-          positions.value.find((v) => v.deviceId === d.id),
-          { x: p[0], y: p[1] },
-        );
+        placeDevice(d.id, p);
         hint.value = "点位已调整，点击保存平面图后生效。";
       });
       marker.getElement()?.setAttribute("data-device-id", d.id);
@@ -203,14 +272,14 @@ function render() {
     }
   if (drawPoints.value.length) {
     L.polyline(drawPoints.value.map(xy), {
-      color: "#ffbe57",
+      color: paint("var(--module-harvest)"),
       dashArray: "5 5",
       weight: 3,
     }).addTo(sketchLayer);
     drawPoints.value.forEach((p) =>
       L.circleMarker(xy(p), {
         radius: 5,
-        color: "#ffbe57",
+        color: paint("var(--module-harvest)"),
         fillOpacity: 1,
       }).addTo(sketchLayer),
     );
@@ -258,10 +327,7 @@ function clickMap(event) {
     render();
   }
   if (tool.value === "place" && targetDevice.value) {
-    Object.assign(
-      positions.value.find((v) => v.deviceId === targetDevice.value),
-      { x: p[0], y: p[1] },
-    );
+    placeDevice(targetDevice.value, p);
     tool.value = "select";
     hint.value = "设备点位已设置，保存后生效。";
     render();
@@ -269,7 +335,12 @@ function clickMap(event) {
 }
 function resetView() {
   map?.invalidateSize({ pan: false });
-  map?.fitBounds(bounds(), { padding: [20, 20] });
+  const all = bounds();
+  for (const d of shownDevices.value) {
+    const point = devicePoint(d);
+    if (point) all.extend(xy(point));
+  }
+  map?.fitBounds(all, { padding: [32, 32] });
 }
 function initializeMap() {
   if (!host.value) return;
@@ -332,7 +403,7 @@ function initializeMap() {
     });
     tiles.addTo(map);
     L.rectangle(bounds(), {
-      color: "#ffd36e",
+      color: paint("var(--module-harvest)"),
       weight: 1,
       dashArray: "6 6",
       fill: false,
@@ -340,8 +411,7 @@ function initializeMap() {
     }).addTo(map);
     L.control.scale({ imperial: false }).addTo(map);
   } else {
-    const svg =
-      '<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="#365b4b"/></pattern></defs><rect width="1000" height="700" fill="#1d3e31"/><rect width="1000" height="700" fill="url(#grid)"/></svg>';
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="${paint("var(--border)")}"/></pattern></defs><rect width="1000" height="700" fill="${paint("var(--surface)")}"/><rect width="1000" height="700" fill="url(#grid)"/></svg>`;
     L.imageOverlay(
       "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
       bounds(),
@@ -416,11 +486,12 @@ onBeforeUnmount(() => {
         ><small>{{ geo?.locationLabel || "示例位置待校准" }}</small>
       </div>
       <div class="map-layer-controls">
-        <select v-model="viewMode" aria-label="地图底图" :disabled="editing">
-          <option value="SATELLITE">卫星影像</option>
-          <option value="STREET">街道地图</option>
-          <option value="PLAN">离线平面图</option>
-        </select>
+        <SelectMenu
+          v-model="viewMode"
+          aria-label="地图底图"
+          :options="mapModeOptions"
+          :disabled="editing"
+        />
         <button
           v-if="editable"
           class="light-button"
@@ -494,12 +565,11 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="editing" class="map-editor">
       <div class="map-editor-row">
-        <select v-model="targetPlot" aria-label="绘制地块">
-          <option value="">选择地块</option>
-          <option v-for="p in plots" :value="p.id" :key="p.id">
-            {{ p.name }}
-          </option></select
-        ><button @click="startDraw">绘制边界</button
+        <SelectMenu
+          v-model="targetPlot"
+          aria-label="绘制地块"
+          :options="plotOptions"
+        /><button @click="startDraw">绘制边界</button
         ><button @click="completeDraw" :disabled="tool !== 'plot'">
           完成边界</button
         ><button
@@ -513,12 +583,11 @@ onBeforeUnmount(() => {
         ><button @click="clearShape" :disabled="!targetPlot">清除边界</button>
       </div>
       <div class="map-editor-row">
-        <select v-model="targetDevice" aria-label="定位设备">
-          <option value="">选择设备</option>
-          <option v-for="d in devices" :value="d.id" :key="d.id">
-            {{ d.name }}
-          </option></select
-        ><button
+        <SelectMenu
+          v-model="targetDevice"
+          aria-label="定位设备"
+          :options="deviceOptions"
+        /><button
           @click="
             tool = 'place';
             hint = '在地图点击设备安装位置';
@@ -526,6 +595,8 @@ onBeforeUnmount(() => {
           :disabled="!targetDevice"
         >
           点击定位</button
+        ><button @click="clearPosition" :disabled="!targetDevice">
+          清除点位</button
         ><button
           class="primary"
           @click="emit('save', { revision: baseRevision, shapes, positions })"
@@ -553,7 +624,10 @@ onBeforeUnmount(() => {
       }}</span>
     </div>
     <p v-if="!plots.some((p) => p.boundary?.length)" class="map-empty-tip">
-      尚未绘制地块。管理员可选择“编辑平面图”，为已建档地块绘制边界并放置设备。
+      <span class="toast-info-mark" aria-hidden="true">i</span>
+      <span
+        >尚未绘制地块。管理员可选择“编辑平面图”，为已建档地块绘制边界并放置设备。</span
+      >
     </p>
   </section>
 </template>
@@ -566,14 +640,14 @@ onBeforeUnmount(() => {
   gap: 12px;
   flex-wrap: wrap;
   padding: 10px 16px;
-  background: #ecf3ed;
-  color: #345747;
+  background: var(--subtle-bg);
+  color: var(--text-2);
   font-size: 12px;
   line-height: 1.65;
 }
 .map-network-warning {
-  background: #fff2dd;
-  color: #7e4d12;
+  background: var(--amber-bg);
+  color: var(--amber);
 }
 .map-network-actions {
   display: flex;
@@ -581,7 +655,7 @@ onBeforeUnmount(() => {
 }
 .map-network-status button {
   border: 1px solid currentColor;
-  border-radius: 5px;
+  border-radius: var(--radius-xs);
   padding: 4px 8px;
   white-space: nowrap;
 }

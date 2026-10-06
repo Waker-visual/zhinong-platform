@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, ref } from "vue";
 import { api } from "../api";
+import SelectMenu from "../ui/SelectMenu.vue";
 const props = defineProps({ farmId: String, config: Object }),
   emit = defineEmits(["saved", "close"]);
 const model = reactive(
@@ -18,6 +19,11 @@ const model = reactive(
   ),
   error = ref(""),
   busy = ref(false);
+const modeOptions = [
+  { value: "SATELLITE", label: "卫星影像" },
+  { value: "STREET", label: "街道地图" },
+  { value: "PLAN", label: "离线平面图" },
+];
 async function save() {
   busy.value = true;
   error.value = "";
@@ -40,13 +46,14 @@ async function save() {
     >
       <h2>地图位置校准</h2>
       <p>
-        将原有地块和设备布局映射到真实位置。调整中心和覆盖范围会移动全部叠加点位；保存后请对照影像重新绘制实际边界。
+        将地块和示意布局映射到实际位置。调整中心和覆盖范围会移动平面地块及平面设备点位，独立保存的
+        WGS84 安装位置保持不变；保存后请核对边界。
       </p>
       <p class="muted">
         默认位置为建三江公开农业区域，示例地块不代表实际权属。使用 WGS84
         坐标；GCJ-02 / BD-09 需先转换。
       </p>
-      <form @submit.prevent="save">
+      <form v-validate @submit.prevent="save">
         <label
           >位置说明<input
             v-model.trim="model.locationLabel"
@@ -87,12 +94,11 @@ async function save() {
           /></label>
         </div>
         <label
-          >默认底图<select v-model="model.mode">
-            <option value="SATELLITE">卫星影像</option>
-            <option value="STREET">街道地图</option>
-            <option value="PLAN">离线平面图</option>
-          </select></label
-        >
+          >默认底图<SelectMenu
+            v-model="model.mode"
+            :options="modeOptions"
+            aria-label="默认底图"
+        /></label>
         <p v-if="error" class="error" role="alert">{{ error }}</p>
         <div class="modal-actions">
           <button type="button" @click="emit('close')" :disabled="busy">

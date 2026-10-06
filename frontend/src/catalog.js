@@ -26,25 +26,37 @@ export const menus = [
   {
     id: "daily",
     title: "今日农场",
-    glyph: "☀",
+    icon: "today",
+    group: "日常作业",
     description: "查看我的待办、上报现场问题，跟进每一次作业",
   },
   {
     id: "simulation",
     title: "经营模拟",
-    glyph: "◴",
+    icon: "simulation",
+    group: "分析与管理",
     description: "使用公开天气和农场快照，对比季度或年度经营方案",
   },
   {
     id: "dashboard",
     title: "农场概览",
-    glyph: "◈",
+    icon: "overview",
+    group: "农场与设备",
     description: "选择农场，查看平面图、设备与交互式经营数据",
   },
   {
+    id: "operations",
+    title: "运行概览",
+    icon: "operations",
+    group: "农场与设备",
+    description: "一屏查看设备上报是否正常、土壤水分走势和各项作业进展",
+  },
+  {
     id: "farms",
+    noun: "农场",
     title: "农场档案",
-    glyph: "⌂",
+    icon: "farms",
+    group: "农场与设备",
     description: "管理农场资料，进入独立的地图与生产工作台",
     columns: [
       ["name", "农场名称"],
@@ -53,8 +65,11 @@ export const menus = [
   },
   {
     id: "plots",
+    noun: "地块",
+    empty: "还没有地块。先建好地块，种植计划、农事任务和设备才能落到具体的田上。",
     title: "地块管理",
-    glyph: "▦",
+    icon: "plots",
+    group: "农场与设备",
     description: "按农场管理地块、面积与作物",
     columns: [
       ["name", "地块名称"],
@@ -65,8 +80,11 @@ export const menus = [
   },
   {
     id: "plantings",
+    noun: "种植计划",
+    empty: "还没有种植计划。为地块安排作物和起止日期后，农场概览会显示当季种植。",
     title: "种植计划",
-    glyph: "♧",
+    icon: "plantings",
+    group: "农场与设备",
     description: "安排地块种植周期，追踪作物生长阶段",
     columns: [
       ["farmName", "所属农场"],
@@ -81,8 +99,11 @@ export const menus = [
   },
   {
     id: "tasks",
+    noun: "农事任务",
+    empty: "还没有农事任务。在今日农场安排农事，或从现场问题直接派工。",
     title: "农事任务",
-    glyph: "☷",
+    icon: "tasks",
+    group: "日常作业",
     description: "从任务安排到执行完成，留存农事过程",
     columns: [
       ["title", "任务名称"],
@@ -96,8 +117,11 @@ export const menus = [
   },
   {
     id: "production",
+    noun: "生产记录",
+    empty: "还没有生产记录。每次收获后登记产量，农场概览会自动汇总产量。",
     title: "生产记录",
-    glyph: "↗",
+    icon: "production",
+    group: "日常作业",
     description: "登记各地块的收获产量",
     columns: [
       ["farmName", "所属农场"],
@@ -109,8 +133,10 @@ export const menus = [
   },
   {
     id: "devices",
+    noun: "监测点",
     title: "设备台账",
-    glyph: "≋",
+    icon: "devices",
+    group: "农场与设备",
     description: "管理设备点位、多指标监测、接入配置与告警",
     columns: [
       ["name", "监测点"],
@@ -122,8 +148,11 @@ export const menus = [
   },
   {
     id: "members",
+    noun: "成员",
+    empty: "还没有其他成员。添加操作员和查看者，分工处理农事。",
     title: "成员权限",
-    glyph: "♙",
+    icon: "members",
+    group: "分析与管理",
     description: "管理本租户成员与角色",
     admin: true,
     columns: [
@@ -135,8 +164,11 @@ export const menus = [
   },
   {
     id: "audit",
+    noun: "操作记录",
+    empty: "还没有操作记录。新增、修改或删除业务数据后会记录在这里。",
     title: "操作日志",
-    glyph: "◷",
+    icon: "audit",
+    group: "分析与管理",
     description: "查看本租户的业务变更记录",
     columns: [
       ["actor", "操作账号"],
@@ -147,8 +179,11 @@ export const menus = [
   },
   {
     id: "platform/tenants",
+    noun: "租户",
+    empty: "还没有租户。新增租户后，租户管理员即可登录建立农场。",
     title: "租户管理",
-    glyph: "▦",
+    icon: "tenants",
+    group: "平台管理",
     description: "创建独立租户，管理服务启用状态",
     platform: true,
     columns: [

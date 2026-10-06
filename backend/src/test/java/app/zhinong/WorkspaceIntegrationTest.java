@@ -199,6 +199,55 @@ class WorkspaceIntegrationTest {
   }
 
   @Test
+  void operationsOverviewSlicesReportingMoistureAndWorkWithinTenant() throws Exception {
+    String rich = null;
+    for (var f : data(request(a, "GET", "/farm-workspaces", null), 200))
+      if (f.get("plotCount").asInt() == 6 && f.get("demo").asBoolean()) {
+        rich = f.get("id").asText();
+        break;
+      }
+    assertNotNull(rich);
+    var overview = data(
+      request(viewer, "GET", "/farms/" + rich + "/operations?hours=168", null),
+      200
+    );
+    assertEquals(100, overview.get("slices").size());
+    int observed = 0;
+    boolean moisture = false;
+    for (var slice : overview.get("slices")) {
+      if (!slice.get("health").isNull()) {
+        observed++;
+        int health = slice.get("health").asInt();
+        assertTrue(health >= 0 && health <= 100, slice.toString());
+      }
+      if (!slice.get("moisture").isNull()) moisture = true;
+    }
+    assertTrue(observed > 50);
+    assertTrue(moisture);
+    assertEquals(28, overview.at("/matrix/days").size());
+    assertEquals(6, overview.at("/matrix/plots").size());
+    boolean belowLimit = false;
+    int monitored = 0;
+    for (var plot : overview.at("/matrix/plots")) {
+      assertEquals(28, plot.get("cells").size());
+      if (plot.get("lowDays").asInt() > 0) belowLimit = true;
+      if (plot.get("sensors").asInt() > 0) monitored++;
+      // 没有土壤水分设备的地块不会出现读数
+      else for (var cell : plot.get("cells")) assertEquals("NONE", cell.asText());
+    }
+    assertTrue(monitored > 0 && monitored < 6);
+    // 演示设备 03 最近几小时的土壤水分低于它配置的下限 20
+    assertTrue(belowLimit);
+    int active = overview.at("/summary/activeDevices").asInt();
+    assertTrue(active > 0 && active < 8, "维护中的设备不计入");
+    assertTrue(overview.at("/summary/freshDevices").asInt() <= active);
+    assertTrue(overview.at("/pipeline/protection/open").isNumber());
+    data(request(b, "GET", "/farms/" + rich + "/operations", null), 404);
+    data(request(platform, "GET", "/farms/" + rich + "/operations", null), 403);
+    data(request(a, "GET", "/farms/" + rich + "/operations?hours=5", null), 400);
+  }
+
+  @Test
   void crossTenantResourcesAndCrossFarmAssociationsAreRejected() throws Exception {
     String fa = farm(a),
       pa = plot(a, fa),

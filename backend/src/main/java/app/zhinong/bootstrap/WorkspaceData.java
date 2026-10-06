@@ -249,7 +249,8 @@ public class WorkspaceData implements ApplicationRunner {
         180 + (plotIndex / 3) * 295 + (i / 6) * 30,
         "通用多指标终端",
         "虚构设备；点位与历史数值均为演示数据",
-        900,
+        // 演示历史为每小时一条，上报间隔与之一致，“正常上报”判定才符合实际
+        3600,
         i == 7 ? null : end
       );
       for (String metric : metrics[i]) {

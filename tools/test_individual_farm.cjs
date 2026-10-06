@@ -3,7 +3,7 @@ const fs = require("node:fs"),
   assert = require("node:assert/strict");
 const { chromium } = require("../frontend/node_modules/playwright");
 const root = path.resolve(__dirname, ".."),
-  base = "http://127.0.0.1:9175";
+  base = process.env.FARM_BASE_URL || "http://127.0.0.1:9175";
 const accounts = JSON.parse(
   fs.readFileSync(
     path.join(root, ".cache/farm-acceptance-accounts.json"),
@@ -56,7 +56,7 @@ async function save(page) {
   );
 }
 async function fresh(page) {
-  await page.getByRole("button", { name: "↻ 刷新数据", exact: true }).click();
+  await page.getByRole("button", { name: "刷新数据", exact: true }).click();
   await page.waitForFunction(
     () =>
       document.querySelector(".daily-farm")?.getAttribute("aria-busy") ===
@@ -80,7 +80,7 @@ async function main() {
   check("Single farm selected; daily work is default landing");
   await shot(owner, "owner-daily");
   await owner.getByRole("button", { name: "记录收获", exact: true }).click();
-  await owner.getByRole("dialog", { name: "生产记录", exact: true }).waitFor();
+  await owner.getByRole("dialog", { name: "新增生产记录", exact: true }).waitFor();
   assert.equal(await owner.getByLabel("筛选所属农场").count(), 0); // form is scoped by the existing farm selector
   const productionFarm = owner.getByRole("dialog").locator("select").first();
   assert.equal(await productionFarm.inputValue(), fixture.farmId);
@@ -156,8 +156,9 @@ async function main() {
   const ownerTask = owner
     .locator(".daily-task")
     .filter({ hasText: tag + "处理" });
+  await ownerTask.getByRole("button", { name: "更多操作" }).click();
   await ownerTask
-    .getByRole("button", { name: "调整安排", exact: true })
+    .getByRole("menuitem", { name: "调整安排", exact: true })
     .click();
   await owner.getByLabel("计划作业方式").selectOption("MANUAL");
   await owner
@@ -214,6 +215,30 @@ async function main() {
     .waitFor();
   await shot(viewer, "viewer-receipt");
   check("Read-only member can inspect the complete activity log");
+  await viewer.keyboard.press("Escape");
+  await viewer.locator(".daily-dialog").waitFor({ state: "hidden" });
+  await viewer
+    .getByRole("navigation")
+    .getByRole("button", { name: "运行概览", exact: true })
+    .click();
+  await viewer.locator(".ops-slice").first().waitFor();
+  assert.equal(
+    await viewer.getByLabel("当前农场", { exact: true }).inputValue(),
+    fixture.farmId,
+  );
+  assert.equal(await viewer.locator(".ops-slice").count(), 100);
+  assert.equal(await viewer.locator(".ops-run").count(), 4);
+  assert((await viewer.locator(".ops-mx-row").count()) > 0);
+  await viewer.locator(".ops-slice").last().focus();
+  await viewer.keyboard.press("Home");
+  assert.match(
+    await viewer.locator(".ops-readout").innerText(),
+    /^\d\d\/\d\d \d\d:\d\d–/,
+  );
+  await shot(viewer, "viewer-operations");
+  await viewer.getByRole("button", { name: "查看农事 →", exact: true }).click();
+  await viewer.locator(".daily-farm").waitFor();
+  check("Read-only member reads the farm operations overview");
   await owner
     .getByRole("button", { name: "季度方案对照 →", exact: true })
     .click();
@@ -233,6 +258,38 @@ async function main() {
   await owner.locator(".simulation-comparison").waitFor();
   await shot(owner, "quarter-comparison");
   check("Quarterly scenario history retains farm and renders results");
+  await owner
+    .getByRole("navigation")
+    .getByRole("button", { name: "地块管理", exact: true })
+    .click();
+  const temp = "验收临时地块" + tag;
+  await owner.getByRole("button", { name: /新增地块/ }).click();
+  const plotDialog = owner.getByRole("dialog");
+  await plotDialog.locator("select").first().selectOption(fixture.farmId);
+  await plotDialog.getByLabel("地块名称").fill(temp);
+  await plotDialog.getByLabel("面积（亩）").fill("2");
+  await plotDialog.getByRole("button", { name: /保存/ }).click();
+  const tempRow = owner
+    .getByRole("row")
+    .filter({ has: owner.getByRole("cell", { name: temp, exact: true }) });
+  await tempRow.waitFor();
+  await tempRow.getByRole("button", { name: "删除", exact: true }).click();
+  await tempRow.waitFor({ state: "detached" });
+  await owner
+    .locator(".toast-snackbar")
+    .getByRole("button", { name: "撤销", exact: true })
+    .click();
+  await tempRow.waitFor();
+  await tempRow.getByRole("button", { name: "删除", exact: true }).click();
+  await owner
+    .locator(".toast-snackbar")
+    .getByRole("button", { name: "关闭提示", exact: true })
+    .click();
+  await owner.waitForTimeout(600);
+  await owner.getByRole("button", { name: "刷新数据", exact: true }).click();
+  await owner.waitForTimeout(600);
+  assert.equal(await tempRow.count(), 0);
+  check("Plot deletion offers undo, then commits when accepted");
   await owner
     .getByRole("navigation")
     .getByRole("button", { name: "今日农场", exact: true })

@@ -1,0 +1,65 @@
+/*
+ * 触屏点击热区：在粗指针设备（手机、平板）上，可点击控件至少 44×44 px（费茨定律，WCAG 2.5.5）。
+ * 表单控件和按钮直接加高；行内文字按钮保持原有视觉，只用透明伪元素扩大可点区域。
+ * 本文件最后加载，覆盖各组件里为桌面写的紧凑尺寸。
+ */
+@media (pointer: coarse) {
+  /* :root 前缀抬高优先级，压过组件里为桌面写的 min-height */
+  :root :is(button, select, summary):not(
+      .ops-slice,
+      .link-button,
+      .text-button,
+      .danger-text
+    ),
+  :root input:not([type="checkbox"], [type="radio"], [type="range"]) {
+    min-height: 44px;
+  }
+  .icon-button,
+  .toast button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  summary {
+    display: flex;
+    align-items: center;
+  }
+  /* 顶栏农场选择：保持紧凑外观，点击区域补足高度 */
+  .topbar .topbar-farm {
+    min-height: 44px;
+  }
+  /* 行内文字按钮：视觉不变，可点区域上下各扩 12px */
+  :where(.link-button, .text-button, .danger-text) {
+    position: relative;
+  }
+  :where(.link-button, .text-button, .danger-text)::after {
+    content: "";
+    position: absolute;
+    inset: -12px -6px;
+  }
+  /* 表格里并排的操作按钮直接加高，避免扩展区域互相重叠 */
+  .actions button,
+  .actions .danger-text {
+    min-height: 44px;
+    padding-inline: 10px;
+  }
+  .actions .danger-text::after {
+    content: none;
+  }
+  /* 复选框所在的整行标签都可点 */
+  label:has(> input[type="checkbox"]) {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+  /* 地图：缩放按钮与设备标记 */
+  .farm-map .leaflet-bar a {
+    width: 44px;
+    height: 44px;
+    line-height: 44px;
+  }
+  .asset-marker::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+  }
+}

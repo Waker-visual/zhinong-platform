@@ -25,8 +25,12 @@ public final class WorkspaceInputs {
     @NotNull @Size(max = 100) String model,
     @NotNull @Size(max = 500) String notes,
     @Min(30) @Max(86400) int intervalSeconds,
-    @NotEmpty @Size(max = 12) List<@Valid Channel> channels,
-    @Min(0) int revision
+    @NotEmpty @Size(max = 32) List<@Valid Channel> channels,
+    @Min(0) int revision,
+    @Pattern(regexp = "LOCAL_PLAN|WGS84") String locationMode,
+    Double latitude,
+    Double longitude,
+    Boolean controlEnabled
   ) {}
 
   public record Shape(
@@ -34,7 +38,10 @@ public final class WorkspaceInputs {
     @NotNull @Size(max = 80) List<List<Double>> boundary
   ) {}
 
-  public record Position(@NotBlank String deviceId, BigDecimal x, BigDecimal y) {}
+  public record Position(
+    @NotBlank String deviceId, BigDecimal x, BigDecimal y,
+    @Pattern(regexp = "LOCAL_PLAN|WGS84") String locationMode, Double latitude, Double longitude
+  ) {}
 
   public record Layout(
     @Min(0) int revision,
@@ -49,17 +56,19 @@ public final class WorkspaceInputs {
     @NotBlank @Pattern(regexp = "FIELD|GREENHOUSE|ORCHARD|MIXED") String farmType
   ) {}
 
-  public record Reading(@NotBlank String metric, @NotNull BigDecimal value) {}
+  public record Reading(@NotBlank String metric, @NotNull BigDecimal value, @Size(max = 20) String unit) {
+    public Reading(String metric, BigDecimal value) { this(metric, value, null); }
+  }
 
   public record Measurements(
     @NotNull @PastOrPresent Instant measuredAt,
-    @NotEmpty @Size(max = 12) List<@Valid Reading> readings
+    @NotEmpty @Size(max = 32) List<@Valid Reading> readings
   ) {}
 
   public record Ingest(
     @NotBlank @Pattern(regexp = "[A-Za-z0-9_.:-]{1,80}") String messageId,
     @NotNull @PastOrPresent Instant measuredAt,
-    @NotEmpty @Size(max = 12) List<@Valid Reading> readings
+    @NotEmpty @Size(max = 32) List<@Valid Reading> readings
   ) {}
 
   public record AlertAction(

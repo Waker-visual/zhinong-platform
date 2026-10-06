@@ -326,11 +326,18 @@ public class FarmWorkspaceService {
         400,
         "设备不属于当前农场"
       );
-      PlanGeometry.point(point.x(), point.y());
+      store.lock("devices", point.deviceId());
+      if (point.locationMode() == null && "WGS84".equals(assets.detail(point.deviceId()).get("locationMode"))) {
+        throw new ApiException(409, "已有 WGS84 设备点位，请刷新地图后明确选择坐标系");
+      }
+      AssetLocation.validate(point.locationMode(), point.x(), point.y(), point.latitude(), point.longitude());
       db.update(
-        "UPDATE asset_profiles SET plan_x=?,plan_y=?,revision=revision+1 WHERE tenant_id=? AND device_id=?",
+        "UPDATE asset_profiles SET plan_x=?,plan_y=?,location_mode=?,latitude=?,longitude=?,revision=revision+1 WHERE tenant_id=? AND device_id=?",
         point.x(),
         point.y(),
+        AssetLocation.mode(point.locationMode()),
+        point.latitude(),
+        point.longitude(),
         Identity.tenant(),
         point.deviceId()
       );

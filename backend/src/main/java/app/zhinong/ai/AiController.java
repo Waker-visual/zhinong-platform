@@ -74,11 +74,11 @@ public class AiController {
     return Map.of("enabled", true, "llm", llm.cloudEnabled());
   }
 
-  /** 查看当前模型配置（脱敏：不返回密钥原文）。管理员可用。 */
+  /** 查看全局模型配置（脱敏：不返回密钥原文）。仅平台管理员可用。 */
   @GetMapping("/config")
   public ResponseEntity<Map<String, Object>> llmConfig() {
-    if (!isManager()) {
-      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅管理员可查看模型配置"));
+    if (!isPlatformManager()) {
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅平台管理员可查看模型配置"));
     }
     return ResponseEntity.ok(
       Map.of(
@@ -90,11 +90,11 @@ public class AiController {
     );
   }
 
-  /** 保存模型配置：立即生效并持久化，之后重启自动加载，无需再注入环境变量。管理员可用。 */
+  /** 保存全局模型配置：立即生效并持久化。仅平台管理员可用。 */
   @PostMapping("/config")
   public ResponseEntity<Map<String, Object>> saveLlmConfig(@RequestBody @Valid LlmConfigInput input) {
-    if (!isManager()) {
-      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅管理员可配置模型"));
+    if (!isPlatformManager()) {
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅平台管理员可配置模型"));
     }
     llm.saveConfig(input.url(), input.apiKey(), input.model());
     return ResponseEntity.ok(
@@ -102,14 +102,15 @@ public class AiController {
     );
   }
 
-  /** 平台管理员或农场管理员（演示账号 ADMIN）均可管理模型配置。 */
-  private boolean isManager() {
-    String role = Identity.current().role();
-    return "PLATFORM_ADMIN".equals(role) || "ADMIN".equals(role);
+  /** 模型地址和凭据是全局配置，租户管理员不得修改其他租户使用的网关。 */
+  private boolean isPlatformManager() {
+    return "PLATFORM_ADMIN".equals(Identity.current().role());
   }
 
   @PostMapping("/ask")
   public Map<String, Object> ask(@RequestBody @Valid AskInput input) {
+    // 在调用外部模型前检查当前会话的租户及农场权限，不能依赖模型是否选择数据工具。
+    store.get("farms", input.farmId());
     String q = input.question();
     String farmId = input.farmId();
     List<Map<String, Object>> messages = new ArrayList<>();

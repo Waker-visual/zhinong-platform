@@ -3,6 +3,9 @@ import { ref, reactive, computed, onMounted } from "vue";
 import { api } from "../api";
 import DataChart from "../workspace/DataChart.vue";
 import { num } from "../workspace/presentation";
+import SelectMenu from "../ui/SelectMenu.vue";
+import DatePicker from "../ui/DatePicker.vue";
+import { important, toast } from "../ui/feedback";
 const props = defineProps({ role: String, initialFarmId: String });
 const emit = defineEmits(["farm"]);
 const farms = ref([]),
@@ -42,6 +45,34 @@ const events = computed(() =>
     (e) => !plotFilter.value || e.plotId === plotFilter.value,
   ),
 );
+const farmOptions = computed(() => [
+  { value: "", label: "选择农场", disabled: true },
+  ...farms.value.map((farm) => ({ value: farm.id, label: farm.name })),
+]);
+const cycleOptions = [
+  { value: 90, label: "季度 · 90 天" },
+  { value: 365, label: "年度 · 365 天（单季种植）" },
+];
+const cropOptions = computed(() =>
+  (catalog.value?.crops || []).map((crop) => ({
+    value: crop.id,
+    label: `${crop.name} · ${crop.duration} 天 · ${crop.yieldKgMu} kg/亩`,
+  })),
+);
+const historyOptions = computed(() => [
+  { value: "", label: "选择已保存的运行", disabled: true },
+  ...runs.value.map((run) => ({
+    value: run.id,
+    label: `${run.label} · ${new Date(run.createdAt).toLocaleString("zh-CN")}`,
+  })),
+]);
+const eventPlotOptions = computed(() => [
+  { value: "", label: "全部地块" },
+  ...(selected.value?.plots || []).map((plot) => ({
+    value: plot.plotId,
+    label: plot.name,
+  })),
+]);
 const comparison = computed(() => ({
   tooltip: { trigger: "axis", renderMode: "richText" },
   legend: { bottom: 0 },
@@ -56,13 +87,13 @@ const comparison = computed(() => ({
       name: "本期收获",
       type: "bar",
       data: result.value?.scenarios.map((s) => s.summary.harvestKg) || [],
-      itemStyle: { color: "#359b79" },
+      itemStyle: { color: "var(--amber-line)" },
     },
     {
       name: "虫害归因损失",
       type: "bar",
       data: result.value?.scenarios.map((s) => s.summary.pestLossKg) || [],
-      itemStyle: { color: "#df9366" },
+      itemStyle: { color: "var(--caution-line)" },
     },
   ],
 }));
@@ -86,13 +117,13 @@ const resources = computed(() => ({
       showSymbol: false,
       data: selected.value?.days.map((d) => d.backlogMu) || [],
       areaStyle: { opacity: 0.15 },
-      itemStyle: { color: "#dd925c" },
+      itemStyle: { color: "var(--caution-line)" },
     },
     {
       name: "完成防治",
       type: "bar",
       data: selected.value?.days.map((d) => d.treatedMu) || [],
-      itemStyle: { color: "#359b79" },
+      itemStyle: { color: "var(--ok)" },
     },
     {
       name: "降雨",
@@ -100,7 +131,7 @@ const resources = computed(() => ({
       yAxisIndex: 1,
       showSymbol: false,
       data: selected.value?.days.map((d) => d.rain) || [],
-      itemStyle: { color: "#599aca" },
+      itemStyle: { color: "var(--module-irrigation)" },
     },
   ],
 }));
@@ -179,8 +210,18 @@ function preset(kind) {
   result.value = null;
   runId.value = "";
 }
+// 计算或读取方案期间先隐藏上一份结果，显示占位，避免把旧数字当成新结果
+const pendingResult = ref(false);
+async function withResult(fn) {
+  pendingResult.value = true;
+  try {
+    await work(fn);
+  } finally {
+    pendingResult.value = false;
+  }
+}
 async function execute() {
-  await work(async () => {
+  await withResult(async () => {
     const data = await api("/simulations", "POST", form);
     result.value = data.result;
     runId.value = data.id;
@@ -188,14 +229,16 @@ async function execute() {
     runs.value = await api(
       "/simulations?farmId=" + encodeURIComponent(form.farmId),
     );
+    important("三方案对照已完成");
   });
 }
 async function open(id) {
-  await work(async () => {
+  await withResult(async () => {
     const data = await api("/simulations/" + id);
     result.value = data.result;
     runId.value = id;
     plotFilter.value = "";
+    toast("历史模拟已加载");
   });
 }
 function download() {
@@ -229,7 +272,7 @@ onMounted(() =>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <section class="panel simulation-intro">
       <div>
-        <p class="eyebrow">OPERATIONS LAB</p>
+        <p class="eyebrow">季度演练</p>
         <h2>让经营方案接受一季天气的考验</h2>
         <p>
           同一组地块与天气，对比资源正常、无人机缺位及人工补位三种情景。查看产量差异背后的排程与资源缺口。
@@ -256,39 +299,33 @@ onMounted(() =>
       </div>
     </section>
     <section class="panel simulation-form">
-      <form @submit.prevent="execute">
+      <form v-validate @submit.prevent="execute">
         <div class="simulation-fields">
           <label
-            >模拟农场<select
+            >模拟农场<SelectMenu
               aria-label="模拟农场"
               v-model="form.farmId"
+              :options="farmOptions"
               required
               :disabled="busy"
               @change="work(farmChanged)"
-            >
-              <option value="" disabled>选择农场</option>
-              <option v-for="f in farms" :key="f.id" :value="f.id">
-                {{ f.name }}
-              </option>
-            </select></label
+            /></label
           ><label
-            >模拟周期<select
+            >模拟周期<SelectMenu
               aria-label="模拟周期"
-              v-model.number="form.days"
+              v-model="form.days"
+              :options="cycleOptions"
               @change="cycle"
-            >
-              <option :value="90">季度 · 90 天</option>
-              <option :value="365">年度 · 365 天（单季种植）</option>
-            </select></label
+            /></label
           ><label
             >情景名称<input
               v-model.trim="form.label"
               required
               maxlength="100" /></label
           ><label
-            >开始日期<input
+            >开始日期<DatePicker
               v-model="form.startDate"
-              type="date"
+              aria-label="开始日期"
               min="2025-01-01"
               max="2025-10-03"
               :disabled="form.days === 365"
@@ -391,13 +428,11 @@ onMounted(() =>
           </p>
           <div class="simulation-fields">
             <label v-for="p in plots" :key="p.id"
-              >{{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩<select
+              >{{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩<SelectMenu
                 v-model="form.cropModels[p.id]"
-              >
-                <option v-for="c in catalog?.crops" :key="c.id" :value="c.id">
-                  {{ c.name }} · {{ c.duration }} 天 · {{ c.yieldKgMu }} kg/亩
-                </option>
-              </select></label
+                :options="cropOptions"
+                :aria-label="`${p.name} 作物模型`"
+              /></label
             >
           </div>
         </details>
@@ -416,24 +451,39 @@ onMounted(() =>
     </section>
     <section class="panel simulation-history">
       <label
-        >历史模拟<select
+        >历史模拟<SelectMenu
           aria-label="历史模拟"
           v-model="runId"
-          @change="open($event.target.value)"
+          :options="historyOptions"
+          @change="open"
           :disabled="busy"
-        >
-          <option value="" disabled>选择已保存的运行</option>
-          <option v-for="r in runs" :key="r.id" :value="r.id">
-            {{ r.label }} · {{ new Date(r.createdAt).toLocaleString("zh-CN") }}
-          </option>
-        </select></label
+        /></label
       ><span class="muted">保留输入、天气指纹、地块快照及每日结果</span>
     </section>
-    <template v-if="result"
+    <section
+      v-if="pendingResult"
+      class="panel simulation-results"
+      role="status"
+      aria-label="正在计算方案对照"
+    >
+      <span class="skeleton" style="width: 38%; height: 20px"></span>
+      <div class="simulation-comparison numbers-loading" aria-hidden="true">
+        <div v-for="n in 3" :key="n" class="scenario-card">
+          <span class="skeleton" style="width: 60%"></span>
+          <strong>0</strong>
+          <span class="skeleton" style="width: 80%"></span>
+        </div>
+      </div>
+      <span
+        class="skeleton skeleton-block simulation-chart-skeleton"
+        aria-hidden="true"
+      ></span>
+    </section>
+    <template v-if="result && !pendingResult"
       ><section class="panel simulation-results">
         <div class="section-title">
           <div>
-            <p class="eyebrow">SCENARIO COMPARISON</p>
+            <p class="eyebrow">方案对照</p>
             <h2>{{ result.input.label }} · {{ result.farmName }}</h2>
             <p class="muted">
               {{ result.input.startDate }} 起 {{ result.input.days }} 天 ·
@@ -514,16 +564,11 @@ onMounted(() =>
         <details>
           <summary>逐日事件与处理依据 · {{ events.length }} 条</summary>
           <label
-            >筛选事件地块<select v-model="plotFilter">
-              <option value="">全部地块</option>
-              <option
-                v-for="p in selected.plots"
-                :key="p.plotId"
-                :value="p.plotId"
-              >
-                {{ p.name }}
-              </option>
-            </select></label
+            >筛选事件地块<SelectMenu
+              v-model="plotFilter"
+              :options="eventPlotOptions"
+              aria-label="筛选事件地块"
+            /></label
           >
           <div class="simulation-events">
             <div v-for="(e, i) in events" :key="i">
@@ -625,7 +670,7 @@ onMounted(() =>
   font-weight: 600;
 }
 .simulation-page details {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--border);
   margin-top: 14px;
 }
 .simulation-run-bar {
@@ -638,7 +683,7 @@ onMounted(() =>
 .simulation-run-bar small {
   max-width: 600px;
   line-height: 1.7;
-  color: var(--muted);
+  color: var(--text-2);
 }
 .simulation-history {
   display: flex;
@@ -647,6 +692,12 @@ onMounted(() =>
 }
 .simulation-history label {
   flex: 1;
+}
+.simulation-chart-skeleton {
+  display: block;
+  height: 300px;
+  margin-top: 18px;
+  border-radius: var(--radius);
 }
 .simulation-comparison {
   display: grid;
@@ -661,14 +712,15 @@ onMounted(() =>
   gap: 9px;
   padding: 20px;
   text-align: left;
-  border: 1px solid var(--line);
+  border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  border-radius: 12px;
+  border-radius: var(--radius);
 }
 .scenario-card.active {
-  border: 2px solid var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--text);
+  background: var(--nav-selected-bg);
 }
 .scenario-card strong {
   font-size: 26px;
@@ -692,7 +744,7 @@ onMounted(() =>
 }
 .simulation-page td small {
   display: block;
-  color: var(--muted);
+  color: var(--text-2);
   margin-top: 5px;
 }
 .simulation-events {
@@ -703,7 +755,7 @@ onMounted(() =>
   display: flex;
   gap: 16px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--line);
+  border-bottom: 1px solid var(--border);
 }
 .simulation-sources {
   line-height: 1.9;

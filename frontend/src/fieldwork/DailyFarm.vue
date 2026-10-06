@@ -1,8 +1,11 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
-import { api } from "../api";
+import { api, loadError } from "../api";
 import { labels } from "../catalog";
 import "./daily-farm.css";
+import ActionMenu from "../ui/ActionMenu.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
+import DatePicker from "../ui/DatePicker.vue";
 const props = defineProps({
   identity: Object,
   farms: Array,
@@ -10,7 +13,7 @@ const props = defineProps({
   farmId: String,
   revision: Number,
 });
-const emit = defineEmits(["update:farmId", "navigate", "farm"]);
+const emit = defineEmits(["update:farmId", "navigate", "farm", "notice"]);
 const admin = computed(() => props.identity.role === "ADMIN");
 const writer = computed(() =>
   ["ADMIN", "OPERATOR"].includes(props.identity.role),
@@ -21,7 +24,6 @@ const farmPlots = computed(() =>
 );
 const data = ref({ tasks: [], issues: [], crew: [], today: "" }),
   error = ref(""),
-  notice = ref(""),
   loading = ref(false),
   saving = ref(false);
 const filter = ref("open"),
@@ -31,7 +33,9 @@ const modal = ref(""),
   dialogElement = ref(null),
   target = ref(null),
   issueId = ref(""),
-  logs = ref([]);
+  logs = ref([]),
+  dailyMorphSource = ref(""),
+  dailyMorphActive = ref(false);
 const form = reactive({});
 const methods = {
   UNCONFIRMED: "资源待确认",
@@ -61,6 +65,37 @@ const openIssues = computed(() =>
 );
 const overdue = (t) =>
   ["PENDING", "RUNNING"].includes(t.status) && t.dueDate < data.value.today;
+// 任务状态的语义色，与徽章文字一一对应：逾期红色，受阻橙色，执行中蓝色，其余中性。
+// 既逾期又受阻时按逾期处理，农场主先看到已经超期的事项。
+function statusTone(t) {
+  if (overdue(t)) return "danger";
+  if (t.blockedReason) return "caution";
+  if (t.status === "RUNNING") return "info";
+  return "";
+}
+// 次要操作进“更多”菜单；只剩“记录”时直接显示按钮。
+function moreActions(t) {
+  const live = admin.value && ["PENDING", "RUNNING"].includes(t.status);
+  return [
+    { key: "history", label: "记录", icon: "history" },
+    ...(live
+      ? [
+          { key: "plan", label: "调整安排", icon: "edit" },
+          { key: "cancel", label: "取消任务", icon: "trash", danger: true },
+        ]
+      : []),
+  ];
+}
+function moreAction(key, t) {
+  if (key === "history") history(t);
+  else if (key === "plan") open("plan", t);
+  else if (key === "cancel") open("progress", t, "CANCELLED");
+}
+function statusText(t) {
+  if (overdue(t)) return "已逾期";
+  if (t.blockedReason) return "受阻";
+  return word(t.status);
+}
 const taskList = computed(() =>
   data.value.tasks
     .filter((t) => {
@@ -84,8 +119,8 @@ const taskList = computed(() =>
     })
     .sort(
       (a, b) =>
-        Number(Boolean(b.blockedReason)) - Number(Boolean(a.blockedReason)) ||
         Number(overdue(b)) - Number(overdue(a)) ||
+        Number(Boolean(b.blockedReason)) - Number(Boolean(a.blockedReason)) ||
         a.dueDate.localeCompare(b.dueDate),
     ),
 );
@@ -108,6 +143,40 @@ const word = (value) =>
     RESOLVED: "已复核关闭",
   }[value] ||
   value;
+const plotOptions = computed(() => [
+  { value: "", label: "选择地块", disabled: true },
+  ...farmPlots.value.map((p) => ({
+    value: p.id,
+    label: `${p.name} · ${p.crop} · ${p.areaMu} 亩`,
+  })),
+]);
+const categoryOptions = Object.entries(categories).map(([value, label]) => ({
+  value,
+  label,
+}));
+const severityOptions = [
+  { value: "HIGH", label: "优先处理" },
+  { value: "NORMAL", label: "常规跟进" },
+];
+const taskTypeOptions = [
+  "INSPECTION",
+  "PROTECTION",
+  "IRRIGATION",
+  "FERTILIZING",
+  "SOWING",
+  "HARVEST",
+].map((value) => ({ value, label: word(value) }));
+const crewOptions = computed(() => [
+  { value: "", label: "选择执行人员", disabled: true },
+  ...data.value.crew.map((member) => ({
+    value: member.id,
+    label: `${member.displayName} · ${word(member.role)}`,
+  })),
+]);
+const methodOptions = Object.entries(methods).map(([value, label]) => ({
+  value,
+  label,
+}));
 function jump(page, create = false) {
   emit("navigate", { page, farmId: props.farmId, create });
 }
@@ -126,26 +195,57 @@ async function load() {
     );
     if (alive && run === seq) data.value = result;
   } catch (e) {
-    if (alive && run === seq) error.value = e.message;
+    if (alive && run === seq) error.value = loadError(e);
   } finally {
     if (alive && run === seq) loading.value = false;
   }
 }
+// 切换农场才清空；同一农场刷新时先保留旧数据，避免列表闪空、数字闪成 0
 watch(
   () => [props.farmId, props.revision],
-  () => {
-    data.value = { tasks: [], issues: [], crew: [], today: "" };
+  ([farm], previous) => {
+    if (!previous || farm !== previous[0])
+      data.value = { tasks: [], issues: [], crew: [], today: "" };
     load();
   },
   { immediate: true },
 );
+// 首次读取（还没有服务器日期）时显示骨架屏，而不是 0 或“暂无”
+const firstLoad = computed(() => loading.value && !data.value.today);
 onBeforeUnmount(() => {
   alive = false;
   ++seq;
 });
+function canMorph() {
+  return (
+    document.startViewTransition &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+function morphSourceFor(row) {
+  if (!row) return "";
+  return row.category ? `issue:${row.id}` : `task:${row.id}`;
+}
+async function showDialog() {
+  await nextTick();
+  if (!dailyMorphSource.value || !canMorph()) {
+    dailyMorphActive.value = false;
+    dialogElement.value?.showModal();
+    return;
+  }
+  dailyMorphActive.value = true;
+  document.documentElement.classList.add("daily-morphing");
+  const transition = document.startViewTransition(() =>
+    dialogElement.value?.showModal(),
+  );
+  await transition.finished.catch(() => {});
+  dailyMorphActive.value = false;
+  document.documentElement.classList.remove("daily-morphing");
+}
 async function open(kind, row = null, status = "") {
   modal.value = kind;
   target.value = row;
+  dailyMorphSource.value = morphSourceFor(row);
   issueId.value = "";
   error.value = "";
   Object.keys(form).forEach((k) => delete form[k]);
@@ -184,19 +284,33 @@ async function open(kind, row = null, status = "") {
       actualAreaMu: status === "COMPLETED" ? Number(row.plotAreaMu) : 0,
     });
   if (kind === "review") Object.assign(form, { note: "" });
-  await nextTick();
-  dialogElement.value?.showModal();
+  await showDialog();
 }
-function close() {
-  if (saving.value) return;
-  dialogElement.value?.close();
-  modal.value = "";
+async function close() {
+  if (!dailyMorphSource.value || !canMorph()) {
+    dialogElement.value?.close();
+    modal.value = "";
+    dailyMorphSource.value = "";
+    dailyMorphActive.value = false;
+    return;
+  }
+  dailyMorphActive.value = true;
+  document.documentElement.classList.add("daily-morphing");
+  const transition = document.startViewTransition(() => {
+    dialogElement.value?.close();
+    modal.value = "";
+  });
+  await transition.finished.catch(() => {});
+  dailyMorphActive.value = false;
+  dailyMorphSource.value = "";
+  document.documentElement.classList.remove("daily-morphing");
 }
 async function submit() {
   if (saving.value) return;
   saving.value = true;
   error.value = "";
   try {
+    const completedKind = modal.value;
     if (modal.value === "issue") await api("/field-work/issues", "POST", form);
     if (modal.value === "plan")
       await api(
@@ -212,9 +326,13 @@ async function submit() {
       await api(`/field-work/tasks/${target.value.id}/progress`, "PATCH", form);
     if (modal.value === "review")
       await api(`/field-work/issues/${target.value.id}/resolve`, "POST", form);
-    dialogElement.value.close();
-    modal.value = "";
-    notice.value = "记录已保存，农场待办已更新。";
+    await close();
+    emit("notice", {
+      text: "记录已保存，农场待办已更新。",
+      placement: ["progress", "review"].includes(completedKind)
+        ? "top"
+        : "bottom",
+    });
     await load();
   } catch (e) {
     error.value = e.message;
@@ -227,8 +345,8 @@ async function history(row) {
   logs.value = [];
   target.value = row;
   modal.value = "history";
-  await nextTick();
-  dialogElement.value.showModal();
+  dailyMorphSource.value = morphSourceFor(row);
+  await showDialog();
   try {
     logs.value = await api(`/field-work/tasks/${row.id}/logs`);
   } catch (e) {
@@ -244,10 +362,10 @@ async function history(row) {
         <p class="eyebrow">
           {{
             identity.role === "OPERATOR"
-              ? "FIELD WORK · 田间作业"
+              ? "田间作业"
               : identity.role === "VIEWER"
-                ? "FARM REVIEW · 经营查看"
-                : "MY FARM · 日常经营"
+                ? "经营查看"
+                : "日常经营"
           }}
         </p>
         <h2>{{ farm?.name || "从你的第一座农场开始" }}</h2>
@@ -265,24 +383,10 @@ async function history(row) {
           {{ identity.displayName }}，欢迎回来</small
         >
       </div>
-      <label class="daily-farm-picker"
-        >当前农场<select
-          aria-label="当前农场"
-          :value="farmId"
-          @change="emit('update:farmId', $event.target.value)"
-          :disabled="loading || !farms.length"
-        >
-          <option v-if="!farms.length" value="">尚无农场</option>
-          <option v-for="f in farms" :key="f.id" :value="f.id">
-            {{ f.name }}
-          </option>
-        </select></label
-      >
     </section>
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
     </p>
-    <p v-if="notice && !modal" class="success" role="status">{{ notice }}</p>
     <section v-if="!farmId && !loading" class="panel daily-empty">
       <h3>还没有可使用的农场</h3>
       <p>
@@ -325,18 +429,20 @@ async function history(row) {
           添加第一块田</button
         ><span v-else>请联系农场主添加地块。</span>
       </p>
-      <div class="daily-kpis">
+      <div :class="['daily-kpis', { 'numbers-loading': firstLoad }]">
         <article>
           <small>{{ mine ? "我的待办（含未分配）" : "农场待办" }}</small
           ><strong>{{ myPending.length }}<span>项</span></strong>
           <p>待执行与执行中</p>
         </article>
-        <article :class="{ attention: pending.some(overdue) }">
+        <article :class="{ 'attention danger': pending.some(overdue) }">
           <small>农场逾期任务</small
           ><strong>{{ pending.filter(overdue).length }}<span>项</span></strong>
           <p>按服务器日期 {{ data.today || "…" }}</p>
         </article>
-        <article :class="{ attention: pending.some((t) => t.blockedReason) }">
+        <article
+          :class="{ 'attention caution': pending.some((t) => t.blockedReason) }"
+        >
           <small>资源或现场受阻</small
           ><strong
             >{{ pending.filter((t) => t.blockedReason).length
@@ -350,11 +456,23 @@ async function history(row) {
           <p>处理后仍需农场主复核</p>
         </article>
       </div>
+      <details class="stat-notes">
+        <summary>统计口径</summary>
+        <ul>
+          <li>
+            待办：本农场待执行与执行中的任务；勾选“只看我负责 /
+            未分配”时，只计自己负责和尚未分配的任务。
+          </li>
+          <li>逾期：计划日期早于服务器当天、仍未结束的任务。</li>
+          <li>受阻：执行人已报告受阻、尚未恢复进展的任务，可能同时逾期。</li>
+          <li>现场问题：巡田上报后尚未由农场主复核关闭的问题。</li>
+          <li>数字来自已保存的任务与上报记录，切换农场或刷新后重新统计。</li>
+        </ul>
+      </details>
       <div class="daily-columns">
         <section class="panel daily-worklist">
           <div class="daily-section-title">
             <div>
-              <p class="eyebrow">WORK QUEUE</p>
               <h3>{{ mine ? "我的农事" : "农场农事" }}</h3>
             </div>
             <label class="daily-check"
@@ -380,38 +498,66 @@ async function history(row) {
           <input
             class="daily-search"
             v-model="search"
+            type="search"
+            enterkeyhint="search"
+            autocomplete="off"
             aria-label="搜索农事"
             placeholder="搜索地块、任务或负责人"
           />
-          <p v-if="loading" class="daily-empty" role="status">
-            正在读取农场任务…
-          </p>
-          <p v-else-if="!taskList.length" class="daily-empty">
-            {{
-              search
-                ? "没有匹配的任务，请调整搜索条件。"
-                : "当前范围没有任务。可切换“全部”查看历史。"
-            }}
-          </p>
+          <div v-if="firstLoad" role="status" aria-label="正在读取农场任务">
+            <div
+              v-for="n in 3"
+              :key="n"
+              class="daily-task skeleton-task"
+              aria-hidden="true"
+            >
+              <span class="skeleton" :style="{ width: 40 + n * 6 + '%' }"></span>
+              <span class="skeleton" style="width: 78%"></span>
+              <span class="skeleton skeleton-button"></span>
+            </div>
+          </div>
+          <div v-else-if="!taskList.length" class="daily-empty empty-state">
+            <template v-if="search">
+              <p>没有匹配“{{ search }}”的任务。</p>
+              <button class="outline" @click="search = ''">清除搜索</button>
+            </template>
+            <template v-else>
+              <p>
+                {{
+                  {
+                    open: "没有待处理的任务。",
+                    blocked: "没有受阻的任务。",
+                    done: "还没有已结束的任务。",
+                    all: "这座农场还没有任务。",
+                  }[filter]
+                }}
+              </p>
+              <button v-if="filter !== 'all'" class="outline" @click="filter = 'all'">
+                查看全部任务</button
+              ><button
+                v-if="admin && farmPlots.length"
+                class="primary"
+                @click="open('plan')"
+              >
+                安排农事
+              </button>
+            </template>
+          </div>
           <article
             v-for="t in taskList"
             :key="t.id"
             class="daily-task"
             :data-task-id="t.id"
+            :style="
+              dailyMorphActive && dailyMorphSource === `task:${t.id}`
+                ? { viewTransitionName: 'daily-morph' }
+                : null
+            "
           >
             <div class="daily-task-line">
-              <span
-                :class="[
-                  'daily-status',
-                  { warning: overdue(t) || t.blockedReason },
-                ]"
-                >{{
-                  t.blockedReason
-                    ? "受阻"
-                    : overdue(t)
-                      ? "已逾期"
-                      : word(t.status)
-                }}</span
+              <span :class="['daily-status', statusTone(t)]">{{
+                statusText(t)
+              }}</span
               ><time>{{ t.dueDate }}</time>
             </div>
             <h4>{{ t.title }}</h4>
@@ -429,25 +575,24 @@ async function history(row) {
             <div class="daily-task-footer">
               <small>{{ methods[t.method] || "尚未安排资源" }}</small>
               <div class="daily-task-actions">
-                <button @click="history(t)">记录</button>
-                <button
-                  v-if="admin && ['PENDING', 'RUNNING'].includes(t.status)"
-                  @click="open('plan', t)"
-                >
-                  调整安排
-                </button>
+                <ActionMenu
+                  v-if="moreActions(t).length > 1"
+                  :items="moreActions(t)"
+                  @select="moreAction($event, t)"
+                />
+                <button v-else @click="history(t)">记录</button>
                 <template v-if="canWork(t)"
+                  ><button
+                    v-if="['PENDING', 'RUNNING'].includes(t.status)"
+                    @click="open('progress', t, 'BLOCKED')"
+                  >
+                    报告受阻</button
                   ><button
                     v-if="t.status === 'PENDING'"
                     class="primary"
                     @click="open('progress', t, 'RUNNING')"
                   >
                     开始任务</button
-                  ><button
-                    v-if="['PENDING', 'RUNNING'].includes(t.status)"
-                    @click="open('progress', t, 'BLOCKED')"
-                  >
-                    报告受阻</button
                   ><button
                     v-if="t.status === 'RUNNING'"
                     class="primary"
@@ -456,12 +601,6 @@ async function history(row) {
                     完成回执
                   </button></template
                 >
-                <button
-                  v-if="admin && ['PENDING', 'RUNNING'].includes(t.status)"
-                  @click="open('progress', t, 'CANCELLED')"
-                >
-                  取消任务
-                </button>
               </div>
             </div>
           </article>
@@ -470,13 +609,16 @@ async function history(row) {
           <section class="panel daily-risk">
             <div class="daily-section-title">
               <div>
-                <p class="eyebrow">FIELD NOTES</p>
                 <h3>现场问题</h3>
               </div>
               <span class="count">{{ openIssues.length }}</span>
             </div>
             <p class="muted">上报 → 安排 → 作业回执 → 复核关闭</p>
-            <p v-if="!openIssues.length" class="daily-empty">
+            <div v-if="firstLoad" aria-hidden="true" class="skeleton-issues">
+              <span class="skeleton" style="width: 64%"></span>
+              <span class="skeleton" style="width: 88%"></span>
+            </div>
+            <p v-else-if="!openIssues.length" class="daily-empty">
               暂无待跟进问题。巡田发现异常时可随时上报。
             </p>
             <article
@@ -484,6 +626,11 @@ async function history(row) {
               :key="i.id"
               class="daily-issue"
               :data-issue-id="i.id"
+              :style="
+                dailyMorphActive && dailyMorphSource === `issue:${i.id}`
+                  ? { viewTransitionName: 'daily-morph' }
+                  : null
+              "
             >
               <div class="daily-task-line">
                 <b>{{ i.plotName }}</b
@@ -537,7 +684,6 @@ async function history(row) {
             </details>
           </section>
           <section class="panel daily-season">
-            <p class="eyebrow">THIS SEASON</p>
             <h3>我的地块</h3>
             <div v-for="p in farmPlots" :key="p.id" class="daily-plot">
               <span
@@ -561,6 +707,9 @@ async function history(row) {
     <dialog
       ref="dialogElement"
       class="daily-dialog"
+      :style="
+        dailyMorphActive ? { viewTransitionName: 'daily-morph' } : null
+      "
       @cancel="saving ? $event.preventDefault() : close()"
     >
       <template v-if="modal"
@@ -578,6 +727,7 @@ async function history(row) {
           </h3>
           <button
             type="button"
+            class="close-button"
             aria-label="关闭表单"
             @click="close"
             :disabled="saving"
@@ -585,34 +735,32 @@ async function history(row) {
             ×
           </button>
         </div>
-        <form v-if="modal !== 'history'" @submit.prevent="submit">
+        <form v-validate v-if="modal !== 'history'" @submit.prevent="submit">
           <template v-if="modal === 'issue' || modal === 'plan'"
             ><label
-              >所属地块<select
+              >所属地块<SelectMenu
                 v-model="form.plotId"
+                :options="plotOptions"
+                aria-label="所属地块"
                 required
                 :disabled="modal === 'plan' && !!target"
-              >
-                <option value="" disabled>选择地块</option>
-                <option v-for="p in farmPlots" :key="p.id" :value="p.id">
-                  {{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩
-                </option>
-              </select></label
+              /></label
             ></template
           >
           <template v-if="modal === 'issue'"
             ><div class="daily-form-grid">
               <label
-                >问题类型<select v-model="form.category">
-                  <option v-for="(v, k) in categories" :key="k" :value="k">
-                    {{ v }}
-                  </option>
-                </select></label
+                >问题类型<SelectMenu
+                  v-model="form.category"
+                  :options="categoryOptions"
+                  aria-label="问题类型"
+                /></label
               ><label
-                >跟进优先级<select v-model="form.severity">
-                  <option value="HIGH">优先处理</option>
-                  <option value="NORMAL">常规跟进</option>
-                </select></label
+                >跟进优先级<SelectMenu
+                  v-model="form.severity"
+                  :options="severityOptions"
+                  aria-label="跟进优先级"
+                /></label
               >
             </div>
             <label
@@ -633,39 +781,32 @@ async function history(row) {
             /></label>
             <div class="daily-form-grid">
               <label
-                >农事类型<select v-model="form.taskType">
-                  <option
-                    v-for="k in [
-                      'INSPECTION',
-                      'PROTECTION',
-                      'IRRIGATION',
-                      'FERTILIZING',
-                      'SOWING',
-                      'HARVEST',
-                    ]"
-                    :key="k"
-                    :value="k"
-                  >
-                    {{ word(k) }}
-                  </option>
-                </select></label
+                >农事类型<SelectMenu
+                  v-model="form.taskType"
+                  :options="taskTypeOptions"
+                  aria-label="农事类型"
+                /></label
               ><label
-                >计划日期<input type="date" v-model="form.dueDate" required
-              /></label>
+                >计划日期<DatePicker
+                  v-model="form.dueDate"
+                  aria-label="计划日期"
+                  required
+                /></label
+              >
             </div>
             <label
-              >负责人<select v-model="form.assigneeId" required>
-                <option value="" disabled>选择执行人员</option>
-                <option v-for="m in data.crew" :key="m.id" :value="m.id">
-                  {{ m.displayName }} · {{ word(m.role) }}
-                </option>
-              </select></label
+              >负责人<SelectMenu
+                v-model="form.assigneeId"
+                :options="crewOptions"
+                aria-label="负责人"
+                required
+              /></label
             ><label
-              >计划作业方式<select v-model="form.method">
-                <option v-for="(v, k) in methods" :key="k" :value="k">
-                  {{ v }}
-                </option>
-              </select></label
+              >计划作业方式<SelectMenu
+                v-model="form.method"
+                :options="methodOptions"
+                aria-label="计划作业方式"
+              /></label
             ><label
               >安排说明<textarea
                 v-model="form.note"
@@ -679,11 +820,11 @@ async function history(row) {
               {{ target.plotName }} · {{ target.title }}
             </p>
             <label
-              >实际作业方式<select v-model="form.method">
-                <option v-for="(v, k) in methods" :key="k" :value="k">
-                  {{ v }}
-                </option>
-              </select></label
+              >实际作业方式<SelectMenu
+                v-model="form.method"
+                :options="methodOptions"
+                aria-label="实际作业方式"
+              /></label
             ><label v-if="form.status === 'COMPLETED'"
               >实际完成面积（亩）<input
                 type="number"

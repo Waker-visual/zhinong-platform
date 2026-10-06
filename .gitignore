@@ -19,5 +19,6 @@ private-materials/
 __pycache__/
 *.pyc
 .idea/
+**/config/llm.properties
 
 /docs/source-provenance.json

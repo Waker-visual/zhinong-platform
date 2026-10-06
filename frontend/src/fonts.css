@@ -1,0 +1,53 @@
+/* 界面字体：汉字用思源黑体，字母和数字用 Iosevka Aile。两个字面的 unicode-range 互不重叠，
+ * 浏览器按字符选字面；中文标点（全角符号、引号、省略号、破折号）归思源黑体，保持全角排版。
+ * 许可证：两者均为 SIL OFL 1.1，原文随构建产物发布在 /licenses/。 */
+
+/* Adobe Source Han Sans 2.005 简体中文可变字体子集，原样取自 adobe-fonts/source-han-sans 发布包。 */
+@font-face {
+  font-family: "Zhihe Han";
+  src: url("./assets/fonts/source-han-sans-cn-vf-2.005.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 250 900;
+  font-display: swap;
+  unicode-range:
+    U+2014, U+2018-2019, U+201C-201D, U+2026, U+3000-303F, U+3400-9FFF,
+    U+F900-FAFF, U+FF00-FFEF, U+20000-2FA1F;
+}
+
+/* Iosevka Aile v22.1.2，来自 npm 包 @fontsource/iosevka-aile 5.3.0。 */
+@font-face {
+  font-family: "Zhihe Latin";
+  src: url("../node_modules/@fontsource/iosevka-aile/files/iosevka-aile-latin-400-normal.woff2")
+    format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DC, U+20AC, U+2122, U+2190-2193, U+2212;
+}
+@font-face {
+  font-family: "Zhihe Latin";
+  src: url("../node_modules/@fontsource/iosevka-aile/files/iosevka-aile-latin-500-normal.woff2")
+    format("woff2");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DC, U+20AC, U+2122, U+2190-2193, U+2212;
+}
+@font-face {
+  font-family: "Zhihe Latin";
+  src: url("../node_modules/@fontsource/iosevka-aile/files/iosevka-aile-latin-600-normal.woff2")
+    format("woff2");
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DC, U+20AC, U+2122, U+2190-2193, U+2212;
+}
+@font-face {
+  font-family: "Zhihe Latin";
+  src: url("../node_modules/@fontsource/iosevka-aile/files/iosevka-aile-latin-700-normal.woff2")
+    format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02C6, U+02DC, U+20AC, U+2122, U+2190-2193, U+2212;
+}

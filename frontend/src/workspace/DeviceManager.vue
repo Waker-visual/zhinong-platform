@@ -1,8 +1,17 @@
 <script setup>
-import { computed, onMounted, onBeforeUnmount, ref, watch } from "vue";
-import { api } from "../api";
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  watch,
+} from "vue";
+import { api, loadError } from "../api";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
+import { reportFailure, toast } from "../ui/feedback";
 import {
   typeNames,
   typeIcons,
@@ -26,7 +35,9 @@ const devices = ref([]),
   page = ref(1);
 const editor = ref(false),
   editAsset = ref(null),
-  detailId = ref("");
+  detailId = ref(""),
+  detailMorphSource = ref(""),
+  detailMorphActive = ref(false);
 let alive = true,
   sequence = 0;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
@@ -47,6 +58,21 @@ const pageCount = computed(() =>
   rows = computed(() =>
     filtered.value.slice((page.value - 1) * 15, page.value * 15),
   );
+const farmOptions = computed(() => [
+  { value: "", label: "选择农场" },
+  ...farms.value.map((farm) => ({ value: farm.id, label: farm.name })),
+]);
+const typeOptions = computed(() => [
+  { value: "", label: "全部类型" },
+  ...Object.entries(typeNames).map(([value, label]) => ({ value, label })),
+]);
+const statusOptions = [
+  { value: "", label: "全部上报状态" },
+  ...["FRESH", "STALE", "NO_DATA", "MAINTENANCE", "DISABLED"].map((value) => ({
+    value,
+    label: stateNames[value],
+  })),
+];
 async function load() {
   const current = ++sequence;
   busy.value = true;
@@ -65,7 +91,7 @@ async function load() {
     error.value = "";
     page.value = Math.min(page.value, pageCount.value);
   } catch (e) {
-    if (alive) error.value = e.message;
+    if (alive) error.value = loadError(e);
   } finally {
     if (alive) busy.value = false;
   }
@@ -76,21 +102,67 @@ function create() {
 }
 function edit(asset) {
   detailId.value = "";
+  detailMorphSource.value = "";
+  detailMorphActive.value = false;
   editAsset.value = asset;
   editor.value = true;
 }
+function canMorph() {
+  return (
+    document.startViewTransition &&
+    !matchMedia("(prefers-reduced-motion: reduce)").matches
+  );
+}
+async function openDetail(id) {
+  if (!canMorph()) {
+    detailId.value = id;
+    detailMorphSource.value = "";
+    detailMorphActive.value = false;
+    return;
+  }
+  detailMorphSource.value = `row:${id}`;
+  detailMorphActive.value = true;
+  document.documentElement.classList.add("device-morphing");
+  const transition = document.startViewTransition(async () => {
+    detailId.value = id;
+    await nextTick();
+  });
+  await transition.finished.catch(() => {});
+  detailMorphActive.value = false;
+  document.documentElement.classList.remove("device-morphing");
+}
+async function closeDetail() {
+  if (!detailId.value || !canMorph() || !detailMorphSource.value) {
+    detailId.value = "";
+    detailMorphSource.value = "";
+    detailMorphActive.value = false;
+    return;
+  }
+  detailMorphActive.value = true;
+  document.documentElement.classList.add("device-morphing");
+  const transition = document.startViewTransition(() => {
+    detailId.value = "";
+  });
+  await transition.finished.catch(() => {});
+  detailMorphActive.value = false;
+  detailMorphSource.value = "";
+  document.documentElement.classList.remove("device-morphing");
+}
 async function saved(asset) {
+  const created = !editAsset.value;
   editor.value = false;
   await load();
   detailId.value = asset.id;
+  toast(created ? "设备已创建" : "设备资料已保存");
 }
 async function collect(device) {
   busy.value = true;
   try {
     await api("/assets/" + device.id + "/collect", "POST");
     await load();
+    toast("模拟采集已完成");
   } catch (e) {
-    error.value = e.message;
+    reportFailure(e, () => collect(device));
   } finally {
     busy.value = false;
   }
@@ -105,7 +177,12 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <section class="device-manager">
-    <div class="workspace-stats">
+    <div
+      :class="[
+        'workspace-stats',
+        { 'numbers-loading': busy && !devices.length },
+      ]"
+    >
       <article>
         <span>设备台账</span
         ><strong>{{ devices.length }}<small>台</small></strong>
@@ -127,7 +204,7 @@ onBeforeUnmount(() => {
       <article>
         <span>未定位设备</span
         ><strong
-          >{{ devices.filter((d) => d.planX == null).length
+          >{{ devices.filter((d) => !d.positioned).length
           }}<small>台</small></strong
         >
       </article>
@@ -144,100 +221,119 @@ onBeforeUnmount(() => {
       <div class="device-filter-toolbar">
         <input
           v-model="search"
+          type="search"
+          enterkeyhint="search"
+          autocomplete="off"
           aria-label="搜索设备"
           placeholder="搜索设备名称、编码、型号…"
-        /><select v-model="farmId" aria-label="筛选设备农场">
-          <option value="">全部农场</option>
-          <option v-for="farm in farms" :key="farm.id" :value="farm.id">
-            {{ farm.name }}
-          </option></select
-        ><select v-model="type" aria-label="筛选设备类型">
-          <option value="">全部类型</option>
-          <option v-for="(name, code) in typeNames" :key="code" :value="code">
-            {{ name }}
-          </option></select
-        ><select v-model="status" aria-label="筛选上报状态">
-          <option value="">全部上报状态</option>
-          <option
-            v-for="code in [
-              'FRESH',
-              'STALE',
-              'NO_DATA',
-              'MAINTENANCE',
-              'DISABLED',
-            ]"
-            :key="code"
-            :value="code"
-          >
-            {{ stateNames[code] }}
-          </option></select
-        ><button
+        /><SelectMenu
+          v-model="farmId"
+          aria-label="筛选设备农场"
+          :options="farmOptions"
+        /><SelectMenu
+          v-model="type"
+          aria-label="筛选设备类型"
+          :options="typeOptions"
+        /><SelectMenu
+          v-model="status"
+          aria-label="筛选上报状态"
+          :options="statusOptions"
+        />
+        <button
           v-if="role === 'ADMIN'"
           class="primary"
           @click="create"
           :disabled="!catalog || !farms.length"
         >
-          ＋ 新增设备
+          <span class="add-device-icon" aria-hidden="true">＋</span>新增设备
         </button>
       </div>
       <div class="table-scroll">
-        <table class="asset-table">
-          <thead>
-            <tr>
-              <th>设备 / 编码</th>
-              <th>农场 / 地块</th>
-              <th>接入与状态</th>
-              <th>最新监测</th>
-              <th>最近上报</th>
-              <th>操作</th>
+        <!-- 手机上每台设备显示为一张卡片；显式 ARIA 角色让读屏软件仍按表格朗读 -->
+        <table class="asset-table stack-table" role="table">
+          <thead role="rowgroup">
+            <tr role="row">
+              <th role="columnheader">设备 / 编码</th>
+              <th role="columnheader">农场 / 地块</th>
+              <th role="columnheader">接入与状态</th>
+              <th role="columnheader">最新监测</th>
+              <th role="columnheader">最近采样</th>
+              <th role="columnheader">操作</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody v-if="busy && !rows.length" aria-hidden="true">
+            <tr v-for="n in 5" :key="n" class="skeleton-row">
+              <td v-for="c in 6" :key="c">
+                <span
+                  class="skeleton"
+                  :style="{ width: 40 + ((n * c) % 4) * 12 + '%' }"
+                ></span>
+              </td>
+            </tr>
+          </tbody>
+          <tbody role="rowgroup">
             <tr
               v-for="device in rows"
               :key="device.id"
               :data-asset-id="device.id"
+              role="row"
+              :style="
+                detailMorphActive && detailMorphSource === `row:${device.id}`
+                  ? { viewTransitionName: 'device-morph' }
+                  : null
+              "
             >
-              <td>
-                <button class="asset-name" @click="detailId = device.id">
+              <td role="cell" class="stack-head">
+                <button class="asset-name" @click="openDetail(device.id)">
                   {{ typeIcons[device.deviceType] }} {{ device.name }}</button
-                ><small
-                  >{{ device.code }} · {{ typeNames[device.deviceType] }}</small
+                ><small class="asset-meta"
+                  ><span class="asset-code" :title="device.code">{{
+                    device.code
+                  }}</span
+                  ><span class="asset-type">
+                    · {{ typeNames[device.deviceType] }}</span
+                  ></small
                 >
               </td>
-              <td>
+              <td role="cell" data-label="农场 / 地块">
                 <button @click="emit('farm', device.farmId)">
                   {{ device.farmName }} ↗</button
                 ><small
                   >{{ device.plotName || "公共区域" }} ·
-                  {{ device.planX == null ? "未定位" : "已定位" }}</small
+                  {{ device.positioned ? "已定位" : "未定位" }}</small
                 >
               </td>
-              <td>
+              <td role="cell" data-label="接入与状态">
                 <span
                   class="status-chip"
                   :class="device.freshness.toLowerCase()"
                   >{{ stateNames[device.freshness] }}</span
                 ><small>{{ sourceNames[device.protocol] }}</small>
               </td>
-              <td>
-                <div v-for="c in device.channels.slice(0, 2)" :key="c.metric">
-                  {{ c.name }}
-                  <b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b>
-                  {{ c.unit }}
+              <td role="cell" data-label="最新监测">
+                <div
+                  v-for="c in device.channels.slice(0, 2)"
+                  :key="c.metric"
+                  class="metric-reading"
+                >
+                  <span class="metric-key">{{ c.name }}</span>
+                  <span class="metric-value"
+                    ><b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b
+                    ><span class="metric-unit">{{ c.unit }}</span></span
+                  >
                 </div>
-                <small v-if="device.channels.length > 2"
+                <small v-if="device.channels.length > 2" class="metric-count"
                   >共 {{ device.channels.length }} 个指标</small
                 >
               </td>
-              <td>
-                {{ timeText(device.lastReceivedAt)
+              <td role="cell" data-label="最近采样">
+                {{ timeText(device.lastSampledAt)
                 }}<small v-if="device.alertCount" class="alarm-text"
                   >{{ device.alertCount }} 项告警待处理</small
                 >
               </td>
-              <td class="actions">
-                <button @click="detailId = device.id">详情</button
+              <td class="actions" role="cell" data-label="操作">
+                <button @click="openDetail(device.id)">详情</button
                 ><button v-if="role === 'ADMIN'" @click="edit(device)">
                   编辑</button
                 ><button
@@ -256,14 +352,39 @@ onBeforeUnmount(() => {
           </tbody>
         </table>
       </div>
-      <p v-if="!rows.length" class="empty">
-        {{
-          busy
-            ? "正在加载设备…"
-            : "没有符合筛选条件的设备。管理员可以新增设备，配置指标与接入方式。"
-        }}
+      <p v-if="busy && !rows.length" class="sr-only" role="status">
+        正在加载设备…
       </p>
-      <div class="pagination">
+      <div v-else-if="!rows.length" class="empty empty-state">
+        <template v-if="search || farmId || type || status">
+          <p>没有符合筛选条件的设备。</p>
+          <button
+            class="outline"
+            @click="
+              search = '';
+              farmId = '';
+              type = '';
+              status = '';
+            "
+          >
+            清除筛选
+          </button>
+        </template>
+        <template v-else-if="role === 'ADMIN' && !farms.length">
+          <p>还没有设备。设备要挂在农场下，请先在农场档案新增农场。</p>
+        </template>
+        <template v-else>
+          <p>还没有设备。新增后配置监测指标与接入方式，再到农场平面图定位。</p>
+          <button
+            v-if="role === 'ADMIN' && catalog"
+            class="primary"
+            @click="create"
+          >
+            ＋ 新增第一台设备
+          </button>
+        </template>
+      </div>
+      <div v-if="!(busy && !devices.length)" class="pagination">
         <span>共 {{ filtered.length }} 台 · 每页 15 台</span
         ><button class="outline" @click="page--" :disabled="page <= 1">
           上一页</button
@@ -301,7 +422,8 @@ onBeforeUnmount(() => {
       :key="detailId"
       :id="detailId"
       :role="role"
-      @close="detailId = ''"
+      :transition-name="detailMorphActive ? 'device-morph' : ''"
+      @close="closeDetail"
       @edit="edit"
       @changed="load"
     />

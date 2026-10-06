@@ -8,7 +8,11 @@ import {
   watch,
 } from "vue";
 import { api } from "../api";
+import { confirmAction, promptText } from "../ui/confirm";
+import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
+import SelectMenu from "../ui/SelectMenu.vue";
+import DeviceControl from "./DeviceControl.vue";
 import {
   typeNames,
   sourceNames,
@@ -18,7 +22,11 @@ import {
   lineOption,
   exportHistory,
 } from "./presentation";
-const props = defineProps({ id: String, role: String });
+const props = defineProps({
+  id: String,
+  role: String,
+  transitionName: { type: String, default: "" },
+});
 const emit = defineEmits(["close", "edit", "changed"]);
 const device = ref(null),
   error = ref(""),
@@ -32,6 +40,11 @@ const device = ref(null),
 let alive = true,
   sequence = 0;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
+const hoursOptions = [
+  { value: 24, label: "近 24 小时" },
+  { value: 168, label: "近 7 天" },
+  { value: 720, label: "近 30 天" },
+];
 const chart = computed(() =>
   lineOption(history.value?.points || [], history.value?.metric?.unit || ""),
 );
@@ -59,6 +72,13 @@ async function refresh() {
     if (manual[c.metric] === undefined) manual[c.metric] = "";
   });
 }
+async function controlChanged() {
+  await action(async () => {
+    await refresh();
+    await loadHistory();
+    emit("changed");
+  });
+}
 async function loadHistory() {
   const current = ++sequence;
   try {
@@ -77,7 +97,8 @@ async function action(work) {
   try {
     await work();
   } catch (e) {
-    if (alive) error.value = e.message;
+    // 详情可能已滚到下方的告警区，报错用常驻提示条，不放在面板顶部
+    if (alive) reportFailure(e, () => action(work));
   } finally {
     if (alive) busy.value = false;
   }
@@ -88,6 +109,7 @@ async function sample() {
     await refresh();
     await loadHistory();
     emit("changed");
+    toast("模拟采集已完成");
   });
 }
 async function saveManual() {
@@ -102,12 +124,29 @@ async function saveManual() {
     await loadHistory();
     emit("changed");
     note.value = "监测数据已保存";
+    toast("监测数据已保存");
   });
+}
+// 凭据按 4 位分组显示，便于逐段核对；分组靠间距，选中复制得到的仍是原文
+const keyGroups = computed(() => key.value.match(/.{1,4}/g) || []);
+async function copyKey() {
+  try {
+    await navigator.clipboard.writeText(key.value);
+    toast("凭据已复制到剪贴板");
+  } catch {
+    failure("浏览器未允许自动复制，请选中凭据文字后手动复制。");
+  }
 }
 async function rotate() {
   if (
     device.value.credentialConfigured &&
-    !window.confirm("重新生成后，旧凭据立即失效。确定继续？")
+    !(await confirmAction({
+      title: "重新生成接入凭据",
+      message:
+        "旧凭据会立即失效，正在用它上报的设备需要换成新凭据后才能继续上报。",
+      confirmLabel: "重新生成",
+      danger: true,
+    }))
   )
     return;
   await action(async () => {
@@ -115,17 +154,26 @@ async function rotate() {
     key.value = result.key;
     await refresh();
     emit("changed");
+    toast("接入凭据已重新生成");
   });
 }
 async function handle(alert, status) {
-  const text = window.prompt(
-    status === "ACKNOWLEDGED" ? "填写确认说明" : "填写处理结果（将关闭此告警）",
-  );
-  if (!text?.trim()) return;
+  const closing = status !== "ACKNOWLEDGED";
+  const text = await promptText({
+    title: closing ? "记录处理结果" : "确认告警",
+    message: alert.message,
+    label: closing ? "处理结果（保存后关闭此告警）" : "确认说明",
+    placeholder: closing
+      ? "例如：已现场补水，读数恢复"
+      : "例如：已通知田间人员前往查看",
+    confirmLabel: closing ? "保存并关闭告警" : "确认告警",
+  });
+  if (!text) return;
   await action(async () => {
     await api("/alerts/" + alert.id, "PATCH", { status, note: text.trim() });
     await refresh();
     emit("changed");
+    toast(closing ? "告警已关闭" : "告警已确认");
   });
 }
 watch([metric, hours], () => {
@@ -146,13 +194,24 @@ onBeforeUnmount(() => {
       role="dialog"
       aria-modal="true"
       aria-label="设备详情"
+      :style="
+        props.transitionName
+          ? { viewTransitionName: props.transitionName }
+          : null
+      "
     >
       <div class="section-title">
         <div>
-          <p class="eyebrow">DEVICE WORKSPACE</p>
+          <p class="eyebrow">设备详情</p>
           <h2>{{ device?.name || "正在加载设备…" }}</h2>
         </div>
-        <button aria-label="关闭设备详情" @click="emit('close')">×</button>
+        <button
+          class="close-button"
+          aria-label="关闭设备详情"
+          @click="emit('close')"
+        >
+          ×
+        </button>
       </div>
       <p v-if="error" role="alert" class="error">{{ error }}</p>
       <template v-if="device">
@@ -177,16 +236,29 @@ onBeforeUnmount(() => {
             <dd>{{ device.farmName }} / {{ device.plotName || "公共区域" }}</dd>
           </div>
           <div>
-            <dt>最近上报</dt>
+            <dt>最近接收</dt>
             <dd>{{ timeText(device.lastReceivedAt) }}</dd>
+          </div>
+          <div>
+            <dt>最近采样</dt>
+            <dd>{{ timeText(device.lastSampledAt) }}</dd>
           </div>
           <div>
             <dt>预期上报周期</dt>
             <dd>{{ device.intervalSeconds }} 秒</dd>
           </div>
           <div>
-            <dt>平面点位</dt>
-            <dd>
+            <dt>
+              {{
+                device.locationMode === "WGS84"
+                  ? "WGS84 纬度 / 经度"
+                  : "平面点位"
+              }}
+            </dt>
+            <dd v-if="device.locationMode === 'WGS84'">
+              {{ num(device.latitude, 6) }} / {{ num(device.longitude, 6) }}
+            </dd>
+            <dd v-else>
               {{ device.planX ?? "未设置" }} / {{ device.planY ?? "未设置" }}
             </dd>
           </div>
@@ -208,20 +280,28 @@ onBeforeUnmount(() => {
             ><strong
               >{{ c.latest ? num(c.latest.value, 2) : "—"
               }}<small>{{ c.unit }}</small></strong
-            ><small>{{
-              c.latest ? sourceNames[c.latest.source] : "尚无监测数据"
-            }}</small>
+            ><small
+              >{{ c.latest ? sourceNames[c.latest.source] : "尚无监测数据" }} ·
+              {{ stateNames[c.freshness] }}</small
+            ><small>{{ timeText(c.latest?.time) }}</small>
           </button>
         </div>
+        <DeviceControl
+          v-if="['GATE', 'PUMP'].includes(device.deviceType)"
+          :key="device.id"
+          :device="device"
+          :role="role"
+          @changed="controlChanged"
+        />
         <section class="detail-trend">
           <div class="section-title">
             <h3>监测趋势</h3>
             <div class="inline-controls">
-              <select v-model.number="hours" aria-label="历史时间范围">
-                <option :value="24">近 24 小时</option>
-                <option :value="168">近 7 天</option>
-                <option :value="720">近 30 天</option></select
-              ><button
+              <SelectMenu
+                v-model="hours"
+                :options="hoursOptions"
+                aria-label="历史时间范围"
+              /><button
                 class="outline"
                 @click="history && exportHistory(history)"
                 :disabled="!history?.points.length"
@@ -265,6 +345,7 @@ onBeforeUnmount(() => {
             立即模拟采集全部指标
           </button>
           <form
+            v-validate
             v-if="device.protocol === 'MANUAL'"
             @submit.prevent="saveManual"
           >
@@ -313,7 +394,12 @@ onBeforeUnmount(() => {
             的相同报文可安全重试。
           </p>
           <div v-if="key" class="credential-box">
-            <strong>新凭据（仅本次显示）</strong><code>{{ key }}</code
+            <strong>新凭据（仅本次显示）</strong
+            ><code class="credential-key" :aria-label="key"
+              ><span v-for="(group, i) in keyGroups" :key="i">{{
+                group
+              }}</span></code
+            ><button class="primary" @click="copyKey">复制凭据</button
             ><button @click="key = ''">隐藏凭据</button>
           </div>
           <pre>{{ example }}</pre>

@@ -19,6 +19,11 @@ function fingerprint(root = path.resolve(__dirname, '..')) {
   return crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
 }
 
+// 前端颜色只在 theme.css 定义为令牌；样式、脚本与模板里出现的色值字面量视为违规。
+// 图表与地图在脚本中写 "var(--令牌)"，绘制前再解析成实际颜色。
+const TOKEN_SOURCE = 'frontend/src/account/theme.css';
+const COLOR_LITERAL = /#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|:\s*(?:white|black)\b/i;
+
 function scanFiles(root, files) {
   const findings = [];
   const forbidden = /^(?:copyright\/|skills\/|private-materials\/|artifacts\/|\.cache\/|data\/|backend\/data\/|docs\/source-provenance\.json$)|(?:^|\/)(?:\.env(?:\..*)?|facts\.private\.json)$|(?:\.bundle|\.pdf|\.docx)$|(?:copyright_pipeline|materials\.ps1|capture_ui\.cjs|capture_v03\.cjs|test_pipeline\.py)/i;
@@ -34,6 +39,9 @@ function scanFiles(root, files) {
     if (local.startsWith('..') || path.isAbsolute(local)) throw new Error('Paths must stay inside the project');
     if (!fs.existsSync(full)) continue;
     if (forbidden.test(relative.replaceAll('\\', '/'))) findings.push({ type: 'private_file', path: relative });
+    if (/(?:^|\/)config\/llm\.properties$/i.test(relative.replaceAll('\\', '/'))) {
+      findings.push({ type: 'private_file', path: relative });
+    }
     // Scan application sources/configuration; dependency lockfiles and test fixtures contain public samples.
     if (!/^(backend\/src\/main\/|frontend\/src\/)/.test(relative)) continue;
     if (!/\.(java|vue|js|sql|yml|json|css)$/.test(relative)) continue;
@@ -43,6 +51,11 @@ function scanFiles(root, files) {
         if (pattern.test(line)) findings.push({ type, path: relative, line: index + 1 });
       }
     });
+    if (/^frontend\/src\/.*\.(?:css|vue|js)$/.test(relative) && relative !== TOKEN_SOURCE) {
+      lines.forEach((text, index) => {
+        if (COLOR_LITERAL.test(text)) findings.push({ type: 'raw_color', path: relative, line: index + 1 });
+      });
+    }
   }
   return findings;
 }

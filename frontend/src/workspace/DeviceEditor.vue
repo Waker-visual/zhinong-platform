@@ -1,6 +1,7 @@
 <script setup>
 import { computed, reactive, ref, watch } from "vue";
 import { api } from "../api";
+import SelectMenu from "../ui/SelectMenu.vue";
 const props = defineProps({
   asset: Object,
   farms: Array,
@@ -21,6 +22,10 @@ const model = reactive({
   plotId: props.asset?.plotId || "",
   planX: props.asset?.planX ?? "",
   planY: props.asset?.planY ?? "",
+  locationMode: props.asset?.locationMode || "LOCAL_PLAN",
+  latitude: props.asset?.latitude ?? "",
+  longitude: props.asset?.longitude ?? "",
+  controlEnabled: props.asset?.controlEnabled || false,
   model: props.asset?.model || "",
   notes: props.asset?.notes || "",
   intervalSeconds: props.asset?.intervalSeconds || 900,
@@ -34,12 +39,63 @@ const model = reactive({
 const availablePlots = computed(() =>
   props.plots.filter((p) => p.farmId === model.farmId),
 );
+const farmOptions = computed(() =>
+  props.farms.map((farm) => ({ value: farm.id, label: farm.name })),
+);
+const plotOptions = computed(() => [
+  { value: "", label: "公共区域 / 暂不关联" },
+  ...availablePlots.value.map((plot) => ({ value: plot.id, label: plot.name })),
+]);
+const deviceTypeOptions = computed(() =>
+  props.catalog.types.map((type) => ({ value: type.code, label: type.name })),
+);
+const protocolOptions = computed(() =>
+  props.catalog.protocols.map((protocol) => ({
+    value: protocol.code,
+    label: protocol.name,
+  })),
+);
+const lifecycleOptions = [
+  { value: "ACTIVE", label: "启用" },
+  { value: "MAINTENANCE", label: "维护中" },
+  { value: "DISABLED", label: "停用" },
+];
+const locationOptions = [
+  { value: "LOCAL_PLAN", label: "平面示意点位" },
+  { value: "WGS84", label: "WGS84 安装位置" },
+];
+const canControl = computed(
+  () =>
+    ["GATE", "PUMP"].includes(model.deviceType) && model.protocol !== "MANUAL",
+);
+watch(canControl, (allowed) => {
+  if (!allowed) model.controlEnabled = false;
+});
+function applyPreset() {
+  const metrics =
+    props.catalog.presets?.find((p) => p.deviceType === model.deviceType)
+      ?.metrics || [];
+  if (!props.asset) model.channels = [];
+  for (const metric of metrics) {
+    if (!model.channels.some((c) => c.metric === metric))
+      model.channels.push({ metric, lowerLimit: "", upperLimit: "" });
+  }
+}
+const metricOptions = computed(() => [
+  { value: "", label: "请选择指标", disabled: true },
+  ...props.catalog.metrics.map((metric) => ({
+    value: metric.code,
+    label: `${metric.name} / ${metric.unit}`,
+  })),
+]);
 watch(
   () => model.farmId,
   () => {
     model.plotId = "";
     model.planX = "";
     model.planY = "";
+    model.latitude = "";
+    model.longitude = "";
   },
 );
 const numberOrNull = (v) => (v === "" || v == null ? null : Number(v));
@@ -50,8 +106,14 @@ async function save() {
     const body = {
       ...model,
       plotId: model.plotId || null,
-      planX: numberOrNull(model.planX),
-      planY: numberOrNull(model.planY),
+      planX:
+        model.locationMode === "LOCAL_PLAN" ? numberOrNull(model.planX) : null,
+      planY:
+        model.locationMode === "LOCAL_PLAN" ? numberOrNull(model.planY) : null,
+      latitude:
+        model.locationMode === "WGS84" ? numberOrNull(model.latitude) : null,
+      longitude:
+        model.locationMode === "WGS84" ? numberOrNull(model.longitude) : null,
       intervalSeconds: Number(model.intervalSeconds),
       channels: model.channels.map((c) => ({
         metric: c.metric,
@@ -89,6 +151,7 @@ async function save() {
           <p class="muted">建档、指标与接入配置保存到当前租户。</p>
         </div>
         <button
+          class="close-button"
           aria-label="关闭设备编辑"
           @click="emit('close')"
           :disabled="busy"
@@ -96,7 +159,7 @@ async function save() {
           ×
         </button>
       </div>
-      <form @submit.prevent="save">
+      <form v-validate @submit.prevent="save">
         <div class="form-grid">
           <label
             >设备名称<input
@@ -113,46 +176,34 @@ async function save() {
               placeholder="例如 SOIL-A01"
           /></label>
           <label
-            >设备所属农场<select
+            >设备所属农场<SelectMenu
               v-model="model.farmId"
-              :disabled="!!asset"
+              :options="farmOptions"
+              aria-label="设备所属农场"
               required
-            >
-              <option v-for="f in farms" :key="f.id" :value="f.id">
-                {{ f.name }}
-              </option>
-            </select></label
+              :disabled="!!asset" /></label
           ><label
-            >关联地块<select v-model="model.plotId">
-              <option value="">公共区域 / 暂不关联</option>
-              <option v-for="p in availablePlots" :key="p.id" :value="p.id">
-                {{ p.name }}
-              </option>
-            </select></label
-          >
+            >关联地块<SelectMenu
+              v-model="model.plotId"
+              :options="plotOptions"
+              aria-label="关联地块"
+          /></label>
           <label
-            >设备类型<select v-model="model.deviceType">
-              <option v-for="t in catalog.types" :key="t.code" :value="t.code">
-                {{ t.name }}
-              </option>
-            </select></label
+            >设备类型<SelectMenu
+              v-model="model.deviceType"
+              :options="deviceTypeOptions"
+              aria-label="设备类型" /></label
           ><label
-            >接入方式<select v-model="model.protocol">
-              <option
-                v-for="p in catalog.protocols"
-                :key="p.code"
-                :value="p.code"
-              >
-                {{ p.name }}
-              </option>
-            </select></label
-          >
+            >接入方式<SelectMenu
+              v-model="model.protocol"
+              :options="protocolOptions"
+              aria-label="接入方式"
+          /></label>
           <label
-            >使用状态<select v-model="model.lifecycle">
-              <option value="ACTIVE">启用</option>
-              <option value="MAINTENANCE">维护中</option>
-              <option value="DISABLED">停用</option>
-            </select></label
+            >使用状态<SelectMenu
+              v-model="model.lifecycle"
+              :options="lifecycleOptions"
+              aria-label="使用状态" /></label
           ><label
             >预期上报周期（秒）<input
               type="number"
@@ -163,6 +214,41 @@ async function save() {
               required
           /></label>
           <label
+            >点位坐标系<SelectMenu
+              v-model="model.locationMode"
+              :options="locationOptions"
+              aria-label="点位坐标系"
+          /></label>
+          <label v-if="canControl"
+            ><span>控制授权</span
+            ><span
+              ><input
+                type="checkbox"
+                v-model="model.controlEnabled"
+              />允许本租户管理员和操作员提交控制指令</span
+            ></label
+          >
+          <template v-if="model.locationMode === 'WGS84'">
+            <label
+              >安装纬度<input
+                v-model.number="model.latitude"
+                type="number"
+                min="-80"
+                max="80"
+                step="0.000001"
+                required
+            /></label>
+            <label
+              >安装经度<input
+                v-model.number="model.longitude"
+                type="number"
+                min="-180"
+                max="180"
+                step="0.000001"
+                required
+            /></label>
+          </template>
+          <label v-if="model.locationMode === 'LOCAL_PLAN'"
             >平面 X 坐标<input
               type="number"
               min="0"
@@ -170,7 +256,7 @@ async function save() {
               step="0.01"
               v-model="model.planX"
               placeholder="也可保存后在地图定位" /></label
-          ><label
+          ><label v-if="model.locationMode === 'LOCAL_PLAN'"
             >平面 Y 坐标<input
               type="number"
               min="0"
@@ -184,9 +270,16 @@ async function save() {
             >安装与维护说明<input v-model="model.notes" maxlength="500"
           /></label>
         </div>
+        <p class="muted">
+          WGS84 安装点位独立保存，调整农场中心不会移动它。高德 /
+          百度坐标需先转换；未定位的设备仍保留数据和历史。
+        </p>
         <section class="channel-settings">
           <div class="section-title">
             <h3>监测指标与告警阈值</h3>
+            <button type="button" class="outline" @click="applyPreset">
+              应用设备指标模板
+            </button>
             <button
               type="button"
               class="outline"
@@ -197,7 +290,7 @@ async function save() {
                   upperLimit: '',
                 })
               "
-              :disabled="model.channels.length >= 12"
+              :disabled="model.channels.length >= 32"
             >
               ＋ 添加指标
             </button>
@@ -205,20 +298,12 @@ async function save() {
           <div v-for="(c, i) in model.channels" :key="i" class="channel-row">
             <label
               >指标 {{ i + 1
-              }}<select
+              }}<SelectMenu
                 v-model="c.metric"
+                :options="metricOptions"
+                aria-label="监测指标"
                 required
-                :disabled="!!asset && i < asset.channels.length"
-              >
-                <option value="" disabled>请选择指标</option>
-                <option
-                  v-for="m in catalog.metrics"
-                  :key="m.code"
-                  :value="m.code"
-                >
-                  {{ m.name }} / {{ m.unit }}
-                </option>
-              </select></label
+                :disabled="!!asset && i < asset.channels.length" /></label
             ><label
               >告警下限<input
                 type="number"
