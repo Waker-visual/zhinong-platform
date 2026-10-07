@@ -499,7 +499,7 @@ public class FarmService {
           "measured_value",
           value,
           "measured_at",
-          time,
+          store.dialect().mysql() ? time.atZone(java.time.ZoneId.systemDefault()).withZoneSameInstant(java.time.ZoneOffset.UTC).toLocalDateTime() : time,
           "source",
           source
         )

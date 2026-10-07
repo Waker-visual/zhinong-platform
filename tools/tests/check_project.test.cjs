@@ -69,3 +69,11 @@ test('scanner allows ordinary application files and rejects escaped paths', t =>
   assert.deepEqual(scanFiles(root, ['frontend/src/main.js']), []);
   assert.throws(() => scanFiles(root, ['../outside.txt']), /inside the project/);
 });
+
+test('scanner rejects force-staged RDS credentials and private deployment settings', t => {
+  const { root, put } = fixture(t);
+  put('rds.txt', 'private deployment values');
+  put('settings/rds-network.private.json', '{}');
+  const results = scanFiles(root, ['rds.txt', 'settings/rds-network.private.json']);
+  assert.deepEqual(results.map(f => f.type), ['private_file', 'private_file']);
+});

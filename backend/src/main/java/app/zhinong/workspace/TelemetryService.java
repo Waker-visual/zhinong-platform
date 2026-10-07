@@ -34,30 +34,23 @@ public class TelemetryService {
     store.lock("devices", id);
     var asset = assets.detail(id);
     active(asset, "SIMULATED");
-    double phase = Instant.now().getEpochSecond() / 1800.0 + Math.abs(id.hashCode() % 37);
-    var values = assets
-      .channels(Identity.tenant(), id)
-      .stream()
-      .map(c -> {
-        var m = MetricCatalog.get(c.get("metric").toString());
-        double amplitude = Math.max(0.2, Math.abs(m.normal()) * 0.12);
-        double number = Math.max(
-          m.min(),
-          Math.min(m.max(), m.normal() + Math.sin(phase + (m.code().hashCode() % 9)) * amplitude)
-        );
-        // Control feedback must not drift when a user samples environmental metrics.
-        if (Set.of("GATE_OPENING", "PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT", "CURRENT", "FLOW").contains(m.code())) {
-          var prior = assets.latest(Identity.tenant(), id, m.code());
-          number = prior == null ? m.normal() : ((Number) prior.get("value")).doubleValue();
-        }
-        if (MetricCatalog.discrete(m.code())) number = Math.round(number);
-        return new WorkspaceInputs.Reading(
-          m.code(),
-          BigDecimal.valueOf(number).setScale(3, RoundingMode.HALF_UP)
-        );
-      })
-      .toList();
-    write(Identity.tenant(), id, Instant.now(), values, "SIMULATED", Identity.current().username());
+    var now = Instant.now();
+    var previous = new HashMap<String, BigDecimal>();
+    Instant last = now;
+    for (var channel : assets.channels(Identity.tenant(), id)) {
+      String metric = channel.get("metric").toString();
+      var prior = assets.latest(Identity.tenant(), id, metric);
+      if (prior != null && "SIMULATED".equals(prior.get("source"))) {
+        previous.put(metric, (BigDecimal) prior.get("value"));
+        Instant at = ((OffsetDateTime) prior.get("time")).toInstant();
+        if (at.isBefore(last)) last = at;
+      }
+    }
+    var sample = SyntheticTelemetry.sample(asset.get("deviceType").toString(), asset.get("farmId").toString(),
+      now, previous, Duration.between(last, now).getSeconds());
+    var values = assets.channels(Identity.tenant(), id).stream()
+      .map(c -> new WorkspaceInputs.Reading(c.get("metric").toString(), sample.get(c.get("metric").toString()))).toList();
+    write(Identity.tenant(), id, now, values, "SIMULATED", Identity.current().username());
     return assets.detail(id);
   }
 
@@ -166,6 +159,8 @@ public class TelemetryService {
       MetricCatalog.validate(r.metric(), r.value());
     }
     var now = OffsetDateTime.now(ZoneOffset.UTC);
+    Integer interval = db.queryForObject("SELECT interval_seconds FROM asset_profiles WHERE tenant_id=? AND device_id=?", Integer.class, tenant, id);
+    boolean current = time.isAfter(now.toInstant().minusSeconds(Math.max(180, interval * 3L)));
     for (var r : readings) {
       var prior = assets.latest(tenant, id, r.metric());
       db.update(
@@ -182,7 +177,7 @@ public class TelemetryService {
         now,
         source
       );
-      if (prior == null || !time.isBefore(((OffsetDateTime) prior.get("time")).toInstant())) {
+      if (current && (prior == null || !time.isBefore(((OffsetDateTime) prior.get("time")).toInstant()))) {
         var channel = channels
           .stream()
           .filter(c -> r.metric().equals(c.get("metric")))
@@ -204,7 +199,7 @@ public class TelemetryService {
       actor,
       "TELEMETRY_" + source,
       id,
-      LocalDateTime.now()
+      java.sql.Timestamp.from(Instant.now())
     );
   }
 

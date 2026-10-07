@@ -19,17 +19,20 @@ public class DemoData implements ApplicationRunner {
   private final TenantService tenants;
   private final boolean demo;
   private final String password;
+  private final boolean streaming;
 
   public DemoData(
     JdbcTemplate db,
     TenantService tenants,
     @Value("${farm.demo}") boolean demo,
-    @Value("${farm.bootstrap-password}") String password
+    @Value("${farm.bootstrap-password}") String password,
+    @Value("${farm.demo-stream.enabled:false}") boolean streaming
   ) {
     this.db = db;
     this.tenants = tenants;
     this.demo = demo;
     this.password = password;
+    this.streaming = streaming;
   }
 
   @Override
@@ -113,10 +116,10 @@ public class DemoData implements ApplicationRunner {
       UUID.randomUUID().toString(),
       tenant,
       farm,
-      "土壤水分记录点",
+      streaming ? "土壤水分演示点" : "土壤水分记录点",
       "SOIL_MOISTURE",
       "%",
-      "MANUAL"
+      streaming ? "SIMULATED" : "MANUAL"
     );
   }
 }

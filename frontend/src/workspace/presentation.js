@@ -27,6 +27,20 @@ export const sourceNames = {
   MANUAL: "人工录入",
   HTTP_PUSH: "接口上报",
 };
+export function preferredMetric(device) {
+  const channels = device?.channels || [];
+  return (
+    (
+      channels.find(
+        (c) => c.metric === device.primaryMetric && c.freshness === "FRESH",
+      ) ||
+      channels.find((c) => c.latest && c.freshness === "FRESH") ||
+      channels.find((c) => c.latest) ||
+      channels.find((c) => c.metric === device.primaryMetric) ||
+      channels[0]
+    )?.metric || ""
+  );
+}
 export const stateNames = {
   FRESH: "正常上报",
   STALE: "超时未报",

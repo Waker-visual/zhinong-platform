@@ -47,6 +47,8 @@ public class FarmWorkspaceService {
       Identity.tenant()
     );
     for (var row : rows) {
+      Object demo = row.get("demo");
+      row.put("demo", Boolean.TRUE.equals(demo) || demo instanceof Number number && number.intValue() != 0);
       String id = row.get("id").toString();
       var plots = plots(id);
       row.put("plots", plots);
@@ -310,7 +312,7 @@ public class FarmWorkspaceService {
       PlanGeometry.polygon(shape.boundary());
       try {
         db.update(
-          "MERGE INTO plot_shapes(tenant_id,plot_id,boundary_json) KEY(tenant_id,plot_id) VALUES(?,?,?)",
+          store.dialect().upsert("plot_shapes", "tenant_id,plot_id,boundary_json", "tenant_id,plot_id"),
           Identity.tenant(),
           shape.plotId(),
           json.writeValueAsString(shape.boundary())
