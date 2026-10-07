@@ -1,6 +1,6 @@
 # smart-farm 现场设备接入与验收
 
-本轮重点是把现场报文、地块监测和处理流程连接起来。核心业务支持 H2 与 MySQL 8，RDS 直连及连续模拟见 [RDS 接入与模拟数据验收](RDS接入与模拟数据验收.md)。云端仍需启用 TLS 后完成入库验证。本轮验证使用虚构报文，没有连接现有现场 Broker、修改旧采集器或下发实体设备指令。
+本轮重点是把现场报文、地块监测和处理流程连接起来。核心业务支持 H2 与 MySQL 8，RDS 直连及连续模拟见 [RDS 接入与模拟数据验收](RDS接入与模拟数据验收.md)。云端已按明确选择的未加密连接完成入库验证。本轮验证使用虚构报文，没有连接现有现场 Broker、修改旧采集器或下发实体设备指令。
 
 ## 农场使用入口
 
@@ -109,7 +109,7 @@
 
 默认 H2 启动方式不变。MySQL 使用 `mysql` profile、`FARM_DATABASE_URL/USER/PASSWORD`，连接 URL 需配置 UTC 时间转换（`connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&preserveInstants=true`），连接池设置 UTC 会话及 ANSI_QUOTES。初始化默认关闭。仅对确认的独立空库设置 `FARM_DATABASE_INIT=always` 使用 `schema-mysql.sql`；后续启动恢复 `never`。脚本不创建云实例或数据库，也不迁移旧业务库。
 
-`schema-mysql.sql` 由 `node tools/build_mysql_schema.cjs` 从 H2 模型生成，只用于全新 MySQL 8 库；已有 MySQL 库需要单独审阅增量迁移。RDS 凭据文件已被 Git 忽略。本次未执行云端建表、导入或写入。
+`schema-mysql.sql` 由 `node tools/build_mysql_schema.cjs` 从 H2 模型生成，只用于全新 MySQL 8 库；已有 MySQL 库需要单独审阅增量迁移。RDS 凭据文件已被 Git 忽略。本次已在确认的独立空库建表，生成两租户的虚构业务、监测历史与季度模拟数据。
 
 本地验证：
 

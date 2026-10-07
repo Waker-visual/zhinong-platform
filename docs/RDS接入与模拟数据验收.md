@@ -26,14 +26,20 @@ database: zhinong_platform
 .\scripts\start-rds.ps1 -Direct -Probe
 ```
 
-检查包含 TLS、数据库版本、表数量和项目表标识。连接失败只输出错误编号。`ERROR 2026` 且服务端未提供 SSL 时，需要先在云数据库控制台启用 TLS，再重试；脚本强制 `sslMode=REQUIRED`，不会降级到未加密连接。需要服务器证书身份校验的部署，应使用正确的主机名解析与 `VERIFY_IDENTITY`、可信 CA 配置，不能直接把域名替换成证书未包含的 IP。
+检查包含连接加密状态、数据库版本、表数量和项目表标识。连接失败只输出错误编号。默认使用 `sslMode=REQUIRED`；服务端未提供 SSL 时会报 `ERROR 2026`。已明确选择未加密连接的环境，在每次命令中追加 `-AllowUnencryptedConnection`，客户端预检和应用连接均使用 `sslMode=DISABLED`，没有自动降级。需要服务器证书身份校验的部署，应使用正确的主机名解析与 `VERIFY_IDENTITY`、可信 CA 配置，不能直接把域名替换成证书未包含的 IP。
+
+本次环境已明确选择未加密直连，检查命令为：
+
+```powershell
+.\scripts\start-rds.ps1 -Direct -AllowUnencryptedConnection -Probe
+```
 
 ## 初始化与启动
 
 确认是本项目独立空库后，首次启动：
 
 ```powershell
-.\scripts\start-rds.ps1 -Direct -InitializeEmptyDatabase -Demo
+.\scripts\start-rds.ps1 -Direct -AllowUnencryptedConnection -InitializeEmptyDatabase -Demo
 ```
 
 脚本会先检查库是否为空，构建前后端后初始化。`-Demo` 创建 `demo-a` / `demo-b` 的虚构业务数据，启用连续模拟。平台账号为 `platform / platform`，演示账号为 `admin / operator / viewer`。新生成的初始化密码只保存在 `.cache/rds-bootstrap-password.txt`，不公开输出。已存在的账号密码不会被重置。
@@ -41,10 +47,12 @@ database: zhinong_platform
 后续启动不再传初始化参数：
 
 ```powershell
-.\scripts\start-rds.ps1 -Direct -Demo -SkipBuild
+.\scripts\start-rds.ps1 -Direct -AllowUnencryptedConnection -Demo -SkipBuild
 ```
 
 已有程序数据但结构不完整时，脚本拒绝启动并要求审阅迁移；不会删库、清空表或覆盖已有业务记录。默认不加 `-Demo` 时不生成模拟数据，真实 MQTT 网关仍关闭。经营模拟使用当前业务库中的独立 `sim_*` 表，不写入真实产量台账。启动脚本清除可能残留的独立模拟库环境变量，退出时恢复。
+
+每个应用连接均设置 UTC、`ANSI_QUOTES` 和 `STRICT_TRANS_TABLES`，防止非严格模式静默截断非法写入。当前云端 MySQL 8.0.13 的 `CHECK` 语法可解析但不执行约束，业务范围、枚举和日期关系依靠服务端接口校验；数据库租户复合外键仍生效。不要通过手工 SQL 绕过接口录入业务数据。
 
 ## 连续模拟数据的范围
 
@@ -80,4 +88,8 @@ MySQL 验收创建随机命名的本机数据库，使用 TLS 连接，验证完
 
 2026-10-07 使用 MySQL 8.4.9 验证：两演示租户共 46 台设备、293,898 条监测记录，30 天逐通道覆盖检查中缺口和重复点均为 0。原生泵房报文、重复上报、外部设备编号冲突、UTC 指令有效期、写入回执与实际反馈分离、告警转田间问题也通过本机 MySQL 接口验收。
 
-2026-10-07 的云端检查已定位到 VPN 虚拟 DNS，并通过真实 IP 与物理网卡到达数据库；服务端未提供 SSL，因此尚未完成云端登录、建表或数据导入。云端验收不能由本机 MySQL 验收替代。
+2026-10-07 已按明确选择的未加密连接，通过真实 IP 与物理网卡在云端 MySQL 8.0.13 的独立空库完成初始化：31 张表、两演示租户的 46 台设备、293,898 条初始监测记录。全通道覆盖 30 天，缺口或重复点、夜间光照错误、累计量回退均为 0。记录会随运行继续增加。
+
+云端接口验收通过设备完整性、经营工作台、UTC 历史时间、跨租户拒绝访问和平台账号权限；事务内构造的跨租户关联被复合外键拒绝，严格模式拒绝超长字段写入。两租户各保存一个 90 天季度模拟，每个包含 3 个方案，共 540 条逐日模拟记录。这些记录属于模拟模块，不混入实际产量。
+
+应用重启后再次通过上述检查：设备、经营台账和两个季度模拟保留，历史随新的采样时隙增加至 293,988 条，未出现重复点。当前本机入口为 `http://127.0.0.1:9175`，账号 `demo-a / admin`，密码读取本机 `.cache/rds-bootstrap-password.txt`。原本地 H2 数据文件仍保留，RDS 启动不读取或覆盖它。

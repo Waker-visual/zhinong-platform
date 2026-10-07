@@ -1,7 +1,8 @@
 param(
     [string]$ConfigPath = '', [string]$MySqlClient = '',
     [switch]$Direct, [string]$DirectAddress = '', [string]$BindAddress = '',
-    [switch]$Probe, [switch]$InitializeEmptyDatabase, [switch]$Demo, [switch]$SkipBuild
+    [switch]$Probe, [switch]$InitializeEmptyDatabase, [switch]$Demo, [switch]$SkipBuild,
+    [switch]$AllowUnencryptedConnection
 )
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -10,6 +11,8 @@ if (-not $ConfigPath) { $ConfigPath = Join-Path $projectRoot 'rds.txt' }
 $config = Read-RdsConfig $ConfigPath
 if (-not $MySqlClient) { $MySqlClient = (Get-Command mysql.exe -ErrorAction Stop).Source }
 $address = $config.host
+$sslMode = if ($AllowUnencryptedConnection) { 'DISABLED' } else { 'REQUIRED' }
+if ($AllowUnencryptedConnection) { Write-Host 'Using explicitly requested unencrypted MySQL transport for this run.' }
 if ($Direct -or $DirectAddress) {
     $connection = Resolve-RdsDirect $config $DirectAddress $BindAddress
     $address = $connection.address; $BindAddress = $connection.bind
@@ -22,7 +25,7 @@ foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVari
 try {
     $env:MYSQL_PWD = $config.password
     $arguments = @('--no-defaults',"--host=$address","--port=$($config.port)","--user=$($config.user)",
-        "--database=$($config.database)",'--protocol=TCP','--ssl-mode=REQUIRED','--connect-timeout=10',
+        "--database=$($config.database)",'--protocol=TCP',"--ssl-mode=$sslMode",'--connect-timeout=10',
         '--batch','--skip-column-names',"--execute=SELECT VERSION(); SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE(); SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name IN ('tenants','members','asset_profiles','device_integrations','alert_field_issues'); SHOW SESSION STATUS LIKE 'Ssl_cipher';")
     if ($BindAddress) { $arguments += "--bind-address=$BindAddress" }
     $ErrorActionPreference = 'Continue'
@@ -31,12 +34,13 @@ try {
     $ErrorActionPreference = 'Stop'
     if ($probeExit -ne 0) {
         $code = [regex]::Match(($output | Out-String), 'ERROR \d+').Value
-        throw "RDS preflight failed ($code). TLS is required. Check TLS, whitelist and direct routing. Credentials and endpoint were not logged."
+        throw "RDS preflight failed ($code, transport=$sslMode). Check server transport settings, whitelist and direct routing. Credentials and endpoint were not logged."
     }
     $lines = @($output | ForEach-Object { $_.ToString() })
     $tableCount = [int]$lines[1]
-    if (-not ($lines | Where-Object { $_ -match '^Ssl_cipher\s+\S+' })) { throw 'An encrypted MySQL session is required.' }
-    Write-Host "Encrypted RDS connection verified. Server version: $($lines[0]); tables: $tableCount."
+    $encrypted = [bool]($lines | Where-Object { $_ -match '^Ssl_cipher\s+\S+' })
+    if (-not $encrypted -and -not $AllowUnencryptedConnection) { throw 'An encrypted MySQL session is required.' }
+    Write-Host "RDS connection verified. Encrypted: $encrypted; server version: $($lines[0]); tables: $tableCount."
     if ($Probe) { return }
     if ($InitializeEmptyDatabase -and $tableCount -ne 0) { throw 'Initialization is restricted to an empty independent database. Existing tables will not be modified.' }
     if (-not $InitializeEmptyDatabase -and ($tableCount -eq 0 -or [int]$lines[2] -ne 5)) { throw 'Database schema is not ready. Use -InitializeEmptyDatabase only for an independent empty database; review migrations for existing databases.' }
@@ -46,7 +50,7 @@ try {
         Push-Location (Join-Path $projectRoot 'backend')
         try { mvn.cmd -B package; if ($LASTEXITCODE -ne 0) { throw 'Backend verification failed' } } finally { Pop-Location }
     }
-    $env:FARM_DATABASE_URL = "jdbc:mysql://${address}:$($config.port)/$($config.database)?sslMode=REQUIRED&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&preserveInstants=true&characterEncoding=UTF-8&rewriteBatchedStatements=true"
+    $env:FARM_DATABASE_URL = "jdbc:mysql://${address}:$($config.port)/$($config.database)?sslMode=$sslMode&connectionTimeZone=UTC&forceConnectionTimeZoneToSession=true&preserveInstants=true&characterEncoding=UTF-8&rewriteBatchedStatements=true"
     $env:FARM_DATABASE_USER = $config.user; $env:FARM_DATABASE_PASSWORD = $config.password
     $env:FARM_DATABASE_BIND_ADDRESS = $BindAddress
     $env:FARM_DATABASE_INIT = if ($InitializeEmptyDatabase) { 'always' } else { 'never' }
@@ -63,9 +67,17 @@ try {
         [IO.File]::WriteAllText($passwordPath, $env:FARM_BOOTSTRAP_PASSWORD)
         Write-Host 'New account password saved locally in .cache/rds-bootstrap-password.txt.'
     }
-    Write-Host 'Starting http://127.0.0.1:9175 with MySQL. MQTT remains disabled.'
+    $port = if ($env:FARM_PORT) { $env:FARM_PORT } else { '9175' }
+    Write-Host "Starting http://127.0.0.1:$port with MySQL. MQTT remains disabled."
+    # Run a private copy so a live Windows process does not lock the next build.
+    $runtimeJar = Join-Path $projectRoot ".cache/rds-runtime-$PID.jar"
+    New-Item -ItemType Directory -Force (Split-Path -Parent $runtimeJar) | Out-Null
+    Copy-Item -LiteralPath (Join-Path $projectRoot 'backend/target/zhinong-platform-0.3.0.jar') -Destination $runtimeJar
     Push-Location (Join-Path $projectRoot 'backend')
-    try { java -jar target/zhinong-platform-0.3.0.jar --spring.profiles.active=mysql --farm.mqtt.enabled=false; if ($LASTEXITCODE -ne 0) { throw 'Application exited with an error.' } } finally { Pop-Location }
+    try { java -jar $runtimeJar --spring.profiles.active=mysql --farm.mqtt.enabled=false; if ($LASTEXITCODE -ne 0) { throw 'Application exited with an error.' } } finally {
+        Pop-Location
+        Remove-Item -LiteralPath $runtimeJar -ErrorAction SilentlyContinue
+    }
 } finally {
     foreach ($name in $names) { [Environment]::SetEnvironmentVariable($name, $previous[$name], 'Process') }
 }
