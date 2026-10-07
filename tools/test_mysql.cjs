@@ -70,6 +70,9 @@ function query(statement) { return sql(`USE ${database}; ${statement}`); }
     const gate = assets.find(a => a.deviceType === 'GATE');
     const pump = assets.find(a => a.deviceType === 'PUMP');
     const soil = assets.find(a => a.code === 'DEMO-CTRL-SOIL');
+    const business=await api(admin,'GET',`/farms/${pump.farmId}/workspace?days=30`);
+    assert.equal(business.tasks.length,12);
+    assert.ok(business.analytics.productionTrend.length>=3);
     for (const farm of farms) {
       await api(admin, 'GET', `/farms/${farm.id}/workspace?days=30`);
       await api(admin, 'GET', `/farms/${farm.id}/operations?hours=720`);
