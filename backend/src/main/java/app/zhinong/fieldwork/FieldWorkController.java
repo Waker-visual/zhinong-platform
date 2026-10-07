@@ -8,9 +8,11 @@ import org.springframework.web.bind.annotation.*;
 public class FieldWorkController {
 
   private final FieldWorkService work;
+  private final AlertFieldWorkService alertWork;
 
-  public FieldWorkController(FieldWorkService work) {
+  public FieldWorkController(FieldWorkService work, AlertFieldWorkService alertWork) {
     this.work = work;
+    this.alertWork = alertWork;
   }
 
   @GetMapping
@@ -21,6 +23,11 @@ public class FieldWorkController {
   @PostMapping("/issues")
   Object report(@Valid @RequestBody FieldWorkService.IssueInput input) {
     return work.report(input);
+  }
+
+  @PostMapping("/alerts/{id}/issue")
+  Object fromAlert(@PathVariable String id,@Valid @RequestBody AlertFieldWorkService.Input input) {
+    return alertWork.report(id,input);
   }
 
   @PostMapping("/tasks")

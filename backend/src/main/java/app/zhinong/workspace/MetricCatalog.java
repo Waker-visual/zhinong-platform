@@ -21,6 +21,10 @@ public final class MetricCatalog {
     new Metric("HUMIDITY", "空气湿度", "%", 0, 100, 65),
     new Metric("SOIL_MOISTURE", "土壤水分", "%", 0, 100, 35),
     new Metric("SOIL_TEMPERATURE", "土壤温度", "℃", -40, 80, 22),
+    new Metric("SOIL_MOISTURE_2", "第二层土壤水分", "%", 0, 100, 35),
+    new Metric("SOIL_TEMPERATURE_2", "第二层土壤温度", "℃", -40, 80, 22),
+    new Metric("SOIL_MOISTURE_3", "第三层土壤水分", "%", 0, 100, 35),
+    new Metric("SOIL_TEMPERATURE_3", "第三层土壤温度", "℃", -40, 80, 22),
     new Metric("PH", "土壤酸碱度", "pH", 0, 14, 6.8),
     new Metric("LIGHT", "光照强度", "lux", 0, 200000, 26000),
     new Metric("RAINFALL", "累计降雨量", "mm", 0, 3000, 3),
@@ -31,11 +35,15 @@ public final class MetricCatalog {
     new Metric("WIND_DIRECTION", "风向", "°", 0, 360, 135),
     new Metric("AIR_PRESSURE", "大气压", "hPa", 300, 1200, 1013),
     new Metric("SOIL_EC", "土壤电导率", "µS/cm", 0, 100000, 620),
+    new Metric("SOIL_EC_2", "第二层土壤电导率", "µS/cm", 0, 100000, 620),
+    new Metric("SOIL_EC_3", "第三层土壤电导率", "µS/cm", 0, 100000, 620),
     new Metric("PEST_COUNT", "虫情计数", "只", 0, 1000000, 8),
     new Metric("GATE_OPENING", "闸门实际开度", "%", 0, 100, 0),
     new Metric("PUMP_RUNNING", "主泵运行反馈", "", 0, 1, 0),
     new Metric("STANDBY_RUNNING", "备用泵运行反馈", "", 0, 1, 0),
-    new Metric("PUMP_FREQUENCY", "主泵频率", "Hz", 0, 60, 0),
+    new Metric("PUMP_FREQUENCY", "主泵设定频率", "Hz", 0, 60, 0),
+    new Metric("EMERGENCY_STOP", "急停反馈", "", 0, 1, 0),
+    new Metric("PARAMETER_WRITE_ENABLED", "远程参数设置许可", "", 0, 1, 1),
     new Metric("VOLTAGE", "电压", "V", 0, 1000, 380),
     new Metric("CURRENT", "电流", "A", 0, 1000, 0),
     new Metric("ENERGY", "累计用电量", "kWh", 0, 100000000, 120),
@@ -80,11 +88,11 @@ public final class MetricCatalog {
 
   public static final Map<String, List<String>> PRESETS = Map.of(
     "WEATHER", List.of("TEMPERATURE", "HUMIDITY", "WIND_SPEED", "WIND_DIRECTION", "AIR_PRESSURE", "RAINFALL", "LIGHT"),
-    "SOIL", List.of("SOIL_MOISTURE", "SOIL_TEMPERATURE", "SOIL_EC", "PH"),
+    "SOIL", List.of("SOIL_MOISTURE", "SOIL_TEMPERATURE", "SOIL_EC", "SOIL_MOISTURE_2", "SOIL_TEMPERATURE_2", "SOIL_EC_2", "SOIL_MOISTURE_3", "SOIL_TEMPERATURE_3", "SOIL_EC_3", "PH"),
     "WATER", List.of("WATER_LEVEL", "FLOW"),
     "PEST", List.of("PEST_COUNT", "TEMPERATURE", "HUMIDITY"),
     "GATE", List.of("GATE_OPENING", "WATER_LEVEL", "REMOTE_ENABLED", "FAULT"),
-    "PUMP", List.of("PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "WATER_LEVEL", "VOLTAGE", "CURRENT", "FLOW", "ENERGY", "WATER_TOTAL", "REMOTE_ENABLED", "FAULT"),
+    "PUMP", List.of("PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "WATER_LEVEL", "VOLTAGE", "CURRENT", "FLOW", "ENERGY", "WATER_TOTAL", "REMOTE_ENABLED", "FAULT", "EMERGENCY_STOP", "PARAMETER_WRITE_ENABLED"),
     "CAMERA", List.of("CAMERA_ONLINE"),
     "MACHINERY", List.of("SPEED", "BATTERY"),
     "GATEWAY", List.of("BATTERY"),
@@ -92,7 +100,7 @@ public final class MetricCatalog {
   );
 
   public static boolean discrete(String metric) {
-    return Set.of("PUMP_RUNNING", "STANDBY_RUNNING", "REMOTE_ENABLED", "FAULT", "CAMERA_ONLINE", "PEST_COUNT").contains(metric);
+    return Set.of("PUMP_RUNNING", "STANDBY_RUNNING", "REMOTE_ENABLED", "FAULT", "EMERGENCY_STOP", "PARAMETER_WRITE_ENABLED", "CAMERA_ONLINE", "PEST_COUNT").contains(metric);
   }
 
   /** Units are explicit; a numeric magnitude never implies a unit. */
@@ -104,7 +112,9 @@ public final class MetricCatalog {
     if (metric.equals("WATER_LEVEL") && unit.equals("m")) return value.multiply(BigDecimal.valueOf(100));
     if (metric.equals("WATER_LEVEL") && unit.equals("mm")) return value.movePointLeft(1);
     if (metric.equals("FLOW") && unit.equals("L/min")) return value.multiply(new BigDecimal("0.06"));
-    if (metric.equals("SOIL_EC") && unit.equals("mS/cm")) return value.multiply(BigDecimal.valueOf(1000));
+    if (metric.startsWith("SOIL_EC") && unit.equals("mS/cm")) return value.multiply(BigDecimal.valueOf(1000));
+    if (metric.startsWith("SOIL_EC") && unit.equals("μS/cm")) return value;
+    if (expected.equals("%") && unit.equals("%RH") && (metric.equals("HUMIDITY") || metric.startsWith("SOIL_MOISTURE"))) return value;
     if (expected.equals("℃") && unit.equals("°C")) return value;
     throw new ApiException(400, get(metric).name() + "的单位不受支持，标准单位为 " + expected);
   }

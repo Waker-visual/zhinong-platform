@@ -22,17 +22,20 @@ public class SimulationStore {
   private final ObjectMapper json;
   private final TransactionTemplate tx;
   private final boolean mysql;
+  private final boolean separate;
 
   public SimulationStore(
     JdbcTemplate primary,
     Environment env,
     ObjectMapper json,
-    WeatherData weather
+    WeatherData weather,
+    app.zhinong.business.SqlDialect dialect
   ) {
     this.json = json;
     String url = env.getProperty("FARM_SIM_DATABASE_URL", "");
-    mysql = !url.isBlank();
-    if (mysql) {
+    separate = !url.isBlank();
+    mysql = separate || dialect.mysql();
+    if (separate) {
       if (
         !url.startsWith("jdbc:mysql://127.0.0.1:") &&
         !url.startsWith("jdbc:mysql://localhost:")
@@ -99,7 +102,7 @@ public class SimulationStore {
       "engine",
       mysql ? "MySQL" : "H2",
       "separateDatabase",
-      mysql,
+      separate,
       "weatherRows",
       db.queryForObject("SELECT COUNT(*) FROM sim_weather", Integer.class)
     );

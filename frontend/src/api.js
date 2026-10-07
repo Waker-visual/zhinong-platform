@@ -20,7 +20,7 @@ function normalize(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
-      /^[A-Z_]+$/.test(key)
+      /^[A-Z_]+$/.test(key) || /^[a-z]+(?:_[a-z]+)+$/.test(key)
         ? key.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase())
         : key,
       normalize(item),

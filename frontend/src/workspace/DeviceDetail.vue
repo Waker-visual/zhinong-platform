@@ -13,9 +13,11 @@ import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 import DeviceControl from "./DeviceControl.vue";
+import DeviceIntegration from "./DeviceIntegration.vue";
 import {
   typeNames,
   sourceNames,
+  preferredMetric,
   stateNames,
   timeText,
   num,
@@ -38,7 +40,8 @@ const device = ref(null),
   note = ref(""),
   manual = reactive({});
 let alive = true,
-  sequence = 0;
+  sequence = 0,
+  refreshTimer;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
 const hoursOptions = [
   { value: 24, label: "近 24 小时" },
@@ -67,7 +70,7 @@ async function refresh() {
   const result = await api("/assets/" + props.id);
   if (!alive) return;
   device.value = result;
-  if (!metric.value) metric.value = result.channels[0]?.metric || "";
+  if (!metric.value) metric.value = preferredMetric(result);
   result.channels.forEach((c) => {
     if (manual[c.metric] === undefined) manual[c.metric] = "";
   });
@@ -176,13 +179,45 @@ async function handle(alert, status) {
     toast(closing ? "告警已关闭" : "告警已确认");
   });
 }
+async function reportIssue(alert) {
+  const text = await promptText({
+    title: "转为田间问题",
+    message: alert.message,
+    label: "现场说明（最多 200 字）",
+    maxLength: 200,
+    placeholder: "例如：请安排巡田核对探头位置和现场水位",
+    confirmLabel: "创建田间问题",
+  });
+  if (!text) return;
+  await action(async () => {
+    await api(`/field-work/alerts/${alert.id}/issue`, "POST", {
+      severity: "NORMAL",
+      note: text.trim(),
+    });
+    await refresh();
+    emit("changed");
+    toast("已转为田间问题，可在今日农场派工和复核");
+  });
+}
 watch([metric, hours], () => {
   history.value = null;
   if (metric.value) loadHistory();
 });
-onMounted(() => action(refresh));
+onMounted(() => {
+  action(refresh);
+  refreshTimer = setInterval(async () => {
+    if (busy.value || document.hidden) return;
+    try {
+      await refresh();
+      if (alive && metric.value) await loadHistory();
+    } catch (e) {
+      if (alive) error.value = e.message;
+    }
+  }, 15000);
+});
 onBeforeUnmount(() => {
   alive = false;
+  clearInterval(refreshTimer);
   ++sequence;
   key.value = "";
 });
@@ -246,6 +281,16 @@ onBeforeUnmount(() => {
           <div>
             <dt>预期上报周期</dt>
             <dd>{{ device.intervalSeconds }} 秒</dd>
+          </div>
+          <div>
+            <dt>指标完整性</dt>
+            <dd>
+              {{ device.freshChannelCount }} /
+              {{ device.channels.length }} 项数据新鲜，{{
+                device.missingChannelCount
+              }}
+              项从未上报
+            </dd>
           </div>
           <div>
             <dt>
@@ -404,6 +449,12 @@ onBeforeUnmount(() => {
           </div>
           <pre>{{ example }}</pre>
         </section>
+        <DeviceIntegration
+          v-if="device.protocol === 'HTTP_PUSH'"
+          :key="device.id"
+          :device="device"
+          :role="role"
+        />
         <section class="detail-alerts">
           <h3>告警与处理记录</h3>
           <div
@@ -420,8 +471,25 @@ onBeforeUnmount(() => {
               <p v-if="alert.handleNote">
                 {{ alert.handledBy }}：{{ alert.handleNote }}
               </p>
+              <p v-if="alert.issueId">
+                已关联田间问题：{{
+                  {
+                    OPEN: "待安排",
+                    ASSIGNED: "已派工，等待复核",
+                    RESOLVED: "已复核关闭",
+                  }[alert.issueStatus]
+                }}
+              </p>
             </div>
             <div v-if="writer && alert.status !== 'RESOLVED'">
+              <button
+                v-if="!alert.issueId && device.plotId"
+                class="outline"
+                @click="reportIssue(alert)"
+                :disabled="busy"
+              >
+                转为田间问题
+              </button>
               <button
                 v-if="alert.status === 'OPEN'"
                 class="outline"

@@ -19,10 +19,13 @@ import org.springframework.transaction.annotation.Transactional;
 public class ControlDemoData implements ApplicationRunner {
   private final JdbcTemplate db;
   private final boolean enabled;
+  private final boolean streaming;
   public ControlDemoData(JdbcTemplate db, @Value("${farm.demo:false}") boolean demo,
-      @Value("${farm.demo-rich:true}") boolean rich) {
+      @Value("${farm.demo-rich:true}") boolean rich,
+      @Value("${farm.demo-stream.enabled:false}") boolean streaming) {
     this.db = db;
     enabled = demo && rich;
+    this.streaming = streaming;
   }
 
   @Override
@@ -81,6 +84,7 @@ public class ControlDemoData implements ApplicationRunner {
         db.update("INSERT INTO device_channels(tenant_id,device_id,metric,lower_limit,upper_limit) VALUES(?,?,?,?,?)",
           tenant, device, metric, metric.equals("SOIL_MOISTURE") ? 20 : null, metric.equals("FAULT") ? 0 : null);
         var rows = new ArrayList<Object[]>();
+        if (streaming) continue;
         for (int step = 96; step >= 0; step--) {
           double value = spec.normal();
           if (Set.of("TEMPERATURE", "HUMIDITY", "SOIL_MOISTURE", "SOIL_TEMPERATURE", "AIR_PRESSURE", "WIND_SPEED").contains(metric)) {

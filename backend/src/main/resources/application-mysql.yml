@@ -1,0 +1,20 @@
+# MySQL 8 / Alibaba Cloud RDS. Credentials are supplied only by the environment.
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${FARM_DATABASE_URL}
+    username: ${FARM_DATABASE_USER}
+    password: ${FARM_DATABASE_PASSWORD}
+    hikari:
+      connection-init-sql: "SET SESSION sql_mode=CONCAT(@@sql_mode, ',ANSI_QUOTES'), time_zone='+00:00'"
+      maximum-pool-size: 10
+      connection-timeout: 10000
+      data-source-properties:
+        localSocketAddress: ${FARM_DATABASE_BIND_ADDRESS:}
+  sql:
+    init:
+      schema-locations: classpath:schema-mysql.sql
+      mode: ${FARM_DATABASE_INIT:never}
+farm:
+  demo: ${FARM_DEMO:false}
+  demo-rich: ${FARM_DEMO_RICH:false}

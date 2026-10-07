@@ -46,6 +46,8 @@ const feedback = computed(() =>
       "PUMP_FREQUENCY",
       "REMOTE_ENABLED",
       "FAULT",
+      "EMERGENCY_STOP",
+      "PARAMETER_WRITE_ENABLED",
     ].includes(c.metric),
   ),
 );
@@ -56,6 +58,8 @@ function feedbackText(channel) {
     REMOTE_ENABLED: ["本地模式", "远程模式"],
     PUMP_RUNNING: ["已停止", "运行中"],
     STANDBY_RUNNING: ["已停止", "运行中"],
+    EMERGENCY_STOP: ["未触发", "已急停"],
+    PARAMETER_WRITE_ENABLED: ["禁止设置", "允许设置"],
   };
   return (
     flags[channel.metric]?.[Number(channel.latest.value)] ??

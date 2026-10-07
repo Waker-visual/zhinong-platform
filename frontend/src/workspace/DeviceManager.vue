@@ -309,6 +309,10 @@ onBeforeUnmount(() => {
                   :class="device.freshness.toLowerCase()"
                   >{{ stateNames[device.freshness] }}</span
                 ><small>{{ sourceNames[device.protocol] }}</small>
+                <small
+                  >{{ device.freshChannelCount }} /
+                  {{ device.channels.length }} 项指标新鲜</small
+                >
               </td>
               <td role="cell" data-label="最新监测">
                 <div
@@ -316,7 +320,12 @@ onBeforeUnmount(() => {
                   :key="c.metric"
                   class="metric-reading"
                 >
-                  <span class="metric-key">{{ c.name }}</span>
+                  <span class="metric-key"
+                    >{{ c.name
+                    }}<small v-if="c.latest && c.freshness !== 'FRESH'"
+                      >已过期</small
+                    ></span
+                  >
                   <span class="metric-value"
                     ><b>{{ c.latest ? num(c.latest.value, 2) : "—" }}</b
                     ><span class="metric-unit">{{ c.unit }}</span></span

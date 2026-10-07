@@ -23,9 +23,11 @@ public class Store {
     "members"
   );
   private final JdbcTemplate db;
+  private final SqlDialect dialect;
 
-  public Store(JdbcTemplate db) {
+  public Store(JdbcTemplate db, SqlDialect dialect) {
     this.db = db;
+    this.dialect = dialect;
   }
 
   private String table(String name) {
@@ -103,6 +105,8 @@ public class Store {
   public JdbcTemplate db() {
     return db;
   }
+
+  public SqlDialect dialect() { return dialect; }
 
   public static LinkedHashMap<String, Object> fields(Object... pairs) {
     var result = new LinkedHashMap<String, Object>();
