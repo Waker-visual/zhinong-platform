@@ -58,7 +58,8 @@ public class AiController {
 
   public record AskInput(
     @NotBlank String farmId,
-    @NotBlank @Size(max = 300) String question
+    @NotBlank @Size(max = 300) String question,
+    List<Map<String, Object>> history
   ) {}
 
   public record InsightInput(@NotBlank String farmId) {}
@@ -74,11 +75,11 @@ public class AiController {
     return Map.of("enabled", true, "llm", llm.cloudEnabled());
   }
 
-  /** 查看全局模型配置（脱敏：不返回密钥原文）。仅平台管理员可用。 */
+  /** 查看当前模型配置（脱敏：不返回密钥原文）。管理员可用。 */
   @GetMapping("/config")
   public ResponseEntity<Map<String, Object>> llmConfig() {
-    if (!isPlatformManager()) {
-      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅平台管理员可查看模型配置"));
+    if (!isManager()) {
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅管理员可查看模型配置"));
     }
     return ResponseEntity.ok(
       Map.of(
@@ -90,11 +91,11 @@ public class AiController {
     );
   }
 
-  /** 保存全局模型配置：立即生效并持久化。仅平台管理员可用。 */
+  /** 保存模型配置：立即生效并持久化，之后重启自动加载，无需再注入环境变量。管理员可用。 */
   @PostMapping("/config")
   public ResponseEntity<Map<String, Object>> saveLlmConfig(@RequestBody @Valid LlmConfigInput input) {
-    if (!isPlatformManager()) {
-      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅平台管理员可配置模型"));
+    if (!isManager()) {
+      return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("error", "仅管理员可配置模型"));
     }
     llm.saveConfig(input.url(), input.apiKey(), input.model());
     return ResponseEntity.ok(
@@ -102,15 +103,14 @@ public class AiController {
     );
   }
 
-  /** 模型地址和凭据是全局配置，租户管理员不得修改其他租户使用的网关。 */
-  private boolean isPlatformManager() {
-    return "PLATFORM_ADMIN".equals(Identity.current().role());
+  /** 平台管理员或农场管理员（演示账号 ADMIN）均可管理模型配置。 */
+  private boolean isManager() {
+    String role = Identity.current().role();
+    return "PLATFORM_ADMIN".equals(role) || "ADMIN".equals(role);
   }
 
   @PostMapping("/ask")
   public Map<String, Object> ask(@RequestBody @Valid AskInput input) {
-    // 在调用外部模型前检查当前会话的租户及农场权限，不能依赖模型是否选择数据工具。
-    store.get("farms", input.farmId());
     String q = input.question();
     String farmId = input.farmId();
     List<Map<String, Object>> messages = new ArrayList<>();
@@ -124,12 +124,29 @@ public class AiController {
         "（" +
         java.time.LocalDate.now().getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.CHINESE) +
         "），回答涉及日期、时间、星期、今天等一律以此为准。" +
+        "引用业务数据中的日期（如任务到期日、记录日期）时，直接使用工具返回的原始值（YYYY-MM-DD），不要改写或换算成其他写法。" +
         "系统内所有业务数据（农场档案、经营概况、地块、种植计划、生产记录、监测设备、农事任务、现场问题、成员、操作日志、经营模拟、租户）都可以通过提供的工具实时查询，回答问题时先自主选择合适的工具获取数据，再基于工具返回结果回答。" +
+        "当用户明确要求安排农事任务、更新任务进度或上报现场问题时，可调用对应写操作工具（create_task/update_task_progress/report_issue）执行；执行前确认参数完整，执行后如实汇报结果。不要主动执行用户未明确要求的写操作。" +
+        "工具返回的 JSON 若含 error 字段，说明该操作失败（如参数不合法、无权限、任务状态不允许），必须在回答中如实说明失败原因并给出解决建议，绝不能把失败说成成功。" +
         "如果是农事知识、方法类问题，可以结合农业常识直接回答。" +
+        "用户在前几轮对话中已提供的信息（如地块、任务类型、执行人、到期日、作业方式等）视为已确认，后续轮次直接沿用，不要重复询问。" +
         "不得编造数据、日期或数字；数据中没有的信息，明确说明“暂无相关数据”。" +
         "回答用简体中文，简明自然，像经验丰富的农场管理者，不超过 200 字，可以分 2–3 条要点。"
       )
     );
+    // 多轮记忆：把前端传来的历史问答拼进上下文（仅文本，不含工具中间结果）
+    if (input.history() != null) {
+      int used = 0;
+      for (Map<String, Object> h : input.history()) {
+        if (used >= 12) break;
+        Object role = h.get("role");
+        Object content = h.get("content");
+        if (content == null || String.valueOf(content).isBlank()) continue;
+        if (!"user".equals(role) && !"assistant".equals(role)) continue;
+        messages.add(Map.of("role", role, "content", String.valueOf(content)));
+        used++;
+      }
+    }
     messages.add(Map.of("role", "user", "content", q));
 
     String answer = null;
@@ -249,7 +266,22 @@ public class AiController {
         "获取某次经营模拟的完整结果：三种资源情景(资源正常/无人机缺位/人工补位)的产量对比、推荐方案、损失归因、费用等，需传模拟 id（来自 get_simulations）",
         "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\",\"description\":\"模拟运行 id\"}},\"required\":[\"id\"],\"additionalProperties\":false}"
       ),
-      tool("get_tenants", "获取平台启用租户列表（仅平台管理员可用）")
+      tool("get_tenants", "获取平台启用租户列表（仅平台管理员可用）"),
+      tool(
+        "create_task",
+        "安排农事任务（写操作，仅农场管理员）：创建一条待执行任务。参数：plotId(地块id)、title(任务标题)、taskType(SOWING播种|IRRIGATION灌溉|FERTILIZING施肥|HARVEST采收|INSPECTION巡查|PROTECTION植保)、dueDate(到期日 YYYY-MM-DD)、assigneeId(执行人id，先用get_crew查询)、method(UNCONFIRMED|DRONE|MANUAL|SERVICE)、note(说明)。仅在用户明确要求安排任务时调用",
+        "{\"type\":\"object\",\"properties\":{\"plotId\":{\"type\":\"string\"},\"title\":{\"type\":\"string\"},\"taskType\":{\"type\":\"string\",\"enum\":[\"SOWING\",\"IRRIGATION\",\"FERTILIZING\",\"HARVEST\",\"INSPECTION\",\"PROTECTION\"]},\"dueDate\":{\"type\":\"string\"},\"assigneeId\":{\"type\":\"string\"},\"method\":{\"type\":\"string\",\"enum\":[\"UNCONFIRMED\",\"DRONE\",\"MANUAL\",\"SERVICE\"]},\"note\":{\"type\":\"string\"}},\"required\":[\"plotId\",\"title\",\"taskType\",\"dueDate\",\"assigneeId\",\"method\",\"note\"],\"additionalProperties\":false}"
+      ),
+      tool(
+        "update_task_progress",
+        "更新农事任务进度（写操作，仅管理员/操作员）：改变任务状态并记录说明。参数：taskId(任务id，先用get_pending_tasks查询)、status(RUNNING进行中|BLOCKED受阻|COMPLETED完成|CANCELLED取消)、note(说明)、method(UNCONFIRMED|DRONE|MANUAL|SERVICE)、actualAreaMu(实际作业面积，亩)。仅在用户明确要求更新任务时调用",
+        "{\"type\":\"object\",\"properties\":{\"taskId\":{\"type\":\"string\"},\"status\":{\"type\":\"string\",\"enum\":[\"RUNNING\",\"BLOCKED\",\"COMPLETED\",\"CANCELLED\"]},\"note\":{\"type\":\"string\"},\"method\":{\"type\":\"string\",\"enum\":[\"UNCONFIRMED\",\"DRONE\",\"MANUAL\",\"SERVICE\"]},\"actualAreaMu\":{\"type\":\"number\"}},\"required\":[\"taskId\",\"status\",\"note\",\"method\",\"actualAreaMu\"],\"additionalProperties\":false}"
+      ),
+      tool(
+        "report_issue",
+        "上报现场问题（写操作，仅管理员/操作员）：记录地块现场的虫害/水情/设备等问题。参数：plotId(地块id)、category(PEST虫害|WATER水情|EQUIPMENT设备|OTHER其他)、severity(NORMAL一般|HIGH严重)、description(问题描述)。仅在用户明确要求上报问题时调用",
+        "{\"type\":\"object\",\"properties\":{\"plotId\":{\"type\":\"string\"},\"category\":{\"type\":\"string\",\"enum\":[\"PEST\",\"WATER\",\"EQUIPMENT\",\"OTHER\"]},\"severity\":{\"type\":\"string\",\"enum\":[\"NORMAL\",\"HIGH\"]},\"description\":{\"type\":\"string\"}},\"required\":[\"plotId\",\"category\",\"severity\",\"description\"],\"additionalProperties\":false}"
+      )
     );
   }
 
@@ -293,6 +325,9 @@ public class AiController {
         case "get_tenants" -> "PLATFORM_ADMIN".equals(Identity.current().role())
             ? json(tenantsOf())
             : "[]";
+        case "create_task" -> createTask(args);
+        case "update_task_progress" -> updateTaskProgress(args);
+        case "report_issue" -> reportIssue(args);
         default -> "{\"error\":\"unknown tool\"}";
       };
       return result;
@@ -309,6 +344,66 @@ public class AiController {
   private String argString(JsonNode args, String key) {
     JsonNode v = args.path(key);
     return v.isTextual() ? v.asText("") : "";
+  }
+
+  // ---------- 写操作工具（仅供用户明确要求时调用，权限受控、失败回显原因） ----------
+
+  private String createTask(JsonNode args) {
+    if (!"ADMIN".equals(Identity.current().role())) {
+      return "{\"error\":\"仅农场管理员（ADMIN）可安排农事任务，当前角色无权限\"}";
+    }
+    try {
+      FieldWorkService.PlanInput plan = new FieldWorkService.PlanInput(
+        argString(args, "plotId"),
+        argString(args, "title"),
+        argString(args, "taskType"),
+        java.time.LocalDate.parse(argString(args, "dueDate")),
+        argString(args, "assigneeId"),
+        argString(args, "method"),
+        argString(args, "note")
+      );
+      return json(fieldWork.create(plan, null));
+    } catch (Exception e) {
+      return "{\"error\":\"创建任务失败：" + (e.getMessage() == null ? "参数不完整" : e.getMessage()) + "\"}";
+    }
+  }
+
+  private String updateTaskProgress(JsonNode args) {
+    String role = Identity.current().role();
+    if (!"ADMIN".equals(role) && !"OPERATOR".equals(role)) {
+      return "{\"error\":\"仅农场管理员或操作员可更新任务进度，当前角色无权限\"}";
+    }
+    try {
+      FieldWorkService.ProgressInput progress = new FieldWorkService.ProgressInput(
+        argString(args, "status"),
+        argString(args, "note"),
+        argString(args, "method"),
+        args.path("actualAreaMu").isNumber()
+          ? new java.math.BigDecimal(args.path("actualAreaMu").asText())
+          : java.math.BigDecimal.ZERO
+      );
+      return json(fieldWork.progress(argString(args, "taskId"), progress));
+    } catch (Exception e) {
+      return "{\"error\":\"更新任务失败：" + (e.getMessage() == null ? "参数不完整" : e.getMessage()) + "\"}";
+    }
+  }
+
+  private String reportIssue(JsonNode args) {
+    String role = Identity.current().role();
+    if (!"ADMIN".equals(role) && !"OPERATOR".equals(role)) {
+      return "{\"error\":\"仅农场管理员或操作员可上报现场问题，当前角色无权限\"}";
+    }
+    try {
+      FieldWorkService.IssueInput issue = new FieldWorkService.IssueInput(
+        argString(args, "plotId"),
+        argString(args, "category"),
+        argString(args, "severity"),
+        argString(args, "description")
+      );
+      return json(fieldWork.report(issue));
+    } catch (Exception e) {
+      return "{\"error\":\"上报问题失败：" + (e.getMessage() == null ? "参数不完整" : e.getMessage()) + "\"}";
+    }
   }
 
   private String json(Object value) {
@@ -340,6 +435,7 @@ public class AiController {
     for (Map<String, Object> row : store.list("plots")) {
       if (!farmId.equals(String.valueOf(row.get("FARM_ID")))) continue;
       Map<String, Object> item = new LinkedHashMap<>();
+      item.put("id", row.getOrDefault("ID", ""));
       item.put("name", row.getOrDefault("NAME", ""));
       item.put("crop", row.getOrDefault("CROP", ""));
       item.put("areaMu", num(row.get("AREA_MU")));
@@ -402,6 +498,7 @@ public class AiController {
       String status = t.path("STATUS").asText("");
       if (!"PENDING".equals(status) && !"RUNNING".equals(status)) continue;
       Map<String, Object> row = new LinkedHashMap<>();
+      row.put("id", t.path("ID").asText(""));
       row.put("title", t.path("TITLE").asText(""));
       row.put("status", status);
       row.put("dueDate", t.path("DUE_DATE").asText(""));
@@ -454,6 +551,7 @@ public class AiController {
     List<Map<String, Object>> out = new ArrayList<>();
     for (JsonNode m : arr) {
       Map<String, Object> row = new LinkedHashMap<>();
+      row.put("id", m.path("ID").asText(""));
       row.put("name", m.path("DISPLAY_NAME").asText(""));
       row.put("role", m.path("ROLE").asText(""));
       out.add(row);
