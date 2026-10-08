@@ -31,6 +31,7 @@ import {
   important,
 } from "./ui/feedback";
 import "./ui/shell.css";
+import AgentFloat from "./components/AgentFloat.vue";
 
 const identity = ref(null);
 const account = ref(null),
@@ -1300,4 +1301,10 @@ onUnmounted(() => {
         </form>
     </ModalDialog>
   </div>
+  <AgentFloat
+    v-if="identity && account && !account.mustChangePassword"
+    :identity="identity"
+    :farms="farmRows"
+    :farm-id="farmScope"
+  />
 </template>
