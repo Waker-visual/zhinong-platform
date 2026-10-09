@@ -398,8 +398,8 @@ html .app-layout {
   display: flex;
   align-items: center;
   min-height: 40px;
-  margin: -30px 48px 24px 0;
-  padding: 16px 0 12px;
+  margin: -30px 0 32px;
+  padding: 18px 0 20px;
   background: var(--surface);
 }
 .settings-content > header h2 {
@@ -409,8 +409,9 @@ html .app-layout {
 }
 .settings-close {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 14px;
+  right: 0;
+  margin-right: -10px;
 }
 .settings-dialog .settings-close {
   border-color: transparent;
@@ -684,7 +685,8 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
     padding: 20px;
   }
   .settings-content > header {
-    margin: -20px 48px 20px 0;
+    margin: -20px 0 28px;
+    padding: 16px 0 18px;
   }
   .settings-facts {
     grid-template-columns: 1fr;
