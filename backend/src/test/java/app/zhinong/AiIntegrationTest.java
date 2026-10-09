@@ -571,6 +571,10 @@ class AiIntegrationTest {
       .findFirst().orElseThrow();
     assertTrue(approval.path("activity").path("label").asText().contains("灌溉建议待确认"));
     assertEquals("irrigation-run:" + runId, approval.path("activity").path("id").asText());
+    // 阶段 E：建议仍在等待人工确认，不能显示成已完成——状态是 pending，没有 finishedAt。
+    assertEquals("pending", approval.path("activity").path("status").asText());
+    assertTrue(approval.path("activity").path("finishedAt").isMissingNode() || approval.path("activity").path("finishedAt").isNull());
+    assertFalse(approval.path("activity").path("resultSummary").asText().contains("。；"), "sentence-final punctuation must be deduplicated when concatenating reason segments");
 
     // Streaming only surfaces the proposal; it must still be PROPOSED, never approved/started by the chat.
     assertEquals("PROPOSED", db.queryForObject("SELECT status FROM ai_irrigation_runs WHERE tenant_id=? AND id=?", String.class, tenant(), runId));
@@ -581,6 +585,23 @@ class AiIntegrationTest {
     var approvalRow = activities.get(activities.size() - 1);
     assertEquals("approval", approvalRow.path("KIND").asText());
     assertEquals("irrigation-run:" + runId, approvalRow.path("ACTIVITY_ID").asText());
+    assertEquals("pending", approvalRow.path("STATUS").asText());
+    assertTrue(approvalRow.path("FINISHED_AT").isNull());
+  }
+
+  // 阶段 E：propose() 生成的建议原因文案里，百分比保留1位小数，不能把 NUMERIC 列的存储精度
+  // （例如阈值存成 80.00）或传感器读数的多位小数（例如 45.266）原样暴露给用户。
+  @Test void irrigationProposalReasonFormatsPercentagesToOneDecimal() throws Exception {
+    var p = irrigationFixture();
+    p.put("thresholdValue", 80);
+    call(admin, "PUT", "/ai/irrigation/policy", p, 200);
+    reading(p.get("sensorId").toString(), "SOIL_MOISTURE", 45, 0);
+    db.update("UPDATE telemetry_readings SET measured_value=45.266 WHERE tenant_id=? AND device_id=? AND metric='SOIL_MOISTURE'", tenant(), p.get("sensorId"));
+    String runId = propose(p);
+    String reason = db.queryForObject("SELECT reason FROM ai_irrigation_runs WHERE tenant_id=? AND id=?", String.class, tenant(), runId);
+    assertTrue(reason.contains("45.3%"), reason);
+    assertTrue(reason.contains("80.0%"), reason);
+    assertFalse(reason.matches(".*\\d\\.\\d{2,}%.*"), reason);
   }
 
   String login(String tenant, String username) throws Exception {

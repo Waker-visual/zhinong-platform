@@ -187,16 +187,20 @@ public class AiStreamService {
           String reason = String.valueOf(proposal.getOrDefault("reason", ""));
           Object durationObj = proposal.get("durationSeconds");
           String approvalLabel = clip("灌溉建议待确认：" + plotName, 120);
-          String approvalSummary = clip("原因：" + reason + "；预计时长 " + durationObj + " 秒", 500);
+          // 句末标点在拼接时去重：reason 本身已经以“。”收尾，直接拼上“；预计时长”会变成“。；”——
+          // 阶段 E 验收截图发现的标点瑕疵。
+          String approvalSummary = clip(dedupeSentencePunctuation("原因：" + reason + "；预计时长 " + durationObj + " 秒"), 500);
           OffsetDateTime approvalAt = OffsetDateTime.now();
           activitySeq[0]++;
+          // 建议仍在等待人工确认，不是“已完成”的活动：状态是 pending（待确认），没有 finishedAt——
+          // 时间线上只保留这一行摘要，真正的原因/时长/“去确认”由前端在时间线下方的独立卡片渲染。
           AgentEvent.Activity approvalActivity = new AgentEvent.Activity(
-            IRRIGATION_APPROVAL_PREFIX + runId, "approval", approvalLabel, "completed", null, approvalSummary, approvalAt, approvalAt
+            IRRIGATION_APPROVAL_PREFIX + runId, "approval", approvalLabel, "pending", null, approvalSummary, approvalAt, null
           );
           send(emitter, AgentEvent.activityCompleted(sequence.incrementAndGet(), approvalActivity), disconnected);
           if (disconnected.get()) return;
           activities.add(
-            new ActivitySummary(IRRIGATION_APPROVAL_PREFIX + runId, activitySeq[0], "approval", approvalLabel, "completed", null, approvalSummary, approvalAt, approvalAt)
+            new ActivitySummary(IRRIGATION_APPROVAL_PREFIX + runId, activitySeq[0], "approval", approvalLabel, "pending", null, approvalSummary, approvalAt, null)
           );
         }
       }
@@ -370,6 +374,22 @@ public class AiStreamService {
 
   private static String clip(String value, int max) {
     return value != null && value.length() > max ? value.substring(0, max) : value;
+  }
+
+  /** 把拼接后连续出现的句末标点（。！？；，）折叠成最后一个字符，例如把“……天气预报。；预计”
+   * 修正为“……天气预报；预计”。只处理这几个全角标点，不触及正文其余内容。 */
+  private static String dedupeSentencePunctuation(String text) {
+    if (text == null) return null;
+    var matcher = java.util.regex.Pattern.compile("[。！？；，]{2,}").matcher(text);
+    StringBuilder out = new StringBuilder();
+    int last = 0;
+    while (matcher.find()) {
+      out.append(text, last, matcher.start());
+      out.append(text.charAt(matcher.end() - 1));
+      last = matcher.end();
+    }
+    out.append(text.substring(last));
+    return out.toString();
   }
 
   private String diagnosticFor(Exception e) {

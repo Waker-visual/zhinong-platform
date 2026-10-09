@@ -14,6 +14,9 @@ import {
   streamingStatusText,
   shouldShowCaret,
   irrigationApprovalTarget,
+  formatActivityDuration,
+  formatElapsedStatus,
+  formatMessageTime,
 } from "./agent-events.js";
 import { syncConversationAdapter, streamConversationAdapter, defaultConversationAdapter } from "./agent-adapter.js";
 import { isNearBottom } from "./scroll.js";
@@ -427,6 +430,7 @@ test("shouldAutoOpenActivities is true while submitted/running/error and false o
 
 test("activitySummaryText reports short human labels without exposing raw technical fields", () => {
   assert.equal(activitySummaryText([], "error"), "出错");
+  // 没有任何可识别 kind 的活动时，退回笼统的“已完成 N 项操作”而不是空字符串。
   assert.equal(activitySummaryText([{ id: "a" }, { id: "b" }], "completed"), "已完成 2 项操作");
   assert.equal(activitySummaryText([{ id: "a" }], "cancelled"), "已停止 · 1 项");
   assert.equal(
@@ -435,6 +439,52 @@ test("activitySummaryText reports short human labels without exposing raw techni
   );
   assert.equal(activitySummaryText([], "running"), "正在准备…");
   assert.equal(activitySummaryText([{ id: "a", status: "completed" }], "running"), "正在处理 · 1 项");
+});
+
+test("activitySummaryText builds a semantic sentence for a completed run: kind counts, pending approval and total duration", () => {
+  const activities = [
+    { id: "ctx", kind: "context", status: "completed", startedAt: "2026-10-09T00:00:00.000Z", finishedAt: "2026-10-09T00:00:01.000Z" },
+    { id: "t1", kind: "tool", status: "completed", startedAt: "2026-10-09T00:00:01.000Z", finishedAt: "2026-10-09T00:00:01.300Z" },
+    { id: "t2", kind: "tool", status: "completed", startedAt: "2026-10-09T00:00:01.300Z", finishedAt: "2026-10-09T00:00:01.800Z" },
+    { id: "run-1", kind: "approval", status: "pending", startedAt: "2026-10-09T00:00:01.800Z" },
+  ];
+  assert.equal(activitySummaryText(activities, "completed"), "读取 1 项资料 · 查询 2 项 · 1 项待你确认 · 用时 1.8s");
+});
+
+test("activitySummaryText counts errored activities in a completed run without hiding them", () => {
+  const activities = [
+    { id: "ctx", kind: "context", status: "completed" },
+    { id: "t1", kind: "tool", status: "error" },
+  ];
+  assert.equal(activitySummaryText(activities, "completed"), "读取 1 项资料 · 1 项出错");
+});
+
+test("formatActivityDuration keeps one decimal under 10s and rounds to whole seconds at or above 10s", () => {
+  assert.equal(formatActivityDuration(1800), "1.8s");
+  assert.equal(formatActivityDuration(300), "0.3s");
+  assert.equal(formatActivityDuration(12000), "12s");
+  assert.equal(formatActivityDuration(12400), "12s");
+  assert.equal(formatActivityDuration(null), "");
+  assert.equal(formatActivityDuration(-5), "");
+});
+
+test("formatElapsedStatus renders a whole-second running timer", () => {
+  assert.equal(formatElapsedStatus(12.4), "已用 12s");
+  assert.equal(formatElapsedStatus(0), "已用 0s");
+  assert.equal(formatElapsedStatus(-1), "已用 0s");
+});
+
+test("finalizeRunningActivities (via run.completed) never silently completes a still-pending approval activity", () => {
+  let state = createAgentRun("问题", "req-1");
+  state = reduceAgentEvent(state, { sequence: 1, type: "run.started" });
+  state = reduceAgentEvent(state, {
+    sequence: 2,
+    type: "activity.completed",
+    activity: { id: "irrigation-run:r1", kind: "approval", label: "灌溉建议待确认：地块A", status: "pending" },
+  });
+  state = reduceAgentEvent(state, { sequence: 3, type: "run.completed" });
+  assert.equal(state.status, "completed");
+  assert.equal(state.activities[0].status, "pending", "an awaiting-approval activity must stay pending after run.completed, not flip to completed");
 });
 
 test("streamingStatusText returns the expected Chinese text per status, including the error diagnostic fallback", () => {
@@ -474,13 +524,51 @@ test("irrigationApprovalTarget returns null when the approval activity has no en
 
 // 持久化消息走 GET /conversations/{id}/messages 时，活动摘要的字段名是文档约定的 activityId
 // （数据库列 ACTIVITY_ID 经 api.js 的 normalize() 转换而来），不是实时 SSE 事件用的 id。
-// 两条路径共用同一个 AiActivityRow/AiActivityDisclosure，必须都认得，否则重新打开对话后
+// 两条路径的活动最终都会交给 AiApprovalCard 解析出审批目标，必须都认得，否则重新打开对话后
 // “去确认”按钮会消失。
 test("irrigationApprovalTarget also recognizes the persisted activityId field (reload path), not just the live SSE id field", () => {
   assert.deepEqual(
     irrigationApprovalTarget({ activityId: "irrigation-run:run-456", kind: "approval" }),
     { type: "irrigation-run", id: "run-456" },
   );
+});
+
+// --- formatMessageTime：当天/昨天(跨午夜)/刚刚/n天前的边界，不依赖浏览器时区之外的任何东西 ---
+
+test("formatMessageTime reports '刚刚' for a message less than 60s old", () => {
+  const now = new Date("2026-10-09T12:00:30.000+08:00");
+  const r = formatMessageTime(new Date("2026-10-09T12:00:00.000+08:00"), now);
+  assert.equal(r.display, "刚刚");
+  assert.equal(r.full, "2026年10月9日 12:00");
+});
+
+test("formatMessageTime shows HH:mm for an earlier message the same calendar day", () => {
+  const now = new Date("2026-10-09T20:30:00.000+08:00");
+  const r = formatMessageTime(new Date("2026-10-09T08:05:00.000+08:00"), now);
+  assert.equal(r.display, "08:05");
+});
+
+test("formatMessageTime shows '昨天 HH:mm' across a midnight boundary", () => {
+  const now = new Date("2026-10-09T00:10:00.000+08:00");
+  const r = formatMessageTime(new Date("2026-10-08T23:50:00.000+08:00"), now);
+  assert.equal(r.display, "昨天 23:50");
+});
+
+test("formatMessageTime shows 'n 天前' for 2-30 days ago", () => {
+  const now = new Date("2026-10-09T12:00:00.000+08:00");
+  assert.equal(formatMessageTime(new Date("2026-10-07T12:00:00.000+08:00"), now).display, "2 天前");
+  assert.equal(formatMessageTime(new Date("2026-09-15T12:00:00.000+08:00"), now).display, "24 天前");
+});
+
+test("formatMessageTime falls back to a plain date beyond 30 days", () => {
+  const now = new Date("2026-10-09T12:00:00.000+08:00");
+  assert.equal(formatMessageTime(new Date("2026-08-01T12:00:00.000+08:00"), now).display, "8月1日");
+  assert.equal(formatMessageTime(new Date("2024-01-05T12:00:00.000+08:00"), now).display, "2024年1月5日");
+});
+
+test("formatMessageTime always exposes an ISO datetime attribute for <time datetime>", () => {
+  const r = formatMessageTime(new Date("2026-10-09T08:05:00.000Z"), new Date("2026-10-09T09:00:00.000Z"));
+  assert.equal(r.iso, "2026-10-09T08:05:00.000Z");
 });
 
 // --- 静态源码检查：role/aria-busy/aria-live、装饰性动画元素的 aria-hidden、reduced-motion 覆盖均需存在 ---
