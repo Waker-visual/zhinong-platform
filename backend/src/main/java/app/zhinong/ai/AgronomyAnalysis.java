@@ -27,17 +27,22 @@ public class AgronomyAnalysis {
       ORDER BY p.name,s.start_date
       """,tenant,farmId,LocalDate.now(),LocalDate.now());
     crops.forEach(c -> c.put("daysAfterPlanting",java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(c.get("startDate").toString()),LocalDate.now())));
+    // Latest reading per (device,metric) via a single windowed pass over the existing
+    // ix_telemetry_history(tenant_id,device_id,metric,measured_at) index, instead of a
+    // per-row correlated NOT EXISTS that re-scans telemetry_readings for every row and
+    // turns unbounded (demo-length) history into an O(n^2) query.
     var sensors=db.queryForList("""
-      SELECT d.id AS "deviceId",d.name AS "deviceName",a.plot_id AS "plotId",p.name AS "plotName",
-        t.metric,t.measured_value AS "value",t.measured_at AS "time",t.source
-      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-      JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
-      LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id
-      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
-        AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
-        AND NOT EXISTS(SELECT 1 FROM telemetry_readings n WHERE n.tenant_id=t.tenant_id AND n.device_id=t.device_id
-          AND n.metric=t.metric AND (n.measured_at>t.measured_at OR (n.measured_at=t.measured_at AND n.id>t.id)))
-      ORDER BY d.name,t.metric
+      SELECT "deviceId","deviceName","plotId","plotName",metric,"value","time",source FROM (
+        SELECT d.id AS "deviceId",d.name AS "deviceName",a.plot_id AS "plotId",p.name AS "plotName",
+          t.metric,t.measured_value AS "value",t.measured_at AS "time",t.source,
+          ROW_NUMBER() OVER (PARTITION BY t.device_id,t.metric ORDER BY t.measured_at DESC,t.id DESC) AS rn
+        FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+        JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
+        LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id
+        WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
+          AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
+      ) ranked WHERE rn=1
+      ORDER BY "deviceName",metric
       """,tenant,farmId);
     sensors.forEach(s -> { var time=DatabaseTime.offset(s.get("time"));
       s.put("fresh",time!=null && time.toInstant().isAfter(now.toInstant().minusSeconds(900)) && !time.toInstant().isAfter(now.toInstant().plusSeconds(60))); });
