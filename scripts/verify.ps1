@@ -13,6 +13,8 @@ try {
     try {
         node --test src/ai/agent-events.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Agent 事件模型测试未通过' }
+        node --test src/ai/markdown.test.js
+        if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }

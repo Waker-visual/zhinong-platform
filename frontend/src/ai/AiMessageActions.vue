@@ -5,6 +5,7 @@ import { ref, computed, onUnmounted } from 'vue';
 import AppIcon from '../ui/AppIcon.vue';
 import { api } from '../api.js';
 import { speak, stopSpeaking, speakingId, speechSupported } from './speech.js';
+import { markdownToPlainText } from './markdown.js';
 
 const props = defineProps({
   id: { type: String, default: '' }, // 消息已持久化的 id；流式占位消息还没有 id，分支/朗读按钮据此禁用或隐藏
@@ -19,8 +20,8 @@ const copied = ref(false);
 const announce = ref('');
 const branching = ref(false);
 const canSpeak = speechSupported();
-// 朗读/复制都应该是纯正文，不包含 AssistantText 用来标粗的 ** 标记。
-const plainText = computed(() => String(props.text || '').replace(/\*\*([^*\n]+)\*\*/g, '$1'));
+// 朗读/复制都应该是纯正文，不包含 Markdown 语法标记（粗体、表格竖线、列表符号等）。
+const plainText = computed(() => markdownToPlainText(props.text || ''));
 const speaking = computed(() => !!props.id && speakingId.value === props.id);
 
 async function copy() {
