@@ -680,26 +680,26 @@ onBeforeUnmount(() => applyAppearance(props.account));
             仅管理当前租户。普通成员密码由管理员重置；管理员自身通过“账号安全”改密。
           </p>
         </section>
-        <form v-validate v-if="tab === 'model'" @submit.prevent="saveModelConfig">
-          <p class="muted">
-            全局模型配置对所有租户生效；密钥只保存在本机私有配置文件中，从不下发到前端，也不会显示原文。
+        <form v-validate v-if="tab === 'model'" class="model-settings" @submit.prevent="saveModelConfig">
+          <p class="model-settings-intro">
+            <span v-if="modelInfo" class="model-status" :class="{ on: modelInfo.cloudEnabled }">{{ modelInfo.cloudEnabled ? "已启用云端模型" : "未配置" }}</span>
+            <span class="muted">全局配置对所有租户生效；密钥只保存在本机私有配置文件中，不会下发到前端或显示原文。</span>
           </p>
-          <p v-if="modelInfo" :class="modelInfo.cloudEnabled ? 'success' : 'settings-notice'">
-            {{ modelInfo.cloudEnabled ? "已启用云端模型" : "未配置" }}
-          </p>
-          <label
-            >接口地址<input
-              v-model.trim="modelForm.url"
-              type="url"
-              maxlength="300"
-              placeholder="https://api.example.com/v1"
-          /></label>
-          <label
-            >模型名称<input
-              v-model.trim="modelForm.model"
-              maxlength="100"
-              placeholder="例如 deepseek-flash"
-          /></label>
+          <div class="model-settings-grid">
+            <label
+              >接口地址<input
+                v-model.trim="modelForm.url"
+                type="url"
+                maxlength="300"
+                placeholder="https://api.example.com/v1"
+            /></label>
+            <label
+              >模型名称<input
+                v-model.trim="modelForm.model"
+                maxlength="100"
+                placeholder="例如 deepseek-flash"
+            /></label>
+          </div>
           <label
             >API 密钥<input
               :type="showModelKey ? 'text' : 'password'"
@@ -708,10 +708,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
               autocomplete="new-password"
               :placeholder="modelInfo?.apiKeySet ? '已设置，留空则保持不变' : '未设置'"
           /></label>
-          <label class="inline-check"
-            ><input type="checkbox" v-model="showModelKey" />显示输入的密钥</label
-          >
-          <div class="settings-actions">
+          <div class="settings-actions model-settings-actions">
             <button class="primary" :disabled="busy">保存</button
             ><button
               type="button"
@@ -726,16 +723,18 @@ onBeforeUnmount(() => applyAppearance(props.account));
               :disabled="busy || !modelInfo?.apiKeySet"
               @click="clearModelKey"
             >
-              清除密钥
-            </button>
+              清除密钥</button
+            ><label class="inline-check"
+              ><input type="checkbox" v-model="showModelKey" />显示输入的密钥</label
+            >
           </div>
           <p v-if="modelTestResult" :class="modelTestCode === 'OK' ? 'success' : 'error'" role="status">
             测试结果：{{ modelTestResult }}
           </p>
-          <h3>模型选项</h3>
-          <p class="muted">
-            勾选上方“模型名称”对应的选项即为当前使用的模型；移除某个选项前须先切换到其他模型。
-          </p>
+          <div class="model-options-head">
+            <h3>模型选项</h3>
+            <p class="muted">选中项即当前模型；正在使用的模型需先切换后才能移除。</p>
+          </div>
           <div class="model-options-list">
             <p v-if="!modelInfo?.modelOptions?.length" class="muted">
               暂无模型选项，可从服务获取或手动添加。
