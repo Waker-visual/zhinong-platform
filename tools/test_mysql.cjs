@@ -14,7 +14,7 @@ const mysql = path.join(config.mysqlHome, 'bin/mysql.exe');
 function sql(statement) {
   return execFileSync(mysql, ['--no-defaults', '--host=127.0.0.1', `--port=${config.port}`, '--user=root',
     '--protocol=TCP', '--ssl-mode=REQUIRED', '--default-character-set=utf8mb4', '--batch', '--skip-column-names'], {
-    input: statement, encoding: 'utf8', windowsHide: true,
+    input: "SET SESSION time_zone='+00:00'; " + statement, encoding: 'utf8', windowsHide: true,
     env: { ...process.env, MYSQL_PWD: config.rootPassword }, maxBuffer: 4 * 1024 * 1024,
   }).trim();
 }
@@ -71,7 +71,7 @@ function query(statement) { return sql(`USE ${database}; ${statement}`); }
     const pump = assets.find(a => a.deviceType === 'PUMP');
     const soil = assets.find(a => a.code === 'DEMO-CTRL-SOIL');
     const business=await api(admin,'GET',`/farms/${pump.farmId}/workspace?days=30`);
-    assert.equal(business.tasks.length,12);
+    assert.equal(business.tasks.length,66, 'The registered operating farm owns its business scenario');
     assert.ok(business.analytics.productionTrend.length>=3);
     for (const farm of farms) {
       await api(admin, 'GET', `/farms/${farm.id}/workspace?days=30`);
@@ -82,24 +82,28 @@ function query(statement) { return sql(`USE ${database}; ${statement}`); }
     await api(platform, 'GET', '/assets', undefined, 403);
     await api(viewer, 'POST', `/assets/${pump.id}/collect`, {}, 403);
     const history = await api(admin, 'GET', `/assets/${soil.id}/history?metric=SOIL_MOISTURE_3&hours=720`);
-    assert.ok(history.points.length >= 720);
+    assert.ok(history.points.length >= 336, 'The operating scenario retains its separate 14-day history');
     assert.ok(history.points.every(p => Number.isFinite(p.value)));
     assert.ok(history.points.every(p => /Z$|[+]00:00$/.test(p.time)), 'MySQL history preserves UTC in API timestamps');
+    const genericScope = `NOT EXISTS (SELECT 1 FROM devices d JOIN demo_operating_farms o
+      ON o.tenant_id=d.tenant_id AND o.farm_id=d.farm_id WHERE d.tenant_id=r.tenant_id AND d.id=r.device_id)`;
     const coverage = query(`SELECT COUNT(*) FROM (
       SELECT r.tenant_id,r.device_id,r.metric,COUNT(*) n,TIMESTAMPDIFF(SECOND,MIN(r.measured_at),MAX(r.measured_at)) span,p.interval_seconds
       FROM telemetry_readings r JOIN asset_profiles p ON p.tenant_id=r.tenant_id AND p.device_id=r.device_id
+      WHERE ${genericScope}
       GROUP BY r.tenant_id,r.device_id,r.metric,p.interval_seconds
       HAVING n < 2592000 / p.interval_seconds + 1 OR span < 2592000) q;`);
-    assert.equal(coverage, '0', 'All configured synthetic series cover 30 days');
+    assert.equal(coverage, '0', 'All generic stream series cover 30 days; operating history is verified separately');
     const holes = query(`SELECT COUNT(*) FROM (
       SELECT r.measured_at,LAG(r.measured_at) OVER(PARTITION BY r.tenant_id,r.device_id,r.metric ORDER BY r.measured_at) previous,p.interval_seconds
       FROM telemetry_readings r JOIN asset_profiles p ON p.tenant_id=r.tenant_id AND p.device_id=r.device_id
+      WHERE ${genericScope}
     ) q WHERE previous IS NOT NULL AND TIMESTAMPDIFF(SECOND,previous,measured_at)<>interval_seconds;`);
     assert.equal(holes, '0', 'No missing or duplicated slots');
-    assert.equal(query("SELECT COUNT(*) FROM telemetry_readings WHERE metric='LIGHT' AND HOUR(DATE_ADD(measured_at,INTERVAL 8 HOUR)) NOT BETWEEN 6 AND 17 AND measured_value<>0;"), '0');
+    assert.equal(query(`SELECT COUNT(*) FROM telemetry_readings r WHERE ${genericScope} AND metric='LIGHT' AND HOUR(DATE_ADD(measured_at,INTERVAL 8 HOUR)) NOT BETWEEN 6 AND 17 AND measured_value<>0;`), '0');
     assert.equal(query(`SELECT COUNT(*) FROM (
       SELECT measured_value,LAG(measured_value) OVER(PARTITION BY tenant_id,device_id,metric ORDER BY measured_at) previous
-      FROM telemetry_readings WHERE metric IN ('WATER_TOTAL','ENERGY','RAINFALL')) q WHERE measured_value<previous;`), '0');
+      FROM telemetry_readings r WHERE ${genericScope} AND metric IN ('WATER_TOTAL','ENERGY','RAINFALL')) q WHERE measured_value<previous;`), '0');
     const before = Number(query('SELECT COUNT(*) FROM telemetry_readings;'));
     const gateCommand = await api(admin, 'POST', `/assets/${gate.id}/commands`, {requestId:'mysql-gate-1', action:'SET_OPENING', value:40, note:'Synthetic MySQL acceptance'});
     assert.equal(gateCommand.status, 'SUCCEEDED');

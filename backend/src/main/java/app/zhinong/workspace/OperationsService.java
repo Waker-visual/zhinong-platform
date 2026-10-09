@@ -68,7 +68,7 @@ public class OperationsService {
       (RowCallbackHandler) rs ->
         reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
-          .add(DatabaseTime.instant(rs.getObject(2))),
+          .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
       tenant,
       farmId,
       start
@@ -83,7 +83,7 @@ public class OperationsService {
       (RowCallbackHandler) rs ->
         reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
-          .add(DatabaseTime.instant(rs.getObject(2))),
+          .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
       tenant,
       farmId,
       start,
@@ -100,7 +100,7 @@ public class OperationsService {
       """,
       (RowCallbackHandler) rs -> {
         long offset = Duration
-          .between(start.toInstant(), DatabaseTime.instant(rs.getObject(1)))
+          .between(start.toInstant(), DatabaseTime.instant(rs.getObject(1, java.time.OffsetDateTime.class)))
           .getSeconds();
         int index = (int) Math.min(SLICES - 1, Math.max(0, offset / sliceSeconds));
         moistureSum[index] += rs.getBigDecimal(2).doubleValue();
@@ -282,7 +282,7 @@ public class OperationsService {
       WHERE r.tenant_id=? AND d.farm_id=? AND r.metric=? AND a.plot_id IS NOT NULL AND r.measured_at>=?
       """,
       (RowCallbackHandler) rs -> {
-        LocalDate day = DatabaseTime.instant(rs.getObject(3)).atZone(zone).toLocalDate();
+        LocalDate day = DatabaseTime.instant(rs.getObject(3, java.time.OffsetDateTime.class)).atZone(zone).toLocalDate();
         if (day.isAfter(today)) return;
         var lower = rs.getBigDecimal(5);
         var upper = rs.getBigDecimal(6);

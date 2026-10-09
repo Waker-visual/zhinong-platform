@@ -98,6 +98,7 @@ const productionRangeOptions = [
   { value: 90, label: "近 90 天" },
   { value: 180, label: "近 180 天" },
   { value: 365, label: "近 365 天" },
+  { value: 731, label: "近两年" },
 ];
 const monitorRangeOptions = [
   { value: 24, label: "24 小时" },

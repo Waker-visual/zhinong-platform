@@ -112,7 +112,7 @@ public class AssetService {
       channel.put("max", spec.max());
       var latest = latest(tenant, id, metric);
       channel.put("latest", latest);
-      Instant at = latest == null ? null : ((OffsetDateTime) latest.get("time")).toInstant();
+      Instant at = latest == null ? null : app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant();
       channel.put("freshness", freshness(at, threshold));
       if (latest != null && !row.get("protocol").equals(latest.get("source"))) channel.put("freshness", "STALE");
       if ("FRESH".equals(channel.get("freshness"))) freshChannels++;
@@ -175,7 +175,7 @@ public class AssetService {
   }
 
   private String historyUnion() {
-    return """
+    return ("""
     SELECT measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt"
     FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=?
     UNION ALL
@@ -183,7 +183,7 @@ public class AssetService {
       o.measured_value AS "value",o.source AS "source",%s AS "receivedAt"
     FROM observations o JOIN devices d ON d.tenant_id=o.tenant_id AND d.id=o.device_id
     WHERE o.tenant_id=? AND o.device_id=? AND d.metric=?
-    """.formatted(store.dialect().timestamp("o.measured_at"), store.dialect().timestamp("o.measured_at"));
+    """).formatted(store.sql().timestamp("o.measured_at"), store.sql().timestamp("o.measured_at"));
   }
 
   public Map<String, Object> history(String id, String metric, int hours) {
@@ -198,15 +198,14 @@ public class AssetService {
       throw new ApiException(400, "设备未配置该指标");
     }
     var start = OffsetDateTime.now(ZoneOffset.UTC).minusHours(hours);
-    String bucket = hours <= 24 ? "MINUTE" : "HOUR";
-    String bucketSql = store.dialect().bucket("\"time\"", hours > 24);
+    String bucket = store.sql().bucket("\"time\"", hours <= 24);
     var points = db.queryForList(
-      "SELECT " + bucketSql + " AS \"time\"," +
+      "SELECT " + bucket + " AS \"time\"," +
         "AVG(\"value\") AS \"value\",MIN(\"value\") AS \"min\",MAX(\"value\") AS \"max\"," +
         "COUNT(*) AS \"samples\" FROM (" +
         historyUnion() +
         ") r WHERE \"time\">=? " +
-        "GROUP BY " + bucketSql + " ORDER BY \"time\"",
+        "GROUP BY " + bucket + " ORDER BY \"time\"",
       Identity.tenant(),
       id,
       metric,
@@ -234,7 +233,7 @@ public class AssetService {
       "hours",
       hours,
       "aggregation",
-      bucket,
+      hours <= 24 ? "MINUTE" : "HOUR",
       "points",
       points,
       "sources",
@@ -344,7 +343,7 @@ public class AssetService {
     );
     for (var channel : input.channels())
       db.update(
-        store.dialect().upsert("device_channels", "tenant_id,device_id,metric,lower_limit,upper_limit", "tenant_id,device_id,metric"),
+        store.sql().upsert("device_channels", "tenant_id,device_id,metric", "tenant_id,device_id,metric,lower_limit,upper_limit"),
         Identity.tenant(),
         id,
         channel.metric(),

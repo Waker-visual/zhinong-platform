@@ -10,16 +10,20 @@ import java.io.IOException;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.boot.availability.ApplicationAvailability;
+import org.springframework.boot.availability.ReadinessState;
 
 @Component
 public class SessionFilter extends OncePerRequestFilter {
 
   private final AuthService auth;
   private final ObjectMapper json;
+  private final ApplicationAvailability availability;
 
-  public SessionFilter(AuthService auth, ObjectMapper json) {
+  public SessionFilter(AuthService auth, ObjectMapper json, ApplicationAvailability availability) {
     this.auth = auth;
     this.json = json;
+    this.availability = availability;
   }
 
   @Override
@@ -36,6 +40,14 @@ public class SessionFilter extends OncePerRequestFilter {
       String path = request.getRequestURI();
       if (path.startsWith("/api/")) {
         response.setHeader("Cache-Control", "no-store");
+        boolean ready = availability.getReadinessState() == ReadinessState.ACCEPTING_TRAFFIC;
+        if (path.equals("/api/health") && request.getMethod().equals("GET")) {
+          response.setStatus(ready ? 200 : 503);
+          response.setContentType("application/json;charset=UTF-8");
+          json.writeValue(response.getWriter(), Map.of("ready", ready));
+          return;
+        }
+        if (!ready) throw new ApiException(503, "项目正在初始化或停止，请稍候重试");
         boolean deviceIngest =
           (path.equals("/api/ingest/telemetry") || path.equals("/api/ingest/commands/poll")
             || path.equals("/api/ingest/smart-farm") || path.equals("/api/ingest/smart-farm/commands/poll")

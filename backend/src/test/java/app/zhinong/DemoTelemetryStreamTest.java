@@ -76,4 +76,21 @@ class DemoTelemetryStreamTest {
   }
 
   private long count() { return db.queryForObject("SELECT COUNT(*) FROM telemetry_readings",Long.class); }
+
+  @Test
+  void registeredOperatingFarmKeepsItsOwnHistoryWhenTheGenericStreamRuns() {
+    var device=db.queryForList("SELECT d.id,d.tenant_id,d.farm_id FROM devices d JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id WHERE p.protocol='SIMULATED' ORDER BY d.tenant_id").getFirst();
+    String tenant=device.get("TENANT_ID").toString(), farm=device.get("FARM_ID").toString(), id=device.get("ID").toString();
+    String reading=db.queryForObject("SELECT id FROM telemetry_readings WHERE tenant_id=? AND device_id=? ORDER BY measured_at LIMIT 1",String.class,tenant,id);
+    db.update("DELETE FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND id=?",tenant,id,reading);
+    long before=db.queryForObject("SELECT COUNT(*) FROM telemetry_readings WHERE tenant_id=? AND device_id=?",Long.class,tenant,id);
+    db.update("INSERT INTO demo_operating_farms(tenant_id,farm_id,seeded_on,last_daily_date) VALUES(?,?,CURRENT_DATE,CURRENT_DATE)",tenant,farm);
+    try {
+      stream.refresh(Instant.now(),true);
+      assertEquals(before,db.queryForObject("SELECT COUNT(*) FROM telemetry_readings WHERE tenant_id=? AND device_id=?",Long.class,tenant,id));
+    } finally {
+      db.update("DELETE FROM demo_operating_farms WHERE tenant_id=? AND farm_id=?",tenant,farm);
+      stream.refresh(Instant.now(),true);
+    }
+  }
 }

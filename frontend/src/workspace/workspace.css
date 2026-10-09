@@ -813,6 +813,19 @@
 }
 .asset-editor form {
   display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.asset-editor .modal-actions {
+  position: static;
+  flex-shrink: 0;
+  margin-top: 16px;
+  padding-top: 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 .channel-settings {
   border-top: 1px solid var(--border);

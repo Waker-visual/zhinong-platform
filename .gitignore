@@ -16,6 +16,7 @@ copyright/
 skills/
 private-materials/
 *.private.json
+*.private.txt
 *.bundle
 *.pdf
 *.docx
@@ -23,5 +24,10 @@ __pycache__/
 *.pyc
 .idea/
 **/config/llm.properties
+**/config/llm-*.private.tmp
+**/config/database.properties
+**/config/database.*.properties
+!config/database.example.properties
+/rds.txt
 
 /docs/source-provenance.json

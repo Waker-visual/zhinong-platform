@@ -302,17 +302,14 @@
   top: 0;
   z-index: 3;
   align-items: flex-start;
-  margin: -26px 0 26px;
-  padding: 18px 0 20px;
+  margin: 0 0 18px;
+  padding: 0 0 12px;
   background: var(--surface);
 }
 .daily-dialog > .daily-section-title h3 {
   font-size: 20px;
   font-weight: 650;
   line-height: 1.25;
-}
-.daily-dialog > .daily-section-title .close-button {
-  margin-right: -10px;
 }
 .daily-dialog::backdrop {
   background: var(--backdrop);

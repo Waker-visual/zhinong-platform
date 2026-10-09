@@ -10,6 +10,7 @@ import java.time.LocalDate;
 import java.util.*;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -21,6 +22,7 @@ public class FarmWorkspaceService {
   private final AssetService assets;
   private final TelemetryService telemetry;
   private final ObjectMapper json;
+  @Value("#{${farm.demo:false} && ${farm.demo-rich:true} && ${farm.demo-live:false}}") private boolean demoLive;
 
   public FarmWorkspaceService(
     Store store,
@@ -40,13 +42,17 @@ public class FarmWorkspaceService {
       """
       SELECT f.id AS "id",f.name AS "name",f.description AS "description",
         COALESCE(p.region,'') AS "region",COALESCE(p.farm_type,'FIELD') AS "farmType",
-        COALESCE(p.demo,FALSE) AS "demo",COALESCE(p.layout_revision,0) AS "layoutRevision"
+        COALESCE(p.demo,FALSE) AS "demo",COALESCE(p.layout_revision,0) AS "layoutRevision",
+        (COALESCE(p.demo,FALSE) AND EXISTS(SELECT 1 FROM demo_operating_farms r
+          WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id)) AS "operatingDemo",
+        EXISTS(SELECT 1 FROM demo_research_farms r WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id) AS "researchDemo"
       FROM farms f LEFT JOIN farm_profiles p ON p.tenant_id=f.tenant_id AND p.farm_id=f.id
       WHERE f.tenant_id=? ORDER BY COALESCE(p.demo,FALSE) DESC,f.name
       """,
       Identity.tenant()
     );
     for (var row : rows) {
+      row.put("demoLive", demoLive && Boolean.TRUE.equals(row.get("operatingDemo")));
       Object demo = row.get("demo");
       row.put("demo", Boolean.TRUE.equals(demo) || demo instanceof Number number && number.intValue() != 0);
       String id = row.get("id").toString();
@@ -153,7 +159,7 @@ public class FarmWorkspaceService {
 
   public Map<String, Object> analytics(String id, int days) {
     store.get("farms", id);
-    if (days < 1 || days > 365) throw new ApiException(400, "统计范围为 1–365 天");
+    if (days < 1 || days > 731) throw new ApiException(400, "统计范围为 1–731 天");
     String tenant = Identity.tenant();
     LocalDate start = LocalDate.now().minusDays(days - 1);
     var crops = db.queryForList(
@@ -312,7 +318,7 @@ public class FarmWorkspaceService {
       PlanGeometry.polygon(shape.boundary());
       try {
         db.update(
-          store.dialect().upsert("plot_shapes", "tenant_id,plot_id,boundary_json", "tenant_id,plot_id"),
+          store.sql().upsert("plot_shapes", "tenant_id,plot_id", "tenant_id,plot_id,boundary_json"),
           Identity.tenant(),
           shape.plotId(),
           json.writeValueAsString(shape.boundary())

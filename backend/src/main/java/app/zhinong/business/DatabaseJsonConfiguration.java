@@ -9,13 +9,15 @@ import org.springframework.context.annotation.*;
 
 @Configuration
 public class DatabaseJsonConfiguration {
-  /** Connector/J returns UTC DATETIME as LocalDateTime: retain its zone in API responses. */
+  /** Retain the session zone when Connector/J returns a DATETIME as LocalDateTime. */
   @Bean
-  com.fasterxml.jackson.databind.Module databaseTimes(SqlDialect dialect) {
+  com.fasterxml.jackson.databind.Module databaseTimes(SqlDialect dialect, org.springframework.core.env.Environment env) {
     var module = new SimpleModule("database-utc-times");
+    String url = env.getProperty("spring.datasource.url", "");
+    ZoneId zone = url.matches(".*[?&]connectionTimeZone=UTC(?:&.*)?$") ? ZoneOffset.UTC : ZoneId.systemDefault();
     if (dialect.mysql()) module.addSerializer(LocalDateTime.class, new JsonSerializer<LocalDateTime>() {
       @Override public void serialize(LocalDateTime value, JsonGenerator output, SerializerProvider provider) throws IOException {
-        output.writeString(value.toInstant(ZoneOffset.UTC).toString());
+        output.writeString(value.atZone(zone).toInstant().toString());
       }
     });
     return module;

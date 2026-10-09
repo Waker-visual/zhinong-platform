@@ -39,11 +39,17 @@ function scanFiles(root, files) {
     if (local.startsWith('..') || path.isAbsolute(local)) throw new Error('Paths must stay inside the project');
     if (!fs.existsSync(full)) continue;
     if (forbidden.test(relative.replaceAll('\\', '/'))) findings.push({ type: 'private_file', path: relative });
-    if (/(?:^|\/)rds\.txt$|\.private\.json$/i.test(relative.replaceAll('\\', '/'))) {
+    if (/\.private\.(?:txt|json)$/i.test(relative)) findings.push({ type: 'private_file', path: relative });
+    if (/(?:^|\/)config\/(?:llm\.properties|database(?:\.(?!example\.)[^/]+)?\.properties)$|(?:^|\/)rds\.txt$/i.test(relative.replaceAll('\\', '/'))) {
       findings.push({ type: 'private_file', path: relative });
     }
-    if (/(?:^|\/)config\/llm\.properties$/i.test(relative.replaceAll('\\', '/'))) {
-      findings.push({ type: 'private_file', path: relative });
+    if (/(?:^|\/)config\/database\.example\.properties$/i.test(relative.replaceAll('\\', '/')) &&
+        /^[ \t]*farm\.database\.(?:host|name|username|password)[ \t]*=[ \t]*\S+/m.test(fs.readFileSync(full, 'utf8'))) {
+      findings.push({ type: 'filled_database_template', path: relative });
+    }
+    if (/(?:^|\/)config\/llm\.example\.properties$/i.test(relative.replaceAll('\\', '/')) &&
+        /^[ \t]*api-key[ \t]*=[ \t]*\S+/m.test(fs.readFileSync(full, 'utf8'))) {
+      findings.push({ type: 'filled_model_template', path: relative });
     }
     // Scan application sources/configuration; dependency lockfiles and test fixtures contain public samples.
     if (!/^(backend\/src\/main\/|frontend\/src\/)/.test(relative)) continue;

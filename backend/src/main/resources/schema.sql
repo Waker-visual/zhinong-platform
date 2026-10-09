@@ -204,6 +204,72 @@ CREATE TABLE IF NOT EXISTS device_commands (
 );
 CREATE INDEX IF NOT EXISTS ix_commands_device ON device_commands(tenant_id,device_id,created_at);
 
+-- Private per-member assistant history; irrigation decisions are separate audited records.
+CREATE TABLE IF NOT EXISTS ai_conversations (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,member_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,
+ title VARCHAR(80) NOT NULL,created_at TIMESTAMP WITH TIME ZONE NOT NULL,updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ UNIQUE(tenant_id,id),FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id)
+);
+CREATE TABLE IF NOT EXISTS ai_messages (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,conversation_id VARCHAR(36) NOT NULL,
+ request_id VARCHAR(80) NOT NULL,role VARCHAR(16) NOT NULL,content VARCHAR(16000) NOT NULL,mode VARCHAR(20) NOT NULL,
+ diagnostic VARCHAR(40) NOT NULL,created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ UNIQUE(tenant_id,conversation_id,request_id,role),
+ FOREIGN KEY(tenant_id,conversation_id) REFERENCES ai_conversations(tenant_id,id) ON DELETE CASCADE,
+ CHECK(role IN ('user','assistant'))
+);
+CREATE TABLE IF NOT EXISTS ai_irrigation_policies (
+ tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
+ sensor_id VARCHAR(36) NOT NULL,pump_id VARCHAR(36) NOT NULL,mode VARCHAR(16) NOT NULL DEFAULT 'MANUAL',
+ threshold_value DECIMAL(8,2) NOT NULL,duration_seconds INTEGER NOT NULL,cooldown_minutes INTEGER NOT NULL,
+ daily_limit INTEGER NOT NULL,owner_id VARCHAR(36) NOT NULL,revision INTEGER NOT NULL DEFAULT 0,
+ updated_at TIMESTAMP WITH TIME ZONE NOT NULL,last_check_at TIMESTAMP WITH TIME ZONE,last_result VARCHAR(300) NOT NULL DEFAULT '',
+ PRIMARY KEY(tenant_id,plot_id),FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),
+ FOREIGN KEY(tenant_id,plot_id) REFERENCES plots(tenant_id,id),FOREIGN KEY(tenant_id,sensor_id) REFERENCES devices(tenant_id,id),
+ FOREIGN KEY(tenant_id,pump_id) REFERENCES devices(tenant_id,id),FOREIGN KEY(tenant_id,owner_id) REFERENCES members(tenant_id,id),
+ CHECK(mode IN ('MANUAL','AUTO')),CHECK(threshold_value BETWEEN 5 AND 80),CHECK(duration_seconds BETWEEN 10 AND 300),
+ CHECK(cooldown_minutes BETWEEN 30 AND 1440),CHECK(daily_limit BETWEEN 1 AND 6)
+);
+CREATE TABLE IF NOT EXISTS ai_irrigation_runs (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
+ sensor_id VARCHAR(36) NOT NULL,pump_id VARCHAR(36) NOT NULL,policy_revision INTEGER NOT NULL,
+ status VARCHAR(20) NOT NULL,reason VARCHAR(500) NOT NULL,duration_seconds INTEGER NOT NULL,
+ moisture_value DECIMAL(8,2) NOT NULL,requested_by VARCHAR(60) NOT NULL,approved_by VARCHAR(60),
+ created_at TIMESTAMP WITH TIME ZONE NOT NULL,expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ started_at TIMESTAMP WITH TIME ZONE,stop_at TIMESTAMP WITH TIME ZONE,finished_at TIMESTAMP WITH TIME ZONE,
+ command_id VARCHAR(36),stop_command_id VARCHAR(36),result_note VARCHAR(300) NOT NULL DEFAULT '',
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),FOREIGN KEY(tenant_id,plot_id) REFERENCES plots(tenant_id,id),
+ FOREIGN KEY(tenant_id,sensor_id) REFERENCES devices(tenant_id,id),FOREIGN KEY(tenant_id,pump_id) REFERENCES devices(tenant_id,id),
+ CHECK(status IN ('PROPOSED','RUNNING','COMPLETED','CANCELLED','EXPIRED'))
+);
+CREATE INDEX IF NOT EXISTS ix_ai_runs ON ai_irrigation_runs(tenant_id,pump_id,status,created_at);
+
+-- Opt-in synthetic operating scenario. The registry never includes ordinary farms.
+CREATE TABLE IF NOT EXISTS demo_operating_farms (
+ tenant_id VARCHAR(36) NOT NULL, farm_id VARCHAR(36) NOT NULL, seeded_on DATE NOT NULL,
+ last_daily_date DATE NOT NULL, PRIMARY KEY(tenant_id,farm_id),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE
+);
+
+-- Research fixture provenance and explicit harvest lineage; never authentic field evidence.
+ALTER TABLE plantings ADD CONSTRAINT IF NOT EXISTS uq_planting_tenant UNIQUE(tenant_id,id);
+ALTER TABLE production ADD CONSTRAINT IF NOT EXISTS uq_production_tenant UNIQUE(tenant_id,id);
+CREATE TABLE IF NOT EXISTS production_lineage (
+ tenant_id VARCHAR(36) NOT NULL, production_id VARCHAR(36) NOT NULL,
+ planting_id VARCHAR(36) NOT NULL, task_id VARCHAR(36) NOT NULL,
+ PRIMARY KEY(tenant_id,production_id),
+ FOREIGN KEY(tenant_id,production_id) REFERENCES production(tenant_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(tenant_id,planting_id) REFERENCES plantings(tenant_id,id),
+ FOREIGN KEY(tenant_id,task_id) REFERENCES farm_tasks(tenant_id,id)
+);
+CREATE TABLE IF NOT EXISTS demo_research_farms (
+ tenant_id VARCHAR(36) NOT NULL, farm_id VARCHAR(36) NOT NULL, version INTEGER NOT NULL,
+ history_start DATE NOT NULL, as_of_date DATE NOT NULL, generated_at TIMESTAMP NOT NULL,
+ PRIMARY KEY(tenant_id,farm_id),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE
+);
+
 -- Bind a vendor's device identity to one authenticated tenant device.
 CREATE TABLE IF NOT EXISTS device_integrations (
  tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL,

@@ -147,7 +147,7 @@ public class AiController {
         asst.put("content", null);
         List<Map<String, Object>> tcs = new ArrayList<>();
         List<Map<String, Object>> toolMsgs = new ArrayList<>();
-        for (ToolCall tc : resp.toolCalls()) {
+        for (ToolCall tc : resp.toolCalls().stream().limit(8).toList()) {
           tcs.add(
             Map.of(
               "id",
@@ -303,7 +303,7 @@ public class AiController {
 
   private int argInt(JsonNode args, String key, int def) {
     JsonNode v = args.path(key);
-    return v.isInt() ? v.asInt(def) : def;
+    return Math.max(1,Math.min(50,v.isInt() ? v.asInt(def) : def));
   }
 
   private String argString(JsonNode args, String key) {
@@ -369,6 +369,7 @@ public class AiController {
   private List<Map<String, Object>> productionOf(String farmId, int limit) {
     List<Map<String, Object>> out = new ArrayList<>();
     for (Map<String, Object> row : store.list("production")) {
+      if(plotName(farmId,String.valueOf(row.get("PLOT_ID"))).isEmpty()) continue;
       Map<String, Object> item = new LinkedHashMap<>();
       item.put("plot", plotName(farmId, String.valueOf(row.getOrDefault("PLOT_ID", ""))));
       item.put("date", row.getOrDefault("RECORD_DATE", ""));

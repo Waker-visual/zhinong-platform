@@ -24,6 +24,8 @@ if (Test-Path -LiteralPath $simulationConfig) {
     $env:FARM_SIM_DATABASE_PASSWORD = $sim.password
 }
 $env:FARM_DEMO = 'true'
+if (-not $env:FARM_DEMO_LIVE) { $env:FARM_DEMO_LIVE = 'true' }
+if (-not $env:FARM_RESEARCH_HISTORY) { $env:FARM_RESEARCH_HISTORY = 'true' }
 $env:FARM_DEMO_STREAM_ENABLED = 'true'
 $passwordFile = Join-Path $projectRoot '.cache/demo-password.txt'
 if (-not $env:FARM_BOOTSTRAP_PASSWORD -and (Test-Path -LiteralPath $passwordFile)) {

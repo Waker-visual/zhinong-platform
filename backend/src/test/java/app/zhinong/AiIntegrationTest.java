@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Primary;
     "spring.datasource.url=jdbc:h2:mem:ai-tests;DB_CLOSE_DELAY=-1",
     "farm.demo=true",
     "farm.demo-rich=false",
+    "farm.ai.automation-enabled=false",
     "farm.bootstrap-password=Test-Only-Password-429!",
   }
 )
@@ -39,6 +40,8 @@ class AiIntegrationTest {
   // No external requests or writes to the user's model configuration during tests.
   @Autowired
   TestLlmGateway llm;
+  @Autowired org.springframework.jdbc.core.JdbcTemplate db;
+  @Autowired app.zhinong.ai.IrrigationTicker ticker;
 
   final HttpClient client = HttpClient.newHttpClient();
   String admin, otherAdmin, operator, viewer, platform, farmId;
@@ -55,6 +58,111 @@ class AiIntegrationTest {
     llm.answer = Optional.empty();
     llm.calls.set(0);
     llm.saved = null;
+  }
+
+  @AfterEach void finishTestRuns() {
+    db.update("UPDATE ai_irrigation_policies SET mode='MANUAL'");
+    db.update("UPDATE ai_irrigation_runs SET stop_at=? WHERE status='RUNNING'",java.time.OffsetDateTime.now().minusSeconds(1));ticker.tick();
+  }
+
+  @Test void conversationPrivacyHistoryAndRequestIdempotency() throws Exception {
+    String id=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    llm.answer=Optional.of(new LlmGateway.LlmResponse("基于当前农场记录的测试回答。",List.of()));
+    var question=Map.of("question","请分析当前农场","requestId","first-turn");
+    for(String token:List.of(otherAdmin,operator,viewer)) call(token,"GET","/ai/conversations/"+id+"/messages",null,404);
+    call(platform,"GET","/ai/conversations/"+id+"/messages",null,403);
+    call(otherAdmin,"POST","/ai/conversations",Map.of("farmId",farmId),404);
+    call(admin,"POST","/ai/conversations/"+id+"/messages",question,200);
+    assertTrue(llm.lastMessages.getFirst().get("content").toString().contains("雨量累计器已排除"));
+    call(admin,"POST","/ai/conversations/"+id+"/messages",question,200);
+    assertEquals(1,llm.calls.get());
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","另一个问题","requestId","first-turn"),409);
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","继续分析","requestId","next-turn"),200);
+    assertTrue(llm.lastMessages.stream().anyMatch(m -> "基于当前农场记录的测试回答。".equals(m.get("content"))));
+    assertEquals(4,call(admin,"GET","/ai/conversations/"+id+"/messages",null,200).size());
+    call(operator,"DELETE","/ai/conversations/"+id,null,404);
+    call(admin,"DELETE","/ai/conversations/"+id,null,200);
+    call(admin,"GET","/ai/conversations/"+id+"/messages",null,404);
+  }
+
+  @Test void emptyAnalysisStatesMissingEvidenceAndChatFallsBackHonestly() throws Exception {
+    var report=call(admin,"GET","/ai/analysis?farmId="+farmId,null,200);
+    assertEquals(4,report.path("conditions").size()); assertEquals(0,report.path("freshMeasurements").asInt());
+    assertTrue(report.path("weatherNotice").asText().contains("不是未来"));
+    call(otherAdmin,"GET","/ai/analysis?farmId="+farmId,null,404);
+    call(platform,"GET","/ai/irrigation?farmId="+farmId,null,403);
+    String id=call(viewer,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    var response=call(viewer,"POST","/ai/conversations/"+id+"/messages",Map.of("question","现在启动灌溉","requestId","request-1"),200);
+    assertEquals("rule",response.path("mode").asText());assertTrue(response.path("answer").asText().contains("没有下发"));
+    assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE farm_id=?",Integer.class,farmId));
+  }
+
+  String tenant() {return db.queryForObject("SELECT id FROM tenants WHERE code='demo-a'",String.class);}
+  Map<String,Object> irrigationFixture() throws Exception {
+    String plot=call(admin,"POST","/plots",Map.of("farmId",farmId,"name","虚构蔬菜地","crop","蔬菜","areaMu",5),200).path("ID").asText();
+    String planting=call(admin,"POST","/plantings",Map.of("plotId",plot,"crop","蔬菜","variety","演示品种","areaMu",5,"startDate",java.time.LocalDate.now().minusDays(20).toString(),"endDate",java.time.LocalDate.now().plusDays(30).toString()),200).path("ID").asText();
+    call(admin,"PATCH","/plantings/"+planting+"/status",Map.of("status","ACTIVE"),200);
+    String sensor=createDevice(plot,"SOIL"),pump=createDevice(plot,"PUMP");
+    reading(sensor,"SOIL_MOISTURE",20,0);reading(pump,"REMOTE_ENABLED",1,0);reading(pump,"FAULT",0,0);reading(pump,"PUMP_RUNNING",0,0);
+    var policy=new LinkedHashMap<String,Object>();policy.put("farmId",farmId);policy.put("plotId",plot);policy.put("sensorId",sensor);policy.put("pumpId",pump);policy.put("mode","MANUAL");policy.put("thresholdValue",30);policy.put("durationSeconds",60);policy.put("cooldownMinutes",120);policy.put("dailyLimit",3);policy.put("revision",0);return policy;
+  }
+  String createDevice(String plot,String type) throws Exception {
+    var input=new LinkedHashMap<String,Object>();input.put("farmId",farmId);input.put("plotId",plot);input.put("name","虚构"+type);input.put("code","TEST-"+UUID.randomUUID());input.put("deviceType",type);input.put("protocol","SIMULATED");input.put("lifecycle","ACTIVE");input.put("model","测试");input.put("notes","虚构");input.put("intervalSeconds",60);input.put("revision",0);input.put("controlEnabled",type.equals("PUMP"));input.put("channels",app.zhinong.workspace.MetricCatalog.PRESETS.get(type).stream().map(m->Map.of("metric",m)).toList());return call(admin,"POST","/assets",input,200).path("id").asText();
+  }
+  void reading(String device,String metric,int value,int secondsAgo) {
+    db.update("DELETE FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=?",tenant(),device,metric);
+    var now=java.time.OffsetDateTime.now().minusSeconds(secondsAgo);
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",UUID.randomUUID().toString(),tenant(),device,metric,value,now,now);
+  }
+  String propose(Map<String,Object> p) throws Exception {return call(operator,"POST","/ai/irrigation/plots/"+p.get("plotId")+"/propose",null,200).path("ID").asText();}
+
+  @Test void irrigationRequiresApprovalIsIdempotentAndStopsAfterRestartDeadline() throws Exception {
+    var p=irrigationFixture();
+    call(operator,"PUT","/ai/irrigation/policy",p,403);call(viewer,"PUT","/ai/irrigation/policy",p,403);
+    call(otherAdmin,"PUT","/ai/irrigation/policy",p,404);call(admin,"PUT","/ai/irrigation/policy",p,200);
+    String id=propose(p);assertEquals(id,propose(p));
+    assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=?",Integer.class,tenant(),p.get("pumpId")));
+    call(viewer,"POST","/ai/irrigation/runs/"+id+"/approve",null,403);call(otherAdmin,"POST","/ai/irrigation/runs/"+id+"/approve",null,404);
+    call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,200);call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,200);
+    assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND action='PUMP_START'",Integer.class,tenant(),p.get("pumpId")));
+    db.update("UPDATE ai_irrigation_runs SET stop_at=? WHERE tenant_id=? AND id=?",java.time.OffsetDateTime.now().minusSeconds(1),tenant(),id);
+    ticker.tick();ticker.tick();
+    assertEquals("COMPLETED",db.queryForObject("SELECT status FROM ai_irrigation_runs WHERE tenant_id=? AND id=?",String.class,tenant(),id));
+    assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND action='PUMP_STOP'",Integer.class,tenant(),p.get("pumpId")));
+    call(admin,"POST","/ai/irrigation/plots/"+p.get("plotId")+"/propose",null,409);
+  }
+
+  @Test void irrigationRechecksFreshnessThresholdCropAndPolicyBeforeApproval() throws Exception {
+    var p=irrigationFixture();call(admin,"PUT","/ai/irrigation/policy",p,200);String id=propose(p);
+    reading(p.get("sensorId").toString(),"SOIL_MOISTURE",20,1000);
+    call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,409);
+    reading(p.get("sensorId").toString(),"SOIL_MOISTURE",40,0);
+    call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,409);
+    reading(p.get("sensorId").toString(),"SOIL_MOISTURE",20,0);
+    db.update("UPDATE plantings SET crop='水稻' WHERE tenant_id=? AND plot_id=?",tenant(),p.get("plotId"));
+    call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,409);
+    db.update("UPDATE plantings SET crop='蔬菜' WHERE tenant_id=? AND plot_id=?",tenant(),p.get("plotId"));
+    p.put("revision",1);p.put("durationSeconds",30);call(admin,"PUT","/ai/irrigation/policy",p,200);
+    call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,409);
+    p.put("durationSeconds",301);call(admin,"PUT","/ai/irrigation/policy",p,400);
+    assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=?",Integer.class,tenant(),p.get("pumpId")));
+  }
+
+  @Test void automaticModeRunsWithoutModelAndStopsWhenOwnerDisabled() throws Exception {
+    var p=irrigationFixture();p.put("mode","AUTO");call(admin,"PUT","/ai/irrigation/policy",p,200);
+    ticker.tick();
+    assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND plot_id=? AND status='RUNNING' AND approved_by='AI_AUTOMATION'",Integer.class,tenant(),p.get("plotId")));
+    assertEquals(0,llm.calls.get());
+    db.update("UPDATE members SET enabled=FALSE WHERE tenant_id=? AND username='admin'",tenant());
+    try {ticker.tick();assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND plot_id=? AND status='RUNNING'",Integer.class,tenant(),p.get("plotId")));}
+    finally {db.update("UPDATE members SET enabled=TRUE WHERE tenant_id=? AND username='admin'",tenant());}
+  }
+
+  @Test void physicalProtocolAndCrossFarmSensorBindingsAreRejected() throws Exception {
+    var p=irrigationFixture();String another=call(admin,"POST","/plots",Map.of("farmId",farmId,"name","另一块地","crop","蔬菜","areaMu",5),200).path("ID").asText();
+    var invalid=new LinkedHashMap<>(p);invalid.put("plotId",another);call(admin,"PUT","/ai/irrigation/policy",invalid,400);
+    db.update("UPDATE asset_profiles SET protocol='HTTP_PUSH' WHERE tenant_id=? AND device_id=?",tenant(),p.get("pumpId"));
+    call(admin,"PUT","/ai/irrigation/policy",p,409);
   }
 
   @Test
@@ -134,10 +242,12 @@ class AiIntegrationTest {
     volatile Optional<LlmResponse> answer = Optional.empty();
     volatile List<String> saved;
     final AtomicInteger calls = new AtomicInteger();
+    volatile List<Map<String,Object>> lastMessages=List.of();
 
     @Override
     public Optional<LlmResponse> complete(List<Map<String, Object>> messages, List<Map<String, Object>> tools) {
       calls.incrementAndGet();
+      lastMessages=List.copyOf(messages);
       return answer;
     }
 

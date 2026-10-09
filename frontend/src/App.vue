@@ -8,6 +8,7 @@ import "./workspace/workspace.css";
 import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
+import FarmAssistant from "./ai/FarmAssistant.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
 import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
@@ -115,7 +116,7 @@ const current = computed(
 );
 // 顶栏“当前农场”是各页面共用的农场范围；今日农场、运行概览与经营模拟必须选定一座农场。
 const farmRequired = computed(() =>
-  ["daily", "operations", "simulation"].includes(page.value),
+  ["daily", "operations", "simulation", "ai"].includes(page.value),
 );
 const simulationKey = ref(0);
 function selectFarm() {
@@ -305,7 +306,7 @@ async function load() {
     return;
   }
   const [farms, plots, summary, taskList] = await Promise.all([
-    api("/farms"),
+    api("/farm-workspaces"),
     api("/plots"),
     api("/dashboard"),
     api("/tasks"),
@@ -315,15 +316,16 @@ async function load() {
   if (
     farms.length === 1 ||
     (farmScope.value && !farms.some((f) => f.id === farmScope.value)) ||
-    (["daily", "operations"].includes(target) && !farmScope.value)
+    (["daily", "operations", "ai"].includes(target) && !farmScope.value)
   )
-    farmScope.value = farms[0]?.id || "";
+    farmScope.value = (farms.find((farm) => farm.operatingDemo) || farms[0])?.id || "";
   plotRows.value = plots;
   dashboard.value = summary;
   tasks.value = taskList;
   if (
     target === "daily" ||
     target === "operations" ||
+    target === "ai" ||
     target === "dashboard" ||
     target === "devices" ||
     target === "simulation"
@@ -867,6 +869,7 @@ onUnmounted(() => {
           @farm="launchFarm"
           @notice="message"
         />
+        <FarmAssistant v-else-if="page === 'ai'" :key="farmScope" :farm-id="farmScope" :role="role" :revision="moduleRevision" />
         <OperationsOverview
           v-else-if="page === 'operations'"
           :farm-id="farmScope"

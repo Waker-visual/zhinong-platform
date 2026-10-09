@@ -95,6 +95,8 @@ public class DeviceCommandService {
       throw new ApiException(409, "请先配置设备接入凭据");
     }
     boolean stopping = Set.of("PUMP_STOP", "EMERGENCY_STOP").contains(action.code());
+    if (!stopping && db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND status='RUNNING'",Long.class,tenant,id)>0)
+      throw new ApiException(409,"设备正在执行定时灌溉，请先停止本次灌溉");
     if (!stopping) interlocks(tenant, id, asset, action.code());
     if (stopping) cancelPending(db, tenant, id, "停止操作取代先前未完成指令");
     else if (db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND status IN ('PENDING','DISPATCHED')",
@@ -109,7 +111,7 @@ public class DeviceCommandService {
       Identity.current().username(), input.note().strip(), now, now.plusSeconds(120));
     store.audit("DEVICE_COMMAND_" + action.code(), commandId);
     if ("SIMULATED".equals(asset.get("protocol"))) {
-      simulate(tenant, id, action.code(), input.value());
+      simulate(tenant, id, action.code(), input.value(),Identity.current().username());
       db.update("""
         UPDATE device_commands SET status='SUCCEEDED',dispatched_at=?,finished_at=?,result_note='本地模拟完成，未操作实体设备'
         WHERE tenant_id=? AND device_id=? AND id=?
@@ -142,8 +144,8 @@ public class DeviceCommandService {
     for (String metric : required) {
       var latest = assets.latest(tenant, id, metric);
       if (latest == null || !asset.get("protocol").equals(latest.get("source"))
-          || !((OffsetDateTime) latest.get("time")).toInstant().isAfter(Instant.now().minusSeconds(tolerance))
-          || !bindings.isEmpty() && !((OffsetDateTime) latest.get("receivedAt")).toInstant()
+          || !app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant().isAfter(Instant.now().minusSeconds(tolerance))
+          || !bindings.isEmpty() && !app.zhinong.database.DatabaseTime.offset(latest.get("receivedAt")).toInstant()
             .isAfter(app.zhinong.business.DatabaseTime.instant(bindings.getFirst().get("UPDATED_AT")))) {
         throw new ApiException(409, "缺少新鲜的" + MetricCatalog.get(metric).name() + "，请先采集确认；停止指令仍可提交");
       }
@@ -159,7 +161,7 @@ public class DeviceCommandService {
     }
   }
 
-  private void simulate(String tenant, String id, String action, BigDecimal value) {
+  private void simulate(String tenant, String id, String action, BigDecimal value,String actor) {
     var feedback = new LinkedHashMap<String, BigDecimal>();
     switch (action) {
       case "SET_OPENING" -> feedback.put("GATE_OPENING", value);
@@ -182,7 +184,25 @@ public class DeviceCommandService {
     var readings = feedback.entrySet().stream().filter(e -> configured.contains(e.getKey()))
       .map(e -> new WorkspaceInputs.Reading(e.getKey(), e.getValue())).toList();
     if (readings.isEmpty()) throw new ApiException(409, "设备未配置对应的反馈指标，请应用设备指标模板");
-    telemetry.write(tenant, id, Instant.now(), readings, "SIMULATED", Identity.current().username());
+    telemetry.write(tenant, id, Instant.now(), readings, "SIMULATED", actor);
+  }
+
+  /** Fail-safe stop for an already persisted simulated run, also works after its owner is disabled. */
+  public String stopScheduledSimulation(String tenant,String runId) {
+    var runs=db.queryForList("SELECT * FROM ai_irrigation_runs WHERE tenant_id=? AND id=? AND status='RUNNING' FOR UPDATE",tenant,runId);
+    if(runs.isEmpty()) return "";
+    String id=runs.getFirst().get("PUMP_ID").toString();
+    db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE",tenant,id);
+    var original=db.queryForList("SELECT id FROM device_commands WHERE tenant_id=? AND device_id=? AND id=? AND protocol='SIMULATED' AND action='PUMP_START'",tenant,id,runs.getFirst().get("COMMAND_ID"));
+    if(original.isEmpty()) throw new ApiException(409,"缺少可核验的模拟启动记录");
+    String commandId=UUID.randomUUID().toString();var now=OffsetDateTime.now(ZoneOffset.UTC);
+    simulate(tenant,id,"PUMP_STOP",null,"AI_AUTOMATION");
+    db.update("""
+      INSERT INTO device_commands(id,tenant_id,device_id,request_id,action,protocol,status,actor,note,result_note,created_at,expires_at,finished_at)
+      VALUES(?,?,?,?,'PUMP_STOP','SIMULATED','SUCCEEDED','AI_AUTOMATION','定时灌溉停止','模拟停泵已完成',?,?,?)
+      """,commandId,tenant,id,"ai-stop-"+runId,now,now,now);
+    db.update("INSERT INTO audit_events(id,tenant_id,actor,action,resource_id,occurred_at) VALUES(?,?,?,'AI_IRRIGATION_STOP',?,?)",UUID.randomUUID().toString(),tenant,"AI_AUTOMATION",runId,java.sql.Timestamp.from(Instant.now()));
+    return commandId;
   }
 
   public Map<String, Object> poll(String key) {

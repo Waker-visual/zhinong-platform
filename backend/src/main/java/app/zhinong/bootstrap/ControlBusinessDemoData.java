@@ -13,7 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 /** Additive, fictional business records for the existing device demonstration farm. */
 @Component
-@Order(35)
+@Order(45)
 public class ControlBusinessDemoData implements ApplicationRunner {
   private final JdbcTemplate db;
   private final boolean enabled;
@@ -38,6 +38,9 @@ public class ControlBusinessDemoData implements ApplicationRunner {
       var operators=db.queryForList("SELECT id FROM members WHERE tenant_id=? AND username='operator' AND role='OPERATOR' AND enabled=TRUE",String.class,tenant);
       var admins=db.queryForList("SELECT id FROM members WHERE tenant_id=? AND username='admin' AND role='ADMIN' AND enabled=TRUE",String.class,tenant);
       if(farms.size()!=1 || operators.size()!=1 || admins.size()!=1) continue;
+      // The richer operating/research scenario owns this farm's business history.
+      if (db.queryForObject("SELECT COUNT(*) FROM demo_operating_farms WHERE tenant_id=? AND farm_id=?",
+          Integer.class, tenant, farms.getFirst()) > 0) continue;
       seed(tenant,farms.getFirst(),operators.getFirst(),admins.getFirst());
       db.update("INSERT INTO demo_scenarios(tenant_id,scenario,created_at) VALUES(?,'device-business-v1',CURRENT_TIMESTAMP)",tenant);
     }

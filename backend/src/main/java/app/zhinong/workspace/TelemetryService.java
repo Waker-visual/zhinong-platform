@@ -34,24 +34,72 @@ public class TelemetryService {
     store.lock("devices", id);
     var asset = assets.detail(id);
     active(asset, "SIMULATED");
+    var values = simulatedReadings(Identity.tenant(), id);
+    write(Identity.tenant(), id, Instant.now(), values, "SIMULATED", Identity.current().username());
+    return assets.detail(id);
+  }
+
+  /** System-only sampling restricted to the registered fictional demo farm and seeded devices. */
+  public void collectOperatingDemo(String tenant, String farm) {
+    String eligible = """
+      SELECT d.id FROM devices d
+      JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
+      JOIN demo_operating_farms r ON r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id
+      JOIN farm_profiles f ON f.tenant_id=d.tenant_id AND f.farm_id=d.farm_id AND f.demo=TRUE
+      JOIN tenants t ON t.id=d.tenant_id AND t.enabled=TRUE AND t.code='demo-a'
+      WHERE d.tenant_id=? AND d.farm_id=? AND d.adapter='SIMULATED' AND p.protocol='SIMULATED'
+        AND p.lifecycle='ACTIVE' AND p.code LIKE 'DEMO-CTRL-%'
+      """;
+    var ids = db.queryForList(eligible, String.class, tenant, farm);
+    for (String id : ids) {
+      db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE", tenant, id);
+      // Recheck scope and user edits after taking the same lock as device mutations.
+      if (db.queryForList(eligible + " AND d.id=?", String.class, tenant, farm, id).isEmpty()) continue;
+      var latest = db.queryForObject("SELECT MAX(measured_at) FROM telemetry_readings WHERE tenant_id=? AND device_id=?",
+        OffsetDateTime.class, tenant, id);
+      if (latest != null && latest.toInstant().isAfter(Instant.now().minusSeconds(55))) continue;
+      write(tenant, id, Instant.now(), simulatedReadings(tenant, id), "SIMULATED", "DEMO_SIMULATOR");
+    }
+  }
+
+  private List<WorkspaceInputs.Reading> simulatedReadings(String tenant, String id) {
     var now = Instant.now();
+    var profile = db.queryForMap("SELECT d.farm_id,p.device_type FROM devices d JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id WHERE d.tenant_id=? AND d.id=?", tenant, id);
+    var channels = assets.channels(tenant, id);
     var previous = new HashMap<String, BigDecimal>();
     Instant last = now;
-    for (var channel : assets.channels(Identity.tenant(), id)) {
+    for (var channel : channels) {
       String metric = channel.get("metric").toString();
-      var prior = assets.latest(Identity.tenant(), id, metric);
+      var prior = assets.latest(tenant, id, metric);
       if (prior != null && "SIMULATED".equals(prior.get("source"))) {
         previous.put(metric, (BigDecimal) prior.get("value"));
-        Instant at = ((OffsetDateTime) prior.get("time")).toInstant();
+        Instant at = app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant();
         if (at.isBefore(last)) last = at;
       }
     }
-    var sample = SyntheticTelemetry.sample(asset.get("deviceType").toString(), asset.get("farmId").toString(),
+    var sample = SyntheticTelemetry.sample(profile.get("DEVICE_TYPE").toString(), profile.get("FARM_ID").toString(),
       now, previous, Duration.between(last, now).getSeconds());
-    var values = assets.channels(Identity.tenant(), id).stream()
-      .map(c -> new WorkspaceInputs.Reading(c.get("metric").toString(), sample.get(c.get("metric").toString()))).toList();
-    write(Identity.tenant(), id, now, values, "SIMULATED", Identity.current().username());
-    return assets.detail(id);
+    var research = db.queryForList("""
+      SELECT q.name FROM devices d JOIN demo_research_farms r ON r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id
+      JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
+      LEFT JOIN plots q ON q.tenant_id=p.tenant_id AND q.id=p.plot_id WHERE d.tenant_id=? AND d.id=?
+      """, tenant, id);
+    var clock = LocalDateTime.now();
+    return channels
+      .stream()
+      .map(c -> {
+        var m = MetricCatalog.get(c.get("metric").toString());
+        double number = sample.get(m.code()).doubleValue();
+        boolean feedback = Set.of("GATE_OPENING", "PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT", "CURRENT", "FLOW", "ENERGY", "WATER_TOTAL", "EMERGENCY_STOP", "PARAMETER_WRITE_ENABLED", "RAINFALL").contains(m.code());
+        if (!research.isEmpty() && !feedback) number = app.zhinong.bootstrap.ResearchSignals.reading(m.code(), clock.toLocalDate(),
+          clock.getHour()+clock.getMinute()/60.0, Objects.toString(research.getFirst().get("NAME"), ""));
+        if (MetricCatalog.discrete(m.code())) number = Math.round(number);
+        return new WorkspaceInputs.Reading(
+          m.code(),
+          BigDecimal.valueOf(number).setScale(3, RoundingMode.HALF_UP)
+        );
+      })
+      .toList();
   }
 
   public Map<String, Object> manual(String id, WorkspaceInputs.Measurements input) {
@@ -177,7 +225,7 @@ public class TelemetryService {
         now,
         source
       );
-      if (current && (prior == null || !time.isBefore(((OffsetDateTime) prior.get("time")).toInstant()))) {
+      if (current && (prior == null || !time.isBefore(app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant()))) {
         var channel = channels
           .stream()
           .filter(c -> r.metric().equals(c.get("metric")))

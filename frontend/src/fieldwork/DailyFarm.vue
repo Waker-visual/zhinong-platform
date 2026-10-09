@@ -37,6 +37,7 @@ const modal = ref(""),
   dailyMorphSource = ref(""),
   dailyMorphActive = ref(false);
 const form = reactive({});
+const research = ref(null);
 const methods = {
   UNCONFIRMED: "资源待确认",
   DRONE: "无人机作业",
@@ -190,10 +191,11 @@ async function load() {
     return;
   }
   try {
-    const result = await api(
-      "/field-work?farmId=" + encodeURIComponent(props.farmId),
-    );
-    if (alive && run === seq) data.value = result;
+    const [result, provenance] = await Promise.all([
+      api("/field-work?farmId=" + encodeURIComponent(props.farmId)),
+      farm.value?.researchDemo ? api(`/farms/${encodeURIComponent(props.farmId)}/research-data`) : Promise.resolve(null),
+    ]);
+    if (alive && run === seq) { data.value = result; research.value = provenance; }
   } catch (e) {
     if (alive && run === seq) error.value = loadError(e);
   } finally {
@@ -384,6 +386,17 @@ async function history(row) {
         >
       </div>
     </section>
+    <p v-if="farm?.operatingDemo" class="panel daily-empty">
+      经营演示场景：种植、农事、巡田与收获记录均为虚构，可实际操作并保留处理结果。
+      {{ farm.demoLive ? "模拟设备每分钟采集；每日补充巡检待办，刷新可查看最新状态。" : "持续演示已关闭，可在设备详情手动模拟采集。" }}
+    </p>
+    <details v-if="research?.available" class="panel">
+      <summary>两年学术演示 · {{ research.consistent ? "数据关联检查通过" : "有记录需要复核" }}</summary>
+      <p>{{ research.manifest.historyStart }} 至 {{ research.manifest.asOfDate }}，包含 {{ research.counts.farmTasks }} 项农事、{{ research.counts.production }} 条收获和 {{ research.counts.plantings }} 条种植记录。</p>
+      <p>{{ research.note }}</p>
+      <p>水稻按单季安排，冬季保留巡检与休耕；叶菜按设施栽培安排。历史监测为日快照，近 30 天为半小时采样。农场概览可选择“近两年”查看产量。</p>
+      <p v-if="!research.consistent">请核对种植周期重叠、收获与任务关联、未来日期及地块监测配置。</p>
+    </details>
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
     </p>

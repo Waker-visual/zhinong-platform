@@ -17,7 +17,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 /** Continuously maintains only explicitly synthetic fixture devices, never a real-device gap. */
 @Component
-@Order(40)
+@Order(50)
 @EnableScheduling
 @ConditionalOnProperty(name = "farm.demo-stream.enabled", havingValue = "true")
 public class DemoTelemetryStream implements ApplicationRunner {
@@ -37,6 +37,8 @@ public class DemoTelemetryStream implements ApplicationRunner {
     WHERE t.code IN ('demo-a','demo-b') AND t.enabled=TRUE AND f.demo=TRUE
       AND p.protocol='SIMULATED' AND p.lifecycle='ACTIVE'
       AND (p.code LIKE 'DEMO-%' OR p.code LIKE 'POINT-%')
+      AND NOT EXISTS (SELECT 1 FROM demo_operating_farms r
+        WHERE r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id)
     """;
 
   public DemoTelemetryStream(JdbcTemplate db, TelemetryService telemetry, PlatformTransactionManager manager,

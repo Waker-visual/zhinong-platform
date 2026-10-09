@@ -52,7 +52,9 @@ database: zhinong_platform
 
 已有程序数据但结构不完整时，脚本拒绝启动并要求审阅迁移；不会删库、清空表或覆盖已有业务记录。默认不加 `-Demo` 时不生成模拟数据，真实 MQTT 网关仍关闭。经营模拟使用当前业务库中的独立 `sim_*` 表，不写入真实产量台账。启动脚本清除可能残留的独立模拟库环境变量，退出时恢复。
 
-每个应用连接均设置 UTC、`ANSI_QUOTES` 和 `STRICT_TRANS_TABLES`，防止非严格模式静默截断非法写入。当前云端 MySQL 8.0.13 的 `CHECK` 语法可解析但不执行约束，业务范围、枚举和日期关系依靠服务端接口校验；数据库租户复合外键仍生效。不要通过手工 SQL 绕过接口录入业务数据。
+`start-rds.ps1` 的连接显式使用 UTC，并设置 `ANSI_QUOTES` 和 `STRICT_TRANS_TABLES`。`start-cloud.ps1` 则沿用业务服务器时区；两种入口均通过 JDBC 带时区读取还原监测时间。2026-10-07 验收实例为 MySQL 8.0.13，该版本的 `CHECK` 不执行约束；新版推荐 MySQL 8.0.16+ / 8.4。不要通过手工 SQL 绕过接口录入业务数据。
+
+2026-10-09 合并后，生成器统一为 `tools/generate_mysql_schema.cjs`；`tools/build_mysql_schema.cjs` 是兼容入口。新库将绝对时间保存为 `TIMESTAMP(6)`，业务本地时间保留为 `DATETIME(6)`。既有 UTC DATETIME 云库继续使用原来的 `start-rds.ps1` 入口，不直接改换时区；上线 AI 等新增表前，需备份并审查增量建表，不能用删除重建的方式升级。以下验收数据是对应日期的记录，不表示当前电脑已经连接到同一个云实例。
 
 ## 连续模拟数据的范围
 
