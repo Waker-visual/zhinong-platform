@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages } from './agent-events.js';
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret } from './agent-events.js';
 import { syncConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
@@ -14,6 +14,7 @@ const report = ref(null), conversations = ref([]), messages = ref([]), selected 
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
 const run = ref(null);
+const initialLoading = ref(true); // 首次读取完成前，历史栏/消息区/分析页/灌溉页展示与最终布局等高的骨架屏，避免跳动
 const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
 let activeCancel = null;
@@ -36,6 +37,7 @@ async function refresh() {
     report.value=r; conversations.value=c; irrigation.value=i; status.value=s;
     if (!selected.value && c.length) await select(c[0].id);
   } catch(e) { if(alive && g===generation) error.value=e.message; }
+  finally { if(alive && g===generation) initialLoading.value=false; }
 }
 async function select(id) {
   if(sending.value) return;
@@ -138,33 +140,44 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
     <div v-if="panel==='chat'" class="ai-chat-layout">
       <aside class="ai-history"><button class="primary" :disabled="sending" @click="newChat">＋ 新建对话</button>
         <p class="muted">我的农事对话</p>
-        <button v-for="c in conversations" :key="c.id" :disabled="sending" :aria-current="selected===c.id?'true':undefined" @click="perform(()=>select(c.id))"><span>{{c.title}}</span><small>{{time(c.updatedAt)}}</small></button>
-        <p v-if="!conversations.length" class="muted">对话会自动保存。不同农场与账号分别管理。</p>
+        <div v-if="initialLoading" class="ai-history-skeleton" aria-hidden="true"><span class="skeleton skeleton-block" v-for="n in 4" :key="n"></span></div>
+        <template v-else>
+          <button v-for="c in conversations" :key="c.id" :disabled="sending" :aria-current="selected===c.id?'true':undefined" @click="perform(()=>select(c.id))"><span>{{c.title}}</span><small>{{time(c.updatedAt)}}</small></button>
+          <p v-if="!conversations.length" class="muted">对话会自动保存。不同农场与账号分别管理。</p>
+        </template>
         <button v-if="selected" :disabled="sending" class="text-button" @click="removeChat">删除当前对话</button>
       </aside>
       <div class="ai-chat-main">
-        <div ref="scroller" class="ai-messages" role="log" aria-label="农事对话记录" :aria-busy="!!run" @scroll="handleScroll">
-          <div v-if="!displayedMessages.length" class="ai-welcome"><span class="ai-monogram">禾</span><h3>今天想了解农场的什么？</h3><p>我会结合当前农场的种植、气象、监测和生产记录，为你梳理依据与行动建议；发送问题后会先读取当前农场资料。</p>
-            <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="sending" @click="send(p)">{{p}} ↗</button></div>
-          </div>
-          <article v-for="(m,index) in displayedMessages" :key="m.id||('tmp-'+index)" class="ai-message" :class="m.role">
-            <small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'"> · 规则回退</span></small>
-            <template v-if="m.pending">
-              <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" @toggle="onActivityToggle" />
-              <div class="ai-message-text">
-                <AssistantText v-if="m.run.text" :text="m.run.text" />
-                <div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:42%"></span></div>
-              </div>
-              <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" @retry="retry" @cancel="cancel" />
-            </template>
-            <div v-else class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
-            <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnostics[m.diagnostic] || '模型暂不可用'}}</small>
-          </article>
-          <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()">回到最新 ↓</button>
+        <div ref="scroller" class="ai-messages" role="log" aria-label="农事对话记录" :aria-busy="!!run || initialLoading" @scroll="handleScroll">
+          <div v-if="initialLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
+          <template v-else>
+            <div v-if="!displayedMessages.length" class="ai-welcome"><span class="ai-monogram">禾</span><h3>今天想了解农场的什么？</h3><p>我会结合当前农场的种植、气象、监测和生产记录，为你梳理依据与行动建议；发送问题后会先读取当前农场资料。</p>
+              <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="sending" @click="send(p)">{{p}} ↗</button></div>
+            </div>
+            <article v-for="(m,index) in displayedMessages" :key="m.id||('tmp-'+index)" class="ai-message" :class="m.role">
+              <small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'"> · 规则回退</span></small>
+              <template v-if="m.pending">
+                <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" @toggle="onActivityToggle" />
+                <div class="ai-message-text">
+                  <template v-if="m.run.text"><AssistantText :text="m.run.text" /><span v-if="shouldShowCaret(m.run.status,m.run.text)" class="ai-caret" aria-hidden="true"></span></template>
+                  <div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:42%"></span></div>
+                </div>
+                <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" @retry="retry" @cancel="cancel" />
+              </template>
+              <div v-else class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
+              <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnostics[m.diagnostic] || '模型暂不可用'}}</small>
+            </article>
+            <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()">回到最新 ↓</button>
+          </template>
         </div>
         <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small>Enter 发送 · Shift + Enter 换行 · {{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()">{{sending?'正在回答…':'发送 ↑'}}</button></div></form>
         <p class="ai-footnote">发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
+    </div>
+    <div v-else-if="panel==='analysis' && initialLoading" class="ai-analysis ai-panel-skeleton" aria-hidden="true">
+      <div class="ai-section-head"><span class="skeleton" style="width:220px"></span></div>
+      <div class="ai-condition-grid"><article v-for="n in 4" :key="n"><span class="skeleton skeleton-block" style="height:76px"></span></article></div>
+      <div class="ai-weather-grid"><article v-for="n in 3" :key="n"><span class="skeleton skeleton-block" style="height:120px"></span></article></div>
     </div>
     <div v-else-if="panel==='analysis' && report" class="ai-analysis">
       <div class="ai-section-head"><div><h3>农情四情诊断</h3><p>更新于 {{time(report.generatedAt)}} · {{report.freshMeasurements}} 条新鲜指标读数</p></div><button @click="panel='chat';send(prompts[0])" :disabled="sending">请助手解读 →</button></div>
@@ -179,6 +192,10 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
       <div class="ai-crops"><article v-for="c in report.crops" :key="c.plotId+c.startDate"><h4>{{c.plotName}} · {{c.crop}}</h4><p>{{c.variety}} · {{c.areaMu}} 亩</p><small>{{c.startDate}} 至 {{c.endDate}}（计划日期）</small></article></div>
       <div class="ai-table-wrap"><table><thead><tr><th>测点</th><th>地块</th><th>指标</th><th>最新值</th><th>状态</th><th>观测时间</th></tr></thead><tbody><tr v-for="s in report.sensors" :key="s.deviceId+s.metric"><td>{{s.deviceName}}</td><td>{{s.plotName||'农场级'}}</td><td>{{({SOIL_MOISTURE:'土壤水分 %',TEMPERATURE:'温度 ℃',HUMIDITY:'湿度 %',WIND_SPEED:'风速 m/s',RAINFALL:'累计雨量 mm',PEST_COUNT:'虫情计数'})[s.metric]}}</td><td>{{s.value}}</td><td>{{s.fresh?'新鲜':'已过期'}}</td><td>{{time(s.time)}}</td></tr></tbody></table></div>
       <p class="ai-footnote">历史生产共 {{report.production.records}} 条，累计 {{report.production.yieldKg}} kg。跨年度累计不能视作单季亩产；图表及规则不代表经过验证的作物模型。</p>
+    </div>
+    <div v-else-if="panel==='irrigation' && initialLoading" class="ai-irrigation ai-panel-skeleton" aria-hidden="true">
+      <div class="ai-section-head"><span class="skeleton" style="width:220px"></span></div>
+      <div class="ai-policy-grid"><article v-for="n in 3" :key="n"><span class="skeleton skeleton-block" style="height:140px"></span></article></div>
     </div>
     <div v-else-if="panel==='irrigation'" class="ai-irrigation">
       <div class="ai-section-head"><div><h3>先审阅，再灌溉</h3><p>默认人工确认。管理员可按地块启用自动模式，所有启动与停止均有记录。</p></div></div>

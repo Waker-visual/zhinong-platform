@@ -75,6 +75,54 @@ export function cancelAgentRun(state) {
   return { ...state, status: "cancelled", activities: stopped };
 }
 
+// 以下为纯 UI 文案/判定辅助函数：供 AiActivityDisclosure / AiActivityRow / AiStreamingStatus 复用，
+// 并在 agent-events.test.js 中直接测试，避免可访问性文案散落在模板里无法单测。
+
+const ACTIVITY_STATUS_LABEL = { pending: "等待中", running: "进行中", completed: "已完成", error: "出错" };
+
+export function activityStatusLabel(status) {
+  return ACTIVITY_STATUS_LABEL[status] || status;
+}
+
+// 折叠区运行中/出错时自动展开，完成/取消后收起；供 AiActivityDisclosure 使用。
+export function shouldAutoOpenActivities(status) {
+  return status === "submitted" || status === "running" || status === "error";
+}
+
+// 折叠区摘要短句：避免把活动数组直接暴露为技术字段。
+export function activitySummaryText(activities, runStatus) {
+  const total = activities.length;
+  if (runStatus === "error") return "出错";
+  if (runStatus === "completed") return `已完成 ${total} 项操作`;
+  if (runStatus === "cancelled") return `已停止 · ${total} 项`;
+  const running = activities.find((a) => a.status === "running");
+  if (running) return `${running.label} · ${total} 项`;
+  return total ? `正在处理 · ${total} 项` : "正在准备…";
+}
+
+// 提交/读取/生成/完成/出错状态条文案；供 AiStreamingStatus 使用，也便于屏幕阅读器播报文案单测。
+export function streamingStatusText(status, diagnostic) {
+  switch (status) {
+    case "submitted":
+      return "正在读取当前农场资料…";
+    case "running":
+      return "正在生成回答…";
+    case "completed":
+      return "已完成";
+    case "cancelled":
+      return "已停止，可能仍在后台继续，刷新对话后可看到结果";
+    case "error":
+      return diagnostic || "回答失败，请重试";
+    default:
+      return "";
+  }
+}
+
+// 光标仅在运行中且已经有正文时追加，避免空文本时出现孤立的闪烁光标。
+export function shouldShowCaret(status, text) {
+  return status === "running" && !!text;
+}
+
 // 组合当前展示用的消息列表：在不改动已持久化历史的前提下，
 // 追加这次运行的临时用户消息和流式中的助手占位消息。
 // run 为空时直接返回原始历史（不新建数组也可以，但为了调用方一致性这里仍返回新数组的浅拷贝）。

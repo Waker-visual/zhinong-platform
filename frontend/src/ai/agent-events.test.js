@@ -1,8 +1,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages } from "./agent-events.js";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  createAgentRun,
+  reduceAgentEvent,
+  cancelAgentRun,
+  visibleMessages,
+  activityStatusLabel,
+  shouldAutoOpenActivities,
+  activitySummaryText,
+  streamingStatusText,
+  shouldShowCaret,
+} from "./agent-events.js";
 import { syncConversationAdapter } from "./agent-adapter.js";
 import { isNearBottom } from "./scroll.js";
+
+const dir = path.dirname(fileURLToPath(import.meta.url));
+const read = (name) => fs.readFileSync(path.join(dir, name), "utf8");
 
 test("createAgentRun returns the initial submitted state", () => {
   const state = createAgentRun("今天地块需要灌溉吗？", "req-1");
@@ -262,4 +278,96 @@ test("syncConversationAdapter reports rule fallback diagnostic when model unavai
   assert.ok(completed);
   const delta = events.find((e) => e.type === "message.delta");
   assert.equal(delta.delta, "规则回退建议");
+});
+
+// --- 纯文案/判定辅助函数：供折叠区、活动行、流式状态条复用的可访问性文案 ---
+
+test("activityStatusLabel maps known statuses to Chinese labels and falls back to the raw value", () => {
+  assert.equal(activityStatusLabel("pending"), "等待中");
+  assert.equal(activityStatusLabel("running"), "进行中");
+  assert.equal(activityStatusLabel("completed"), "已完成");
+  assert.equal(activityStatusLabel("error"), "出错");
+  assert.equal(activityStatusLabel("unknown-status"), "unknown-status");
+});
+
+test("shouldAutoOpenActivities is true while submitted/running/error and false once completed/cancelled", () => {
+  assert.equal(shouldAutoOpenActivities("submitted"), true);
+  assert.equal(shouldAutoOpenActivities("running"), true);
+  assert.equal(shouldAutoOpenActivities("error"), true);
+  assert.equal(shouldAutoOpenActivities("completed"), false);
+  assert.equal(shouldAutoOpenActivities("cancelled"), false);
+});
+
+test("activitySummaryText reports short human labels without exposing raw technical fields", () => {
+  assert.equal(activitySummaryText([], "error"), "出错");
+  assert.equal(activitySummaryText([{ id: "a" }, { id: "b" }], "completed"), "已完成 2 项操作");
+  assert.equal(activitySummaryText([{ id: "a" }], "cancelled"), "已停止 · 1 项");
+  assert.equal(
+    activitySummaryText([{ id: "a", status: "running", label: "读取当前农场资料" }], "running"),
+    "读取当前农场资料 · 1 项",
+  );
+  assert.equal(activitySummaryText([], "running"), "正在准备…");
+  assert.equal(activitySummaryText([{ id: "a", status: "completed" }], "running"), "正在处理 · 1 项");
+});
+
+test("streamingStatusText returns the expected Chinese text per status, including the error diagnostic fallback", () => {
+  assert.equal(streamingStatusText("submitted"), "正在读取当前农场资料…");
+  assert.equal(streamingStatusText("running"), "正在生成回答…");
+  assert.equal(streamingStatusText("completed"), "已完成");
+  assert.equal(streamingStatusText("cancelled"), "已停止，可能仍在后台继续，刷新对话后可看到结果");
+  assert.equal(streamingStatusText("error", "模型服务响应超时"), "模型服务响应超时");
+  assert.equal(streamingStatusText("error", ""), "回答失败，请重试");
+  assert.equal(streamingStatusText("error"), "回答失败，请重试");
+});
+
+test("shouldShowCaret only appears while running and text has already started streaming", () => {
+  assert.equal(shouldShowCaret("running", "部分正文"), true);
+  assert.equal(shouldShowCaret("running", ""), false);
+  assert.equal(shouldShowCaret("submitted", "部分正文"), false);
+  assert.equal(shouldShowCaret("completed", "全部正文"), false);
+  assert.equal(shouldShowCaret("error", "部分正文"), false);
+});
+
+// --- 静态源码检查：role/aria-busy/aria-live、装饰性动画元素的 aria-hidden、reduced-motion 覆盖均需存在 ---
+// 没有 DOM 测试运行器，这里直接读取 .vue/.css 源文本做字符串级断言，覆盖本任务要求的可访问性标记。
+
+test("the message list exposes role=log and a reactive aria-busy binding", () => {
+  const src = read("FarmAssistant.vue");
+  assert.match(src, /class="ai-messages"[^>]*role="log"/);
+  assert.match(src, /class="ai-messages"[^>]*:aria-busy="[^"]+"/);
+});
+
+test("AiStreamingStatus exposes role=status and aria-live=polite for polite status announcements", () => {
+  const src = read("AiStreamingStatus.vue");
+  assert.match(src, /class="ai-streaming-status"[^>]*role="status"/);
+  assert.match(src, /class="ai-streaming-status"[^>]*aria-live="polite"/);
+});
+
+test("the streamed assistant text itself is not nested inside the aria-live status region (no per-delta spam)", () => {
+  const src = read("FarmAssistant.vue");
+  // AiStreamingStatus（role=status/aria-live）与承载逐字增量文本的 ai-message-text 是兄弟节点，不互相嵌套。
+  const statusIndex = src.indexOf("<AiStreamingStatus");
+  const textIndex = src.indexOf('class="ai-message-text"');
+  assert.ok(statusIndex > -1 && textIndex > -1);
+  assert.ok(textIndex < statusIndex, "ai-message-text must come before the sibling AiStreamingStatus, not wrap it");
+});
+
+test("decorative animated caret and status/activity dots carry aria-hidden=true", () => {
+  const farmAssistant = read("FarmAssistant.vue");
+  assert.match(farmAssistant, /class="ai-caret"[^>]*aria-hidden="true"/);
+  assert.match(farmAssistant, /class="ai-skeleton-lines"[^>]*aria-hidden="true"/);
+  const streamingStatus = read("AiStreamingStatus.vue");
+  assert.match(streamingStatus, /class="ai-status-dot"[^>]*aria-hidden="true"/);
+  const activityRow = read("AiActivityRow.vue");
+  assert.match(activityRow, /class="ai-activity-dot"[^>]*aria-hidden="true"/);
+});
+
+test("assistant.css disables the caret, shimmer text and disclosure transition under prefers-reduced-motion: reduce", () => {
+  const css = read("assistant.css");
+  const match = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/);
+  assert.ok(match, "assistant.css must contain a prefers-reduced-motion: reduce block");
+  const block = match[1];
+  assert.match(block, /\.ai-caret\s*\{[^}]*animation:\s*none/);
+  assert.match(block, /\.ai-streaming-status\.submitted \.ai-status-text,\s*\.ai-streaming-status\.running \.ai-status-text\s*\{[^}]*animation:\s*none/);
+  assert.match(block, /\.ai-activity-collapse[^{]*\{[^}]*transition:\s*none/);
 });
