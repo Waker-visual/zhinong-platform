@@ -31,9 +31,19 @@ const pumps = computed(() => irrigation.value.devices.filter(d => d.deviceType =
 const states = { PROPOSED:'等待人工确认', RUNNING:'模拟灌溉中', COMPLETED:'已停止', CANCELLED:'已取消', EXPIRED:'已过期' };
 const prompts = ['结合当前作物和四情数据，今天优先做什么？','分析近7天的天气变化及对作物的影响','当前地块是否需要灌溉？请说明依据和缺失信息。','对比历史生产记录，给出下季管理建议。'];
 let generation=0, timer, pendingRequest=null, alive=true;
+// 相对时间（“刚刚”“N 天前”）只有在页面打开时经过的时间推进才会变化：formatMessageTime() 本身是
+// 纯函数，需要一个会变化的 "now" 作为依赖才能让 Vue 重新渲染。一个所有消息共用的计时器，每分钟
+// 推进一次就足够——相对时间文案本来就不需要秒级精度，不必每条消息各开一个 setInterval。
+const nowTick = ref(Date.now());
+let clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 60000);
 const time = value => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '暂无';
 async function refresh() {
   if (!props.farmId) return;
+  // 切换农场（或被外部 revision 触发的刷新）时，任何还挂在界面上的运行状态——包括一次
+  // 已经停止但还显示着“已停止”条的运行——都不再属于当前上下文，必须清空，否则会出现
+  // “切换到另一个对话/农场后，还显示着上一次已停止的问题和空回答”的串场问题。
+  activeCancel?.();
+  run.value = null; pendingRequest = null;
   const g=++generation;
   try {
     const [r,c,i,s]=await Promise.all([api('/ai/analysis?farmId='+props.farmId),api('/ai/conversations?farmId='+props.farmId),api('/ai/irrigation?farmId='+props.farmId),api('/ai/status')]);
@@ -45,6 +55,9 @@ async function refresh() {
 }
 async function select(id) {
   if(sending.value) return;
+  // 一次已经停止/出错的运行只属于它发生时所在的对话；切换到另一个对话后必须清空，
+  // 不能让上一个对话的问题、空回答和状态条跟着一起显示出来。
+  run.value=null; pendingRequest=null;
   selected.value=id; error.value='';
   const rows=await api(`/ai/conversations/${id}/messages`);
   if(alive && selected.value===id) {messages.value=rows; await scrollToLatest(true);}
@@ -61,7 +74,7 @@ async function scrollToLatest(instant=false) {
   el.scrollTo({top:el.scrollHeight, behavior:(instant||reducedMotion())?'auto':'smooth'});
   followOutput.value=true; showJump.value=false;
 }
-async function newChat() {if(sending.value) return;selected.value='';messages.value=[];question.value='';pendingRequest=null;}
+async function newChat() {if(sending.value) return;selected.value='';messages.value=[];question.value='';pendingRequest=null;run.value=null;}
 async function removeChat() {
   if(!selected.value || sending.value) return;
   if(!await confirm({title:'删除当前对话？',message:'只删除当前账号的这段对话，灌溉审计记录会保留。',confirmLabel:'删除对话',danger:true})) return;
@@ -86,7 +99,8 @@ async function send(text=question.value) {
     }
     // 取消：真实流式连接会被 controller.abort() 立即中断，服务端检测到断开后不会写入成功回答；
     // 如果当时已经回退到旧的同步接口，那次请求仍可能在后台跑完并写入，下次重新打开此对话会看到它。
-    if(cancelled || !alive) return;
+    // 停止后把问题文字还原回输入框——用户停下来通常是想修改问题重新问，不是想把它丢掉。
+    if(cancelled || !alive) { if(cancelled) question.value=text; return; }
     if(run.value.status==='error') { question.value=text; return; } // 保留已生成正文与活动摘要，交由 retry() 重试
     pendingRequest=null;
     messages.value=await api(`/ai/conversations/${id}/messages`); conversations.value=await api('/ai/conversations?farmId='+props.farmId);
@@ -122,7 +136,9 @@ function approvalActivities(activities) {
 }
 // 消息时间：只有已持久化的消息才有 createdAt；流式占位消息还没有，不显示时间。
 function messageTime(m) {
-  return m.createdAt ? formatMessageTime(m.createdAt) : null;
+  // 读取 nowTick.value 建立响应式依赖：每分钟它变化一次，模板里显示的“刚刚/N 分钟前”才会跟着刷新，
+  // 而不是在页面打开的整个生命周期里都停留在首次渲染那一刻算出的文案上。
+  return m.createdAt ? formatMessageTime(m.createdAt, nowTick.value) : null;
 }
 // 从某条消息“分支”出一个新对话后：刷新历史栏并直接选中新对话，和新建对话的体验一致。
 async function onBranched(newId) {
@@ -158,14 +174,15 @@ const weatherCharts=computed(()=>[
 }));
 watch(()=>[props.farmId,props.revision],refresh,{immediate:true});
 timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{irrigation.value=await api('/ai/irrigation?farmId='+props.farmId);}catch{/* next refresh shows errors */}}},10000);
-onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
+onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clockTimer);});
 </script>
 
 <template>
   <section class="farm-assistant" v-if="farmId">
     <header class="ai-hero">
       <div><small>智禾 · 农场 AI 助手</small><h2>让每一次农事，都有数据依据。</h2><p>{{report?.farmName || '正在读取农场'}} · 虚构学术演示数据</p></div>
-      <span class="ai-model-state">{{status?.llm?'模型服务已配置':'规则分析模式'}}</span>
+      <span v-if="status===null" class="ai-model-state ai-model-state-skeleton skeleton" aria-hidden="true"></span>
+      <span v-else class="ai-model-state">{{status.llm?`云端模型 · ${status.model}`:'规则分析模式'}}</span>
     </header>
     <nav class="ai-tabs" aria-label="助手功能">
       <button v-for="t in [['chat','农事对话'],['analysis','天气与四情'],['irrigation','灌溉管理']]" :key="t[0]" :aria-pressed="panel===t[0]" @click="panel=t[0]">{{t[1]}}</button>
@@ -199,7 +216,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
                   <template v-if="m.run.text"><AssistantText :text="m.run.text" /><span v-if="shouldShowCaret(m.run.status,m.run.text)" class="ai-caret" aria-hidden="true"></span></template>
                   <div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:42%"></span></div>
                 </div>
-                <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" @retry="retry" @cancel="cancel" />
+                <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" :using-sync-fallback="m.run.adapter==='sync'" @retry="retry" @cancel="cancel" />
               </template>
               <template v-else>
                 <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" />
@@ -213,7 +230,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
         </div>
         <Transition name="ai-jump"><button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button></Transition>
         </div>
-        <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small>Enter 发送 · Shift + Enter 换行 · {{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()"><template v-if="!sending"><AppIcon name="send" /></template>{{sending?'正在回答…':'发送'}}</button></div></form>
+        <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行 · </span>{{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()"><template v-if="!sending"><AppIcon name="send" /></template>{{sending?'正在回答…':'发送'}}</button></div></form>
         <p class="ai-footnote">发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
     </div>

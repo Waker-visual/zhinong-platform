@@ -57,6 +57,31 @@ test("message.delta events concatenate in order", () => {
   assert.equal(state.lastSequence, 3);
 });
 
+test("message.reset discards a tool-round's leaked narration and restarts accumulation from the committed text", () => {
+  // 对应阶段 E 验收发现的问题：模型在决定调用工具之前先说了一句旁白
+  // （"I'll pull the current task and issue lists."），这句话被当作 message.delta 实时流过来，
+  // 但后端判断这一轮以 tool_calls 收尾后会广播 message.reset，客户端必须丢弃这句旁白，
+  // 不能让它变成最终答案的前缀。
+  let state = createAgentRun("问题", "req-1");
+  state = reduceAgentEvent(state, { sequence: 1, type: "run.started" });
+  state = reduceAgentEvent(state, { sequence: 2, type: "message.delta", delta: "I'll pull the task list." });
+  assert.equal(state.text, "I'll pull the task list.");
+  state = reduceAgentEvent(state, { sequence: 3, type: "message.reset", text: "" });
+  assert.equal(state.text, "");
+  state = reduceAgentEvent(state, { sequence: 4, type: "message.delta", delta: "结论：" });
+  state = reduceAgentEvent(state, { sequence: 5, type: "message.delta", delta: "暂无待办任务。" });
+  assert.equal(state.text, "结论：暂无待办任务。");
+  assert.equal(state.lastSequence, 5);
+});
+
+test("message.reset is a no-op for a stale/duplicate sequence number", () => {
+  let state = createAgentRun("问题", "req-1");
+  state = reduceAgentEvent(state, { sequence: 1, type: "run.started" });
+  state = reduceAgentEvent(state, { sequence: 2, type: "message.delta", delta: "正文" });
+  state = reduceAgentEvent(state, { sequence: 1, type: "message.reset", text: "" });
+  assert.equal(state.text, "正文", "an out-of-order reset must not discard already-committed text");
+});
+
 test("duplicate or stale sequence numbers are ignored", () => {
   let state = createAgentRun("问题", "req-1");
   state = reduceAgentEvent(state, { sequence: 1, type: "run.started" });
@@ -394,6 +419,35 @@ test("defaultConversationAdapter falls back to the sync adapter when streaming i
   assert.equal(events.find((e) => e.type === "message.delta").delta, "同步回退的回答");
 });
 
+test("defaultConversationAdapter tags every event with which path actually served it (stream vs sync)", async () => {
+  // reduceAgentEvent reads this to decide whether "停止" needs to warn that the request might still
+  // be running on the server (true only for the sync fallback) or can say plainly "本次回答未保存"
+  // (true for the real streaming path, where abort() reaches the server immediately).
+  const streamSend = () => fakeEventStream([{ sequence: 1, type: "run.started" }, { sequence: 2, type: "run.completed" }]);
+  const streamed = [];
+  for await (const e of defaultConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", streamSend, syncSend: async () => ({}) }))
+    streamed.push(e);
+  assert.ok(streamed.every((e) => e.adapter === "stream"));
+
+  const failingStreamSend = async function* () {
+    throw Object.assign(new Error("Not Found"), { status: 404 });
+  };
+  const syncSend = async () => ({ answer: "同步回退的回答", mode: "llm", diagnostic: "OK" });
+  const fellBack = [];
+  for await (const e of defaultConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", streamSend: failingStreamSend, syncSend }))
+    fellBack.push(e);
+  assert.ok(fellBack.every((e) => e.adapter === "sync"));
+});
+
+test("reduceAgentEvent records which adapter served the run, from the first tagged event onward", () => {
+  let state = createAgentRun("问题", "req-1");
+  assert.equal(state.adapter, null);
+  state = reduceAgentEvent(state, { sequence: 1, type: "run.started", adapter: "sync" });
+  assert.equal(state.adapter, "sync");
+  state = reduceAgentEvent(state, { sequence: 2, type: "message.delta", delta: "正文", adapter: "sync" });
+  assert.equal(state.adapter, "sync");
+});
+
 test("defaultConversationAdapter never falls back once the stream already produced events (surfaces run.error instead)", async () => {
   let syncCalled = false;
   const streamSend = async function* () {
@@ -505,7 +559,13 @@ test("streamingStatusText returns the expected Chinese text per status, includin
   assert.equal(streamingStatusText("submitted"), "正在读取当前农场资料…");
   assert.equal(streamingStatusText("running"), "正在生成回答…");
   assert.equal(streamingStatusText("completed"), "已完成");
-  assert.equal(streamingStatusText("cancelled"), "已停止；若已回退到同步请求，仍可能在后台继续，刷新对话后可看到结果");
+  // 真正走流式连接时停止：客户端 abort() 会让服务端立刻检测到断开并放弃写库，
+  // 这次回答确实什么都没保存下来，文案应该直接说清楚，不需要含糊的“若已回退……”。
+  assert.equal(streamingStatusText("cancelled"), "已停止，本次回答未保存");
+  assert.equal(streamingStatusText("cancelled", null, false), "已停止，本次回答未保存");
+  // 只有真的回退到了旧同步接口（usingSyncFallback=true）时，才需要提醒“可能仍在后台继续”——
+  // 那次请求已经发到了服务端，停止只是前端不再等待，服务端可能已经跑完并写库了。
+  assert.equal(streamingStatusText("cancelled", null, true), "已停止；请求可能仍在后台继续，刷新对话后可能已有结果");
   assert.equal(streamingStatusText("error", "模型服务响应超时"), "模型服务响应超时");
   assert.equal(streamingStatusText("error", ""), "回答失败，请重试");
   assert.equal(streamingStatusText("error"), "回答失败，请重试");

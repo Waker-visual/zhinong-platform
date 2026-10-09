@@ -12,6 +12,11 @@ export function createAgentRun(question, requestId) {
     diagnostic: null,
     error: null,
     lastSequence: 0,
+    // 这次运行实际走的是哪条请求路径（"stream"|"sync"|null，null 表示还不知道）。
+    // defaultConversationAdapter 在每个事件上标记 adapter 字段，reduceAgentEvent 据此更新；
+    // 只有停留在 "sync"（已经回退到旧同步接口）时，停止才可能意味着请求仍在后台继续——
+    // 真正走流式连接时客户端 abort() 会让服务端立刻检测到断开、不写入任何内容。
+    adapter: null,
   };
 }
 
@@ -36,6 +41,8 @@ function finalizeRunningActivities(activities, status) {
 export function reduceAgentEvent(state, event) {
   if (event.sequence != null && event.sequence <= state.lastSequence) return state;
   const lastSequence = event.sequence != null ? event.sequence : state.lastSequence;
+  const adapter = event.adapter || state.adapter;
+  if (adapter !== state.adapter) state = { ...state, adapter };
   switch (event.type) {
     case "run.started":
       return { ...state, status: "running", lastSequence };
@@ -50,6 +57,13 @@ export function reduceAgentEvent(state, event) {
       };
     case "message.delta":
       return { ...state, text: state.text + (event.delta || ""), lastSequence };
+    case "message.reset":
+      // 一轮工具调用（finish_reason=tool_calls）结束：这一轮模型在调用工具之前吐出的“旁白”文本
+      // 已经通过 message.delta 流给了客户端并显示出来，但它不是最终答案的一部分（阶段验收发现
+      // 模型先说“我先查一下任务和问题列表。”再调用工具，这句英文/中文旁白被原样拼进了最终回答开头）。
+      // 后端在判断某一轮以 tool_calls 收尾时会广播这个事件，text 是“目前真正确认”的正文——在最终
+      // 一轮完成之前始终是空字符串——客户端据此丢弃刚才那一轮已经显示的文本，不能继续累加。
+      return { ...state, text: event.text || "", lastSequence };
     case "message.completed":
       return { ...state, messageId: event.messageId ?? state.messageId, lastSequence };
     case "run.completed":
@@ -157,7 +171,11 @@ export function formatElapsedStatus(seconds) {
 }
 
 // 提交/读取/生成/完成/出错状态条文案；供 AiStreamingStatus 使用，也便于屏幕阅读器播报文案单测。
-export function streamingStatusText(status, diagnostic) {
+// usingSyncFallback：这次运行是否用的是旧同步接口（而不是真正的流式连接）——只有这种情况下，
+// “停止”才只是中止了前端等待，请求本身可能已经在服务端跑完并写库，需要提示“可能仍在后台继续”；
+// 真正走流式连接时，客户端 abort() 会让服务端立刻检测到断开、不写入任何内容，文案应该直接、
+// 准确地说“本次回答未保存”，不该用一句含糊的“若已回退……”去吓唬从未发生过的情况。
+export function streamingStatusText(status, diagnostic, usingSyncFallback = false) {
   switch (status) {
     case "submitted":
       return "正在读取当前农场资料…";
@@ -166,7 +184,7 @@ export function streamingStatusText(status, diagnostic) {
     case "completed":
       return "已完成";
     case "cancelled":
-      return "已停止；若已回退到同步请求，仍可能在后台继续，刷新对话后可看到结果";
+      return usingSyncFallback ? "已停止；请求可能仍在后台继续，刷新对话后可能已有结果" : "已停止，本次回答未保存";
     case "error":
       return diagnostic || "回答失败，请重试";
     default:

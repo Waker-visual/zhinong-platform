@@ -2,6 +2,10 @@
 .ai-hero { padding:28px 30px;display:flex;justify-content:space-between;align-items:center;gap:20px;background:var(--subtle-bg); }
 .ai-hero small { color:var(--label-fg);letter-spacing:.12em; }.ai-hero h2 { margin:10px 0;font-size:24px; }.ai-hero p { margin:0;color:var(--text-2); }
 .ai-model-state { white-space:nowrap;font-size:12px;border:1px solid var(--border);padding:8px 12px;border-radius:30px; }
+/* /api/ai/status 还没返回之前：既不能什么都不显示（布局跳动），也不能先假定“规则分析模式”再
+   跳成“云端模型 · xxx”——那一闪而过的错误文案本身就是阶段验收发现的问题。用一个和最终徽标同
+   尺寸的中性骨架占位，不透出任何还不确定的结论。 */
+.ai-model-state-skeleton { width:132px;height:33px;border:0;border-radius:30px;padding:0; }
 .ai-tabs { display:flex;gap:8px;padding:12px 24px;border-top:1px solid var(--border);border-bottom:1px solid var(--border); }
 .ai-tabs button { border:0;background:transparent; }.ai-tabs button[aria-pressed=true] { background:var(--brand-soft);color:var(--brand); }.ai-refresh {margin-left:auto;}
 .farm-assistant>.error,.farm-assistant>.ai-notice {margin:16px 24px;}
@@ -122,21 +126,65 @@
    “方框套圆角”的突兀效果；:focus-within 在键盘 Tab 聚焦文本框时同样触发，不影响可访问性。 */
 .ai-composer textarea:focus-visible {outline:none;}
 .ai-composer:focus-within {border-color:var(--focus-ring);box-shadow:0 0 0 2px var(--focus-ring);}
-.ai-composer>div {display:flex;justify-content:space-between;gap:12px;align-items:center;}.ai-composer small {font-size:11px;color:var(--label-fg);}.ai-composer .primary {display:inline-flex;align-items:center;gap:6px;}.ai-composer .primary .app-icon {width:14px;height:14px;}.ai-footnote {font-size:11px;color:var(--label-fg);line-height:1.8;margin:12px 24px 20px;}
+.ai-composer>div {display:flex;justify-content:space-between;gap:12px;align-items:center;}.ai-composer small {font-size:11px;color:var(--label-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+/* 发送按钮：固定不换行、不被压缩——375px 宽度下曾经把“发送”挤成竖排的“发/送”两个字。
+   min-width 保证“正在回答…”这种更长的文案切换时按钮也不会突然变窄。 */
+.ai-composer .primary {display:inline-flex;align-items:center;gap:6px;white-space:nowrap;flex:none;min-width:72px;justify-content:center;}.ai-composer .primary .app-icon {width:14px;height:14px;}.ai-footnote {font-size:11px;color:var(--label-fg);line-height:1.8;margin:12px 24px 20px;}
 .ai-analysis,.ai-irrigation {padding:24px;}.ai-section-head {display:flex;gap:20px;align-items:center;justify-content:space-between;margin:0 0 18px;}.ai-section-head h3,.ai-section-head h4 {margin:0;}.ai-section-head p {font-size:12px;color:var(--label-fg);line-height:1.8;}.ai-condition-grid {display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px;}.ai-condition-grid article {padding:18px;border:1px solid var(--border);border-radius:12px;}.ai-condition-grid article>div {display:flex;justify-content:space-between;gap:10px;align-items:center;}.ai-condition-grid h3 {margin:0;}.ai-condition-grid span {font-size:11px;color:var(--label-fg);}.ai-condition-grid p {font-size:13px;line-height:1.9;color:var(--text-2);margin:14px 0 0;}
 .ai-weather-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}.ai-weather-grid article {background:var(--subtle-bg);border-radius:12px;padding:20px;}.ai-weather-grid h3 {font-size:28px;margin:12px 0;}.ai-weather-grid h3 small {font-size:14px;font-weight:400;}.ai-weather-grid p,.ai-weather-grid small,.ai-weather-grid span {color:var(--label-fg);font-size:12px;}.ai-weather-grid svg {display:block;width:100%;height:100px;color:var(--brand);}.ai-analysis details {margin:22px 0 30px;font-size:13px;}.ai-analysis summary {cursor:pointer;}.ai-table-wrap {overflow-x:auto;margin:16px 0;}.ai-table-wrap table {width:100%;font-size:12px;white-space:nowrap;}.ai-crops {display:flex;flex-wrap:wrap;gap:15px;}.ai-crops article {padding:15px 22px;background:var(--subtle-bg);border-radius:10px;}.ai-crops h4 {margin:0;}.ai-crops p {font-size:13px;}.ai-crops small {color:var(--label-fg);}
 .ai-notice {padding:12px 16px;border-radius:10px;background:var(--brand-soft);font-size:12px;line-height:1.8;}.ai-policy-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:22px 0;}.ai-policy-grid article,.ai-run {border:1px solid var(--border);padding:20px;border-radius:12px;}.ai-policy-grid h4 {margin:0 0 14px;}.ai-policy-grid p {font-size:13px;}.ai-policy-grid small {display:block;font-size:12px;min-height:30px;color:var(--label-fg);margin-bottom:14px;}.ai-policy-grid button {margin:4px 4px 0 0;}.ai-policy-form {padding:24px;border:1px solid var(--border-strong);border-radius:12px;margin-bottom:24px;}.ai-form-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}.ai-form-grid label {display:flex;flex-direction:column;gap:8px;font-size:13px;}.ai-policy-form p {font-size:12px;line-height:1.8;color:var(--label-fg);}.ai-policy-form>div:last-child {display:flex;justify-content:flex-end;gap:10px;}.ai-run {margin-bottom:12px;}.ai-run p {font-size:13px;line-height:1.8;}.ai-run small {font-size:12px;color:var(--label-fg);}.ai-run-actions {display:flex;gap:12px;margin-top:18px;}
 @media(max-width:1100px) {.ai-condition-grid{grid-template-columns:1fr 1fr;}.ai-chat-layout{grid-template-columns:180px minmax(0,1fr);}.ai-policy-grid,.ai-form-grid{grid-template-columns:1fr 1fr;}}
 @media(max-width:760px) {.ai-hero{padding:20px;align-items:flex-start;flex-direction:column;}.ai-hero h2{font-size:20px;}.ai-tabs{padding:10px;gap:2px;flex-wrap:wrap;}.ai-tabs button{font-size:12px;padding:8px;}.ai-chat-layout{display:flex;flex-direction:column;}
-  /* 移动端：历史对话变成可横向滚动的紧凑栏，活动详情和正文保持全宽 */
-  .ai-history{max-height:none;border-right:0;border-bottom:1px solid var(--border);flex-direction:row;align-items:center;gap:8px;overflow-x:auto;overflow-y:hidden;padding:10px 12px;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;}
+  /* 移动端：历史对话变成可横向滚动的紧凑栏，活动详情和正文保持全宽。
+     用一层 wrapper 承载边缘淡出遮罩（渐变蒙层只画在边缘，不影响中间芯片的点击/可读性），
+     滚动条本身视觉隐藏（scrollbar-width/::-webkit-scrollbar），但依然可以用方向键/触摸滚动——
+     只是不隐藏焦点环，键盘可达性不受影响。 */
+  .ai-history{max-height:none;border-right:0;border-bottom:1px solid var(--border);flex-direction:row;align-items:center;gap:8px;overflow-x:auto;overflow-y:hidden;padding:10px 12px;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none;mask-image:linear-gradient(to right,transparent,black 14px,black calc(100% - 14px),transparent);-webkit-mask-image:linear-gradient(to right,transparent,black 14px,black calc(100% - 14px),transparent);}
+  .ai-history::-webkit-scrollbar{display:none;height:0;}
   .ai-history>button{flex:none;white-space:nowrap;}
   .ai-history>button.primary{padding:8px 12px;}
   .ai-history>p{display:none;}
   .ai-history>button:not(.primary){padding:6px 10px;border-radius:30px;border:1px solid var(--border);}
   .ai-history>button:not(.primary) span{max-width:140px;}
   .ai-history small{display:none;}
-  .ai-messages{height:430px;padding:16px;}.ai-prompts,.ai-weather-grid,.ai-policy-grid,.ai-form-grid{grid-template-columns:1fr;}.ai-composer{margin:0 12px;}.ai-analysis,.ai-irrigation{padding:16px;}.ai-condition-grid{grid-template-columns:1fr;}.ai-section-head{align-items:flex-start;flex-direction:column;}.ai-message,.ai-activity-disclosure,.ai-streaming-status{max-width:100%;}.ai-run-actions{flex-wrap:wrap;}}
+  .ai-messages{height:430px;padding:16px;}.ai-prompts,.ai-weather-grid,.ai-policy-grid,.ai-form-grid{grid-template-columns:1fr;}.ai-composer{margin:0 12px;}.ai-analysis,.ai-irrigation{padding:16px;}.ai-condition-grid{grid-template-columns:1fr;}.ai-section-head{align-items:flex-start;flex-direction:column;}.ai-message,.ai-activity-disclosure,.ai-streaming-status{max-width:100%;}.ai-run-actions{flex-wrap:wrap;}
+  /* 发送快捷键提示在窄屏/触屏上没有实际意义（没有物理 Enter 键），让字数计数器独占空间，
+     不必和提示文字抢着在一行里挤出省略号。 */
+  .ai-composer-hint{display:none;}
+}
+/* 触屏设备（没有悬停态）同样没必要展示“Enter 发送”快捷键提示，即使视口本身不窄
+   （例如横屏平板）；用 any-pointer 而不是 hover，避免误判带触屏的笔记本。 */
+@media(any-pointer:coarse) {.ai-composer-hint{display:none;}}
+/* 助手回答的 Markdown 渲染（AssistantText.vue）：紧凑排版，与聊天气泡本身的 14px/1.9 行高
+   协调一致，而不是套用通用文档样式。标题压到 h3-h5 三档，避免在小小的聊天气泡里出现页面级
+   大标题。表格包一层横向滚动容器，保证 375px 宽度下永远不会撑破消息区——内容本身滚动，
+   不会把整个页面推成横向滚动。 */
+.ai-md>:first-child {margin-top:0;}
+.ai-md>:last-child {margin-bottom:0;}
+.ai-md-heading {margin:16px 0 6px;font-weight:600;line-height:1.5;}
+h3.ai-md-heading {font-size:15px;}
+h4.ai-md-heading {font-size:14px;}
+h5.ai-md-heading {font-size:13px;color:var(--text-2);}
+.ai-md-paragraph {margin:0 0 10px;line-height:1.9;}
+.ai-md-hr {margin:14px 0;border:0;border-top:1px solid var(--border);}
+.ai-md-blockquote {margin:0 0 10px;padding:4px 12px;border-left:3px solid var(--border-strong);color:var(--text-2);}
+.ai-md-blockquote .ai-md-paragraph {margin-bottom:4px;}
+.ai-md-code-inline {font-family:var(--font-mono,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12.5px;background:var(--subtle-bg);border:1px solid var(--border);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere;}
+.ai-md-code-block {margin:0 0 10px;padding:12px 14px;border-radius:10px;background:var(--subtle-bg);border:1px solid var(--border);overflow-x:auto;}
+.ai-md-code-block code {font-family:var(--font-mono,ui-monospace,SFMono-Regular,Consolas,monospace);font-size:12.5px;line-height:1.7;white-space:pre;}
+.ai-md-list {margin:0 0 10px;padding-left:22px;}
+.ai-md-list li {margin:0 0 4px;line-height:1.8;}
+.ai-md-list-nested {margin:4px 0 0;}
+/* 表格：横向可滚动容器——375px 宽度下表格内容只在容器内部滚动，绝不撑破外层消息气泡/页面。
+   紧凑字号 + 等宽数字（金额、百分比等数值列对齐美观），细发丝分割线代替重边框，斑马纹提升
+   宽表格的可读性。 */
+.ai-md-table-wrap {margin:0 0 10px;overflow-x:auto;border:1px solid var(--border);border-radius:10px;-webkit-overflow-scrolling:touch;}
+.ai-md-table {width:100%;border-collapse:collapse;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.ai-md-table th,.ai-md-table td {padding:7px 12px;border-bottom:1px solid var(--border);text-align:left;}
+.ai-md-table thead th {background:var(--subtle-bg);font-weight:600;color:var(--text-2);white-space:nowrap;}
+.ai-md-table tbody tr:last-child td {border-bottom:0;}
+.ai-md-table tbody tr:nth-child(even) {background:color-mix(in srgb, var(--subtle-bg) 55%, transparent);}
+@media(max-width:760px) {.ai-md-table {white-space:normal;}}
 @media (prefers-reduced-motion: reduce) {
   .ai-status-dot {animation:none;opacity:1;}
   .ai-caret {animation:none;opacity:1;}

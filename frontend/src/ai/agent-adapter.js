@@ -101,10 +101,19 @@ export async function* streamConversationAdapter({ conversationId, question, req
 // 不能静默切换到同步接口重新发一遍——那会让同一个问题被提交两次。
 // streamSend/syncSend 让测试分别注入两条路径各自的假实现（两者的返回形状完全不同：
 // 一个是事件的异步可迭代对象，一个是单次 JSON 响应），默认分别是真实的 SSE 和同步调用。
+// 每个事件都带上 adapter 字段（"stream" | "sync"），标记它实际走的是哪条路径——调用方
+// （agent-events.js 的 reducer）据此记下 state.usingSyncFallback，决定“已停止”文案要不要提
+// “可能仍在后台继续”：只有真正回退到旧同步接口时，停止按钮才只是中止了前端等待，请求本身
+// 可能已经在服务端跑完并写库；真正走流式连接时，客户端 abort() 会让服务端立刻检测到断开，
+// 不会写入任何内容，“本次回答未保存”才是准确的。
 export async function* defaultConversationAdapter({ streamSend, syncSend, ...params }) {
   try {
-    yield* streamConversationAdapter({ ...params, send: streamSend });
+    for await (const event of streamConversationAdapter({ ...params, send: streamSend })) {
+      yield { ...event, adapter: "stream" };
+    }
   } catch (error) {
-    yield* syncConversationAdapter({ ...params, send: syncSend });
+    for await (const event of syncConversationAdapter({ ...params, send: syncSend })) {
+      yield { ...event, adapter: "sync" };
+    }
   }
 }
