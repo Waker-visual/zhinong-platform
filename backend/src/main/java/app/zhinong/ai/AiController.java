@@ -89,9 +89,20 @@ public class AiController {
 
   public record RemoveModelOptionInput(@NotBlank @Size(max = 100) String id) {}
 
+  /** 供租户与平台账号共同探测的轻量状态：只暴露“是否已配置云端模型”和模型 id（不是 URL 或密钥）
+   * ——两者都不敏感，可以安全地在未鉴权具体权限的前提下返回给任何已登录账号，用于前端头部徽标
+   * 展示“云端模型 · deepseek-flash”而不是泛泛的“模型服务已配置”。未配置云端模型时省略 model。 */
   @GetMapping("/status")
   public Map<String, Object> status() {
-    return Map.of("enabled", true, "llm", llm.cloudEnabled());
+    boolean enabled = llm.cloudEnabled();
+    Map<String, Object> body = new LinkedHashMap<>();
+    body.put("enabled", true);
+    body.put("llm", enabled);
+    if (enabled) {
+      String model = llm.model();
+      body.put("model", model == null || model.isBlank() ? "deepseek-flash" : model);
+    }
+    return body;
   }
 
   /** 查看全局模型配置（脱敏：不返回密钥原文）。仅平台管理员可用。 */

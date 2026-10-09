@@ -30,6 +30,34 @@ public class AiStreamTools {
     "get_weather_conditions", "查询天气与四情"
   );
 
+  /** 任务状态枚举 -> 中文标签，与 frontend/src/catalog.js 的 labels 保持一致（阶段 E 验收发现模型
+   * 直接把 PENDING/ASSIGNED/HIGH 等原始枚举码写进了回答正文）。工具结果绝不把英文枚举码原样交给
+   * 模型——模型只会照抄输入，不会自己翻译。 */
+  private static final Map<String, String> TASK_STATUS_LABELS = Map.of(
+    "PENDING", "待执行",
+    "RUNNING", "执行中",
+    "COMPLETED", "已完成",
+    "CANCELLED", "已取消"
+  );
+
+  /** 现场问题状态枚举 -> 中文标签，与 frontend/src/fieldwork/DailyFarm.vue 的 word() 本地映射一致。 */
+  private static final Map<String, String> ISSUE_STATUS_LABELS = Map.of(
+    "OPEN", "待安排",
+    "ASSIGNED", "处理中",
+    "RESOLVED", "已复核关闭"
+  );
+
+  /** 严重度枚举 -> 中文标签，与 DailyFarm.vue 的 severityOptions 一致。 */
+  private static final Map<String, String> SEVERITY_LABELS = Map.of(
+    "HIGH", "优先处理",
+    "NORMAL", "常规跟进"
+  );
+
+  private static String label(Map<String, String> table, String code) {
+    if (code == null || code.isBlank()) return code;
+    return table.getOrDefault(code, code);
+  }
+
   private final FarmWorkspaceService farmWorkspace;
   private final FieldWorkService fieldWork;
   private final AgronomyAnalysis analysis;
@@ -120,7 +148,7 @@ public class AiStreamTools {
       if (!"PENDING".equals(status) && !"RUNNING".equals(status)) continue;
       Map<String, Object> row = new LinkedHashMap<>();
       row.put("title", t.path("TITLE").asText(""));
-      row.put("status", status);
+      row.put("status", label(TASK_STATUS_LABELS, status));
       row.put("dueDate", t.path("DUE_DATE").asText(""));
       row.put("plotName", t.path("PLOT_NAME").asText(""));
       out.add(row);
@@ -136,8 +164,8 @@ public class AiStreamTools {
       if ("RESOLVED".equals(status)) continue;
       Map<String, Object> row = new LinkedHashMap<>();
       row.put("title", i.path("TITLE").asText(""));
-      row.put("status", status);
-      row.put("severity", i.path("SEVERITY").asText(""));
+      row.put("status", label(ISSUE_STATUS_LABELS, status));
+      row.put("severity", label(SEVERITY_LABELS, i.path("SEVERITY").asText("")));
       row.put("plotName", i.path("PLOT_NAME").asText(""));
       out.add(row);
     }

@@ -35,6 +35,8 @@ public class AiStreamService {
   /** 和同步路径的截断长度一致；在发给客户端和写库之间必须用同一个值和同一份文本，否则两边会不一致。 */
   private static final int MAX_ANSWER_LENGTH = 15000;
   private static final String CONTEXT_ACTIVITY_ID = "context";
+  /** 贯穿工具调用轮和最终生成轮的任务活动 id：和读取资料、每个工具查询各自的耗时区分开。 */
+  private static final String ANSWER_ACTIVITY_ID = "answer";
   /** 和旧 /api/ai/ask 的 Function Calling 循环一致的轮数上限，避免模型反复调用工具不收敛。 */
   private static final int MAX_TOOL_ROUNDS = 3;
   /** 灌溉审批活动的 activityId 约定前缀：id 的其余部分就是 ai_irrigation_runs 的主键，前端据此
@@ -98,6 +100,35 @@ public class AiStreamService {
       List<ActivitySummary> toolActivities = new ArrayList<>();
       int[] activitySeq = { 1 }; // 1 已被 context 活动占用，context 的摘要在拿到最终结果后才追加
 
+      // Task 阶段 E 验收发现：“读取当前农场资料”这一步此前要等整个运行（包括工具调用轮和模型生成）
+      // 都结束才标记完成，导致它显示的耗时（例如 5.7s）其实是整轮运行的耗时，不是真正读取资料花的
+      // 时间。读取资料本身在这里（调用模型之前）已经做完——buildContext 在 prepareStream 里已经跑完，
+      // 这里只是把它标记为完成——所以立刻结束这个活动，duration 才反映真实的读取耗时。
+      OffsetDateTime contextFinishedAt = OffsetDateTime.now();
+      String contextSummary = "已读取当前农场基础资料";
+      send(
+        emitter,
+        AgentEvent.activityCompleted(
+          sequence.incrementAndGet(),
+          new AgentEvent.Activity(CONTEXT_ACTIVITY_ID, "context", "读取当前农场资料", "completed", null, contextSummary, contextStartedAt, contextFinishedAt)
+        ),
+        disconnected
+      );
+      if (disconnected.get()) return;
+
+      // 新增一个贯穿“工具调用轮 + 最终生成轮”的任务活动，让“生成回答”本身的耗时和上面的
+      // 读取资料耗时、下面每个工具查询各自的耗时区分开，摘要里的“用时”才有意义。
+      OffsetDateTime answerStartedAt = OffsetDateTime.now();
+      send(
+        emitter,
+        AgentEvent.activityStarted(
+          sequence.incrementAndGet(),
+          new AgentEvent.Activity(ANSWER_ACTIVITY_ID, "task", "生成回答", "running", null, null, answerStartedAt, null)
+        ),
+        disconnected
+      );
+      if (disconnected.get()) return;
+
       StringBuilder accumulated = new StringBuilder();
       boolean[] sawDelta = { false };
       boolean[] truncated = { false };
@@ -110,6 +141,7 @@ public class AiStreamService {
       LlmGateway.StreamResult result = null;
       for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
         if (disconnected.get()) return;
+        int roundStart = accumulated.length(); // 本轮开始前已经“确认”的正文长度（见下方 TOOL_CALLS 分支）
         try {
           result = llm.stream(messages, toolDefs, listener, disconnected::get);
         } catch (RuntimeException upstreamFailure) {
@@ -121,6 +153,16 @@ public class AiStreamService {
         }
         if (disconnected.get()) return;
         if (result.outcome() != LlmGateway.StreamOutcome.TOOL_CALLS) break;
+        // 这一轮以 finish_reason=tool_calls 收尾：模型在决定调用工具之前可能已经先吐出过一段“旁白”
+        // 文本（例如“我先看看任务和问题列表。”），这段文本已经通过 message.delta 实时流给了客户端，
+        // 但绝不能成为最终答案的一部分——必须把它从 accumulated 里砍掉，并广播 message.reset 让客户端
+        // 把本轮运行显示的正文重置为“目前真正确认的文本”（在最终一轮完成之前始终是空字符串）。
+        if (accumulated.length() > roundStart) {
+          accumulated.setLength(roundStart);
+          sawDelta[0] = roundStart > 0;
+        }
+        send(emitter, AgentEvent.messageReset(sequence.incrementAndGet(), accumulated.toString()), disconnected);
+        if (disconnected.get()) return;
         boolean continueRounds = runToolRound(result.toolCalls(), prep.farmId(), messages, toolActivities, activitySeq, emitter, sequence, disconnected);
         if (!continueRounds) return; // 断线：不再继续，也不落库
       }
@@ -159,13 +201,13 @@ public class AiStreamService {
       if (disconnected.get()) return;
       String answer = accumulated.toString();
 
-      OffsetDateTime contextFinishedAt = OffsetDateTime.now();
-      String resultSummary = modelAnswered ? "已汇总当前农场资料并生成回答" : "已汇总当前农场资料，模型暂不可用，已给出规则回退建议";
+      OffsetDateTime answerFinishedAt = OffsetDateTime.now();
+      String answerSummary = modelAnswered ? "已汇总当前农场资料并生成回答" : "已汇总当前农场资料，模型暂不可用，已给出规则回退建议";
       send(
         emitter,
         AgentEvent.activityCompleted(
           sequence.incrementAndGet(),
-          new AgentEvent.Activity(CONTEXT_ACTIVITY_ID, "context", "读取当前农场资料", "completed", null, resultSummary, contextStartedAt, contextFinishedAt)
+          new AgentEvent.Activity(ANSWER_ACTIVITY_ID, "task", "生成回答", "completed", null, answerSummary, answerStartedAt, answerFinishedAt)
         ),
         disconnected
       );
@@ -173,9 +215,13 @@ public class AiStreamService {
 
       List<ActivitySummary> activities = new ArrayList<>();
       activities.add(
-        new ActivitySummary(CONTEXT_ACTIVITY_ID, 1, "context", "读取当前农场资料", "completed", null, resultSummary, contextStartedAt, contextFinishedAt)
+        new ActivitySummary(CONTEXT_ACTIVITY_ID, 1, "context", "读取当前农场资料", "completed", null, contextSummary, contextStartedAt, contextFinishedAt)
       );
       activities.addAll(toolActivities);
+      activitySeq[0]++;
+      activities.add(
+        new ActivitySummary(ANSWER_ACTIVITY_ID, activitySeq[0], "task", "生成回答", "completed", null, answerSummary, answerStartedAt, answerFinishedAt)
+      );
 
       // 灌溉审批活动：不创建任何新的设备写入路径——只读取已有的 PROPOSED 建议并提示用户去
       // “灌溉管理”页签确认，真正的批准/取消仍然只能通过现有的 propose/approve/cancel 接口完成。

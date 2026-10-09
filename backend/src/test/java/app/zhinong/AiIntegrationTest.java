@@ -393,6 +393,32 @@ class AiIntegrationTest {
   }
 
   @Test
+  void statusExposesModelIdButNeverUrlOrKeyToAnyLoggedInAccount() throws Exception {
+    // 规则回退：未配置云端模型时，/ai/status 不带 model 字段（旧行为保持不变）。
+    JsonNode disabled = call(admin, "GET", "/ai/status", null, 200);
+    assertFalse(disabled.has("model"));
+    assertFalse(disabled.path("llm").asBoolean());
+
+    llm.cloudEnabledValue = true;
+    llm.modelValue = "deepseek-flash";
+    try {
+      for (String token : List.of(admin, operator, viewer, platform)) {
+        JsonNode status = call(token, "GET", "/ai/status", null, 200);
+        assertTrue(status.path("llm").asBoolean());
+        assertEquals("deepseek-flash", status.path("model").asText());
+        // 绝不能把地址或密钥带进这个轻量状态接口。
+        String body = status.toString().toLowerCase();
+        assertFalse(body.contains("url"));
+        assertFalse(body.contains("key"));
+        assertFalse(body.contains("apikey"));
+      }
+    } finally {
+      llm.cloudEnabledValue = false;
+      llm.modelValue = "";
+    }
+  }
+
+  @Test
   void globalModelConfigurationIsRestrictedToPlatformAdmin() throws Exception {
     Map<String, String> input = Map.of("url", "https://example.invalid/v1", "model", "test-model");
     call(null, "GET", "/ai/status", null, 401);
@@ -527,12 +553,19 @@ class AiIntegrationTest {
     assertEquals("llm", persisted.get(1).path("MODE").asText());
     // The context activity summary emitted during the run must actually be persisted (not just shown
     // live over SSE) so it survives a reload, exactly like the sync path's saveActivities contract.
-    assertEquals(1, persisted.get(1).path("activities").size());
+    assertEquals(2, persisted.get(1).path("activities").size());
     var persistedActivity = persisted.get(1).path("activities").get(0);
     assertEquals("context", persistedActivity.path("ACTIVITY_ID").asText());
     assertEquals("context", persistedActivity.path("KIND").asText());
     assertEquals("completed", persistedActivity.path("STATUS").asText());
     assertFalse(persistedActivity.path("RESULT_SUMMARY").asText().isBlank());
+    // Task: a "生成回答" task activity spans the model generation itself, separate from reading the
+    // farm context, so its own duration is meaningful instead of being folded into the context step.
+    var answerActivity = persisted.get(1).path("activities").get(1);
+    assertEquals("answer", answerActivity.path("ACTIVITY_ID").asText());
+    assertEquals("task", answerActivity.path("KIND").asText());
+    assertEquals("生成回答", answerActivity.path("LABEL").asText());
+    assertEquals("completed", answerActivity.path("STATUS").asText());
     assertTrue(persisted.get(0).path("activities").isEmpty(), "the user message has no activities of its own");
 
     // Replaying the same requestId must emit the stored activity as an activity.completed event too.
@@ -636,6 +669,42 @@ class AiIntegrationTest {
 
   // ---------- Task 6: safe tool + approval activities in the stream ----------
 
+  @Test void toolRoundNarrationNeverLeaksIntoTheFinalStreamedOrPersistedAnswer() throws Exception {
+    // Live acceptance finding: the model sometimes narrates before calling a tool
+    // ("我先查一下任务和问题列表。") and that narration — streamed as message.delta like any other
+    // text — must never end up prefixed onto the final answer, neither in what the client displays
+    // nor in what gets persisted. The server must emit message.reset to tell the client to discard it.
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.scriptedDeltaBeforeStream = new java.util.LinkedList<>(List.of("我先查一下任务和问题列表。"));
+    llm.scriptedStream = new java.util.LinkedList<>(List.of(
+      LlmGateway.StreamResult.toolCalls(List.of(new LlmGateway.ToolCall("call-1", "get_pending_tasks", "{}"))),
+      LlmGateway.StreamResult.completed("结论：目前没有待办任务。")
+    ));
+    var events = streamEvents(admin, id, Map.of("question", "今天有哪些待办任务", "requestId", "stream-reset-1"), 200);
+
+    var resetEvents = java.util.Arrays.stream(events).filter(e -> "message.reset".equals(e.path("type").asText())).toList();
+    assertEquals(1, resetEvents.size(), "exactly one tool round must produce exactly one reset");
+    assertEquals("", resetEvents.getFirst().path("text").asText());
+
+    // The narration must have been streamed as a delta (proving this test actually exercises the
+    // leak scenario) ...
+    var deltas = java.util.Arrays.stream(events).filter(e -> "message.delta".equals(e.path("type").asText())).toList();
+    assertTrue(deltas.stream().anyMatch(e -> e.path("delta").asText().contains("我先查一下")));
+    // ... but every message.delta emitted *after* the reset must belong only to the final round's text,
+    // and concatenating all of them (the only thing the client has any business doing) must reproduce
+    // exactly the final answer, with no leaked narration prefix.
+    int resetSeq = resetEvents.getFirst().path("sequence").asInt();
+    StringBuilder afterReset = new StringBuilder();
+    for (var e : deltas) if (e.path("sequence").asInt() > resetSeq) afterReset.append(e.path("delta").asText());
+    assertEquals("结论：目前没有待办任务。", afterReset.toString());
+
+    // And the persisted answer (what finalizeStream wrote to the DB) must match exactly — no
+    // narration prefix sneaking into storage either.
+    var messages = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    String persisted = messages.get(messages.size() - 1).path("CONTENT").asText();
+    assertEquals("结论：目前没有待办任务。", persisted);
+  }
+
   @Test void streamSurfacesToolActivitiesInOrderWithWhitelistedLabelsAndPersistsThem() throws Exception {
     String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
     // A second tenant's open issue must never leak into this tenant's "读取到 N 条" count.
@@ -663,21 +732,48 @@ class AiIntegrationTest {
     assertEquals("读取到 1 条未处理问题", toolCompleted.path("activity").path("resultSummary").asText());
     assertFalse(toolCompleted.path("activity").has("detail") && !toolCompleted.path("activity").path("detail").isNull(), "tool result summary must never carry raw arguments/details");
 
-    // activity.started(tool) must come before activity.completed(context): the tool round happens
-    // while "reading the farm data" is still in progress.
+    // Task: the tool result handed back to the model must use Chinese labels for status/severity
+    // enum codes (OPEN/HIGH/...), never the raw English codes — otherwise the model just echoes them
+    // straight into the answer (observed live: "ASSIGNED", "OPEN", "HIGH" leaking into Chinese prose).
+    String toolReplyJson = llm.lastMessages.stream()
+      .filter(m -> "tool".equals(m.get("role")))
+      .map(m -> String.valueOf(m.get("content")))
+      .findFirst()
+      .orElseThrow();
+    assertTrue(toolReplyJson.contains("待安排"), toolReplyJson);
+    assertTrue(toolReplyJson.contains("常规跟进"), toolReplyJson);
+    assertFalse(toolReplyJson.contains("\"OPEN\""), toolReplyJson);
+    assertFalse(toolReplyJson.contains("\"NORMAL\""), toolReplyJson);
+
+    // Task: "读取当前农场资料" must complete right after the context is built and BEFORE the model
+    // is even called — not after the whole run (tool rounds + final generation) finishes, otherwise
+    // its reported duration is actually the whole run's duration (observed live: 5.7s for a step that
+    // does no network I/O at all). So activity.completed(context) must come before activity.started(tool).
     int toolStartedSeq = toolStarted.path("sequence").asInt();
     var contextCompleted = completed.stream().filter(e -> "context".equals(e.path("activity").path("kind").asText())).findFirst().orElseThrow();
-    assertTrue(toolStartedSeq < contextCompleted.path("sequence").asInt());
+    assertTrue(contextCompleted.path("sequence").asInt() < toolStartedSeq);
+
+    // And a "task"-kind "生成回答" activity spans the tool round(s) + final generation round,
+    // starting right after context and completing once the answer is ready — giving the model's own
+    // thinking/generation time a duration separate from "reading farm data" and from each tool call.
+    var answerStarted = started.stream().filter(e -> "task".equals(e.path("activity").path("kind").asText())).findFirst().orElseThrow();
+    assertEquals("生成回答", answerStarted.path("activity").path("label").asText());
+    assertTrue(contextCompleted.path("sequence").asInt() < answerStarted.path("sequence").asInt());
+    assertTrue(answerStarted.path("sequence").asInt() < toolStartedSeq);
+    var answerCompleted = completed.stream().filter(e -> "task".equals(e.path("activity").path("kind").asText())).findFirst().orElseThrow();
+    assertEquals("completed", answerCompleted.path("activity").path("status").asText());
 
     var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
     assertEquals(2, persisted.size());
     var activities = persisted.get(1).path("activities");
-    assertEquals(2, activities.size());
+    assertEquals(3, activities.size());
     assertEquals("context", activities.get(0).path("KIND").asText());
     assertEquals("tool", activities.get(1).path("KIND").asText());
     assertEquals("查询现场问题", activities.get(1).path("LABEL").asText());
     assertEquals("completed", activities.get(1).path("STATUS").asText());
     assertEquals("读取到 1 条未处理问题", activities.get(1).path("RESULT_SUMMARY").asText());
+    assertEquals("task", activities.get(2).path("KIND").asText());
+    assertEquals("生成回答", activities.get(2).path("LABEL").asText());
   }
 
   @Test void streamToolFailureEmitsErrorActivityAndRunStillCompletes() throws Exception {
@@ -851,6 +947,11 @@ class AiIntegrationTest {
     // is empty, stream() falls back to the normal answer/streamFailure-driven behavior below (so a
     // scripted tool_calls round can be followed by a scripted or injected failure for the final round).
     volatile java.util.Deque<StreamResult> scriptedStream;
+    // Parallel queue to scriptedStream: when non-empty, pops one entry per stream() call and emits it
+    // as a listener.onDelta() *before* returning that call's scripted StreamResult — simulates a model
+    // that narrates ("我先查一下任务和问题列表。") before its tool_calls finish_reason arrives, so tests
+    // can assert that narration never leaks into the persisted/streamed final answer (message.reset).
+    volatile java.util.Deque<String> scriptedDeltaBeforeStream;
 
     @Override
     public Optional<LlmResponse> complete(List<Map<String, Object>> messages, List<Map<String, Object>> tools) {
@@ -864,7 +965,16 @@ class AiIntegrationTest {
       calls.incrementAndGet();
       lastMessages=List.copyOf(messages);
       if (scriptedStream != null && !scriptedStream.isEmpty()) {
-        return scriptedStream.poll();
+        if (scriptedDeltaBeforeStream != null && !scriptedDeltaBeforeStream.isEmpty()) {
+          String narration = scriptedDeltaBeforeStream.poll();
+          if (narration != null && !narration.isEmpty()) listener.onDelta(narration);
+        }
+        StreamResult scripted = scriptedStream.poll();
+        // Mirror the real gateway's contract: a COMPLETED/INTERRUPTED result's content was already
+        // streamed via listener.onDelta before the result itself is returned — AiStreamService
+        // accumulates text only from those callbacks, never from result.content() directly.
+        if (scripted.content() != null && !scripted.content().isEmpty()) listener.onDelta(scripted.content());
+        return scripted;
       }
       if (streamFailure != null) {
         if (streamPartialBeforeFailure != null) listener.onDelta(streamPartialBeforeFailure);
@@ -904,14 +1014,20 @@ class AiIntegrationTest {
     @Override
     public String url() { return ""; }
 
+    // Task: /api/ai/status now reports the configured model id (never the url or key) so the header
+    // badge can show "云端模型 · deepseek-flash" instead of a generic label. Defaults keep every other
+    // existing test's assumption (no cloud model configured) unchanged; a dedicated test flips these.
+    volatile String modelValue = "";
+    volatile boolean cloudEnabledValue = false;
+
     @Override
-    public String model() { return ""; }
+    public String model() { return modelValue; }
 
     @Override
     public boolean apiKeySet() { return false; }
 
     @Override
-    public boolean cloudEnabled() { return false; }
+    public boolean cloudEnabled() { return cloudEnabledValue; }
 
     volatile List<String> modelOptionsValue = new ArrayList<>(List.of());
 

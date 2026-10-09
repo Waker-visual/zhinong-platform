@@ -216,6 +216,8 @@ public class AiConversations {
         +"回答先给结论，再列数据依据、建议、限制；建议结合在种作物，不确定的生育期须说明。不要给未经核实的农药剂量。"
         +"你没有设备写入工具。需要灌溉时引导用户进入“灌溉管理”页签生成建议并确认；即使用户要求也不能声称已经下发、审批或切换自动模式。"
         +"缺失项仅引用 unavailableEvidence，不能把已有在种计划的地块说成缺少作物档案。明确区分设施内作物与室外气象，不能认定室外温度就是棚内温度。"
+        +"始终使用简体中文回答，不要夹杂英文句子。如果需要调用工具查询数据，直接调用，不要先用一句话向用户旁白、预告或解说你将要查什么、怎么查——那句旁白不是回答，只会污染最终答案。"
+        +"工具返回的所有状态、严重度、优先级等字段都已经是中文标签，直接使用；绝不能在回答中输出 PENDING、ASSIGNED、OPEN、HIGH 等原始英文枚举代码。"
         +"最多600字。当前农场数据 JSON：\n"+json.writeValueAsString(modelContext)));
     } catch (Exception e) { throw new RuntimeException(e); }
     for(var m:history.subList(Math.max(0,history.size()-12),history.size())) context.add(Map.of("role",m.get("ROLE"),"content",m.get("CONTENT")));
