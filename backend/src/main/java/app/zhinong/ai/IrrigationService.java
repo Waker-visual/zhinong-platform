@@ -144,4 +144,16 @@ public class IrrigationService {
     db.update("UPDATE ai_irrigation_runs SET status='COMPLETED',stop_command_id=?,finished_at=?,result_note=? WHERE tenant_id=? AND id=? AND status='RUNNING'",command,OffsetDateTime.now(),reason+"；模拟停泵已确认",tenant,id);
   }
   public void evaluate(String plot) {propose(plot,true);}
+
+  /** Read-only, tenant+farm scoped: the still-valid PROPOSED runs for a farm, used by the agent
+   * stream (Task 6) to surface an approval activity. Never writes anything; approving or cancelling
+   * still goes exclusively through {@link #approve} / {@link #cancel}. */
+  public List<Map<String,Object>> pendingProposals(String farmId) {
+    store.get("farms",farmId);String tenant=Identity.tenant();
+    return db.queryForList("""
+      SELECT r.id,r.plot_id AS "plotId",p.name AS "plotName",r.reason,r.duration_seconds AS "durationSeconds"
+      FROM ai_irrigation_runs r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
+      WHERE r.tenant_id=? AND r.farm_id=? AND r.status='PROPOSED' AND r.expires_at>? ORDER BY r.created_at DESC
+      """,tenant,farmId,OffsetDateTime.now());
+  }
 }

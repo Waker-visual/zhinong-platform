@@ -146,20 +146,33 @@ public class LlmGateway {
    * 绝不能再悄悄拼接规则回退文本——那会让客户端看到的内容和落库内容不一致，必须报错并允许用同一个
    * requestId 重试。diagnostic 放在结果里而不是读取 {@link #diagnostic()}，因为后者是按线程保存的，
    * 流式调用横跨虚拟线程时用结果自带的诊断更不容易出错。 */
-  public enum StreamOutcome { COMPLETED, INTERRUPTED, UNAVAILABLE }
+  public enum StreamOutcome { COMPLETED, INTERRUPTED, UNAVAILABLE, TOOL_CALLS }
 
-  public record StreamResult(StreamOutcome outcome, String content, String diagnostic) {
+  public record StreamResult(StreamOutcome outcome, String content, String diagnostic, List<ToolCall> toolCalls) {
     public static StreamResult unavailable(String diagnostic) {
-      return new StreamResult(StreamOutcome.UNAVAILABLE, null, diagnostic);
+      return new StreamResult(StreamOutcome.UNAVAILABLE, null, diagnostic, List.of());
     }
 
     public static StreamResult interrupted(String content, String diagnostic) {
-      return new StreamResult(StreamOutcome.INTERRUPTED, content, diagnostic);
+      return new StreamResult(StreamOutcome.INTERRUPTED, content, diagnostic, List.of());
     }
 
     public static StreamResult completed(String content) {
-      return new StreamResult(StreamOutcome.COMPLETED, content, "OK");
+      return new StreamResult(StreamOutcome.COMPLETED, content, "OK", List.of());
     }
+
+    public static StreamResult toolCalls(List<ToolCall> calls) {
+      return new StreamResult(StreamOutcome.TOOL_CALLS, null, "OK", calls);
+    }
+  }
+
+  /** Accumulates one tool_calls[].index entry across streamed chunks: id and function.name usually
+   * arrive once on the first chunk for that index, function.arguments arrives split across many
+   * chunks and must be concatenated (never re-parsed chunk-by-chunk — only the final string is valid JSON). */
+  private static final class ToolCallAccumulator {
+    String id = "";
+    String name = "";
+    final StringBuilder arguments = new StringBuilder();
   }
 
   /**
@@ -215,6 +228,8 @@ public class LlmGateway {
     StringBuilder content = new StringBuilder();
     boolean[] sawDelta = { false };
     boolean[] cleanFinish = { false };
+    boolean[] sawToolCalls = { false };
+    Map<Integer, ToolCallAccumulator> toolCallsByIndex = new java.util.TreeMap<>();
     HttpResponse<java.io.InputStream> res = null;
     java.util.concurrent.atomic.AtomicBoolean finishedReading = new java.util.concurrent.atomic.AtomicBoolean(false);
     Thread watchdog = null;
@@ -289,6 +304,18 @@ public class LlmGateway {
               listener.onDelta(text);
             }
           }
+          JsonNode deltaToolCalls = delta.path("tool_calls");
+          if (deltaToolCalls.isArray()) {
+            for (JsonNode tc : deltaToolCalls) {
+              int index = tc.path("index").asInt(0);
+              ToolCallAccumulator acc = toolCallsByIndex.computeIfAbsent(index, i -> new ToolCallAccumulator());
+              if (tc.path("id").isTextual() && !tc.path("id").asText().isEmpty()) acc.id = tc.path("id").asText();
+              JsonNode fn = tc.path("function");
+              if (fn.path("name").isTextual() && !fn.path("name").asText().isEmpty()) acc.name = fn.path("name").asText();
+              if (fn.path("arguments").isTextual()) acc.arguments.append(fn.path("arguments").asText());
+            }
+            sawToolCalls[0] = true;
+          }
           // 并非所有 OpenAI 兼容实现都会再发 [DONE]；finish_reason 本身就是这个选择已经结束的信号。
           if (choice.path("finish_reason").isTextual()) cleanFinish[0] = true;
         }
@@ -315,6 +342,14 @@ public class LlmGateway {
       return sawDelta[0] ? StreamResult.interrupted(content.toString(), "CANCELLED") : StreamResult.unavailable("CANCELLED");
     }
     if (cleanFinish[0]) {
+      if (sawToolCalls[0] && !toolCallsByIndex.isEmpty()) {
+        List<ToolCall> calls = new ArrayList<>();
+        for (ToolCallAccumulator acc : toolCallsByIndex.values()) {
+          if (acc.name.isEmpty()) continue; // 没有拿到函数名的分片无法执行，直接丢弃
+          calls.add(new ToolCall(acc.id, acc.name, acc.arguments.length() == 0 ? "{}" : acc.arguments.toString()));
+        }
+        if (!calls.isEmpty()) return StreamResult.toolCalls(calls);
+      }
       return content.length() == 0
         ? StreamResult.unavailable("EMPTY_RESPONSE")
         : StreamResult.completed(content.toString().trim());

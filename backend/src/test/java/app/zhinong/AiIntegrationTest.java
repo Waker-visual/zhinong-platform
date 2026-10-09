@@ -2,7 +2,11 @@ package app.zhinong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import app.zhinong.ai.AgronomyAnalysis;
+import app.zhinong.ai.AiStreamTools;
 import app.zhinong.ai.LlmGateway;
+import app.zhinong.fieldwork.FieldWorkService;
+import app.zhinong.workspace.FarmWorkspaceService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -43,6 +47,10 @@ class AiIntegrationTest {
   @Autowired org.springframework.jdbc.core.JdbcTemplate db;
   @Autowired app.zhinong.ai.IrrigationTicker ticker;
   @Autowired app.zhinong.ai.AiConversations aiConversations;
+  @Autowired app.zhinong.ai.IrrigationService irrigationService;
+  // Task 6: test-only AiStreamTools override, mirrors the TestLlmGateway pattern so the tool-failure
+  // path (a whitelisted tool whose execution throws) can be exercised without touching real data.
+  @Autowired TestAiStreamTools toolsFake;
 
   final HttpClient client = HttpClient.newHttpClient();
   String admin, otherAdmin, operator, viewer, platform, farmId;
@@ -61,6 +69,8 @@ class AiIntegrationTest {
     llm.saved = null;
     llm.streamFailure = null;
     llm.streamPartialBeforeFailure = null;
+    llm.scriptedStream = null;
+    toolsFake.forcedFailureTool = null;
   }
 
   @AfterEach void finishTestRuns() {
@@ -407,6 +417,136 @@ class AiIntegrationTest {
     assertEquals(2, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
   }
 
+  // ---------- Task 6: safe tool + approval activities in the stream ----------
+
+  @Test void streamSurfacesToolActivitiesInOrderWithWhitelistedLabelsAndPersistsThem() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    // A second tenant's open issue must never leak into this tenant's "读取到 N 条" count.
+    String otherFarm = call(otherAdmin, "POST", "/farms", Map.of("name", "其他租户农场-" + UUID.randomUUID(), "description", "虚构测试数据"), 200).path("ID").asText();
+    String otherPlot = call(otherAdmin, "POST", "/plots", Map.of("farmId", otherFarm, "name", "其他地块", "crop", "蔬菜", "areaMu", 1), 200).path("ID").asText();
+    call(otherAdmin, "POST", "/field-work/issues", Map.of("plotId", otherPlot, "category", "OTHER", "severity", "NORMAL", "description", "不应被看到"), 200);
+    String plot = call(admin, "POST", "/plots", Map.of("farmId", farmId, "name", "测试地块", "crop", "蔬菜", "areaMu", 1), 200).path("ID").asText();
+    call(admin, "POST", "/field-work/issues", Map.of("plotId", plot, "category", "OTHER", "severity", "NORMAL", "description", "测试现场问题"), 200);
+
+    llm.scriptedStream = new java.util.LinkedList<>(List.of(
+      LlmGateway.StreamResult.toolCalls(List.of(new LlmGateway.ToolCall("call-1", "get_open_issues", "{}"))),
+      LlmGateway.StreamResult.completed("已读取现场问题，建议优先处理。")
+    ));
+    var events = streamEvents(admin, id, Map.of("question", "有没有未解决的问题", "requestId", "stream-tool-1"), 200);
+    assertEquals(2, llm.calls.get(), "exactly one tool round then one final round");
+
+    var started = java.util.Arrays.stream(events).filter(e -> "activity.started".equals(e.path("type").asText())).toList();
+    var toolStarted = started.stream().filter(e -> "tool".equals(e.path("activity").path("kind").asText())).findFirst().orElseThrow();
+    assertEquals("查询现场问题", toolStarted.path("activity").path("label").asText());
+    assertEquals("running", toolStarted.path("activity").path("status").asText());
+
+    var completed = java.util.Arrays.stream(events).filter(e -> "activity.completed".equals(e.path("type").asText())).toList();
+    var toolCompleted = completed.stream().filter(e -> "tool".equals(e.path("activity").path("kind").asText())).findFirst().orElseThrow();
+    assertEquals("completed", toolCompleted.path("activity").path("status").asText());
+    assertEquals("读取到 1 条未处理问题", toolCompleted.path("activity").path("resultSummary").asText());
+    assertFalse(toolCompleted.path("activity").has("detail") && !toolCompleted.path("activity").path("detail").isNull(), "tool result summary must never carry raw arguments/details");
+
+    // activity.started(tool) must come before activity.completed(context): the tool round happens
+    // while "reading the farm data" is still in progress.
+    int toolStartedSeq = toolStarted.path("sequence").asInt();
+    var contextCompleted = completed.stream().filter(e -> "context".equals(e.path("activity").path("kind").asText())).findFirst().orElseThrow();
+    assertTrue(toolStartedSeq < contextCompleted.path("sequence").asInt());
+
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertEquals(2, persisted.size());
+    var activities = persisted.get(1).path("activities");
+    assertEquals(2, activities.size());
+    assertEquals("context", activities.get(0).path("KIND").asText());
+    assertEquals("tool", activities.get(1).path("KIND").asText());
+    assertEquals("查询现场问题", activities.get(1).path("LABEL").asText());
+    assertEquals("completed", activities.get(1).path("STATUS").asText());
+    assertEquals("读取到 1 条未处理问题", activities.get(1).path("RESULT_SUMMARY").asText());
+  }
+
+  @Test void streamToolFailureEmitsErrorActivityAndRunStillCompletes() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    toolsFake.forcedFailureTool = "get_pending_tasks";
+    llm.scriptedStream = new java.util.LinkedList<>(List.of(
+      LlmGateway.StreamResult.toolCalls(List.of(new LlmGateway.ToolCall("call-1", "get_pending_tasks", "{}"))),
+      LlmGateway.StreamResult.completed("工具失败后依然给出的回答。")
+    ));
+    var events = streamEvents(admin, id, Map.of("question", "有哪些待办", "requestId", "stream-tool-fail-1"), 200);
+    assertEquals("run.completed", events[events.length - 1].path("type").asText(), "a tool failure must not abort the whole run");
+
+    var toolCompleted = java.util.Arrays.stream(events)
+      .filter(e -> "activity.completed".equals(e.path("type").asText()) && "tool".equals(e.path("activity").path("kind").asText()))
+      .findFirst().orElseThrow();
+    assertEquals("error", toolCompleted.path("activity").path("status").asText());
+    assertEquals("读取失败，请重试", toolCompleted.path("activity").path("detail").asText());
+    assertTrue(toolCompleted.path("activity").path("resultSummary").isMissingNode() || toolCompleted.path("activity").path("resultSummary").isNull());
+
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertEquals(2, persisted.size());
+    assertEquals("llm", persisted.get(1).path("MODE").asText());
+    var activities = persisted.get(1).path("activities");
+    var toolActivity = activities.get(1);
+    assertEquals("error", toolActivity.path("STATUS").asText());
+    assertEquals("读取失败，请重试", toolActivity.path("DETAIL").asText());
+  }
+
+  @Test void streamUnknownToolNameEmitsErrorActivityWithoutExecuting() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.scriptedStream = new java.util.LinkedList<>(List.of(
+      LlmGateway.StreamResult.toolCalls(List.of(new LlmGateway.ToolCall("call-1", "delete_all_devices", "{}"))),
+      LlmGateway.StreamResult.completed("忽略未知工具后给出的回答。")
+    ));
+    var events = streamEvents(admin, id, Map.of("question", "试试未知工具", "requestId", "stream-unknown-tool-1"), 200);
+    assertEquals("run.completed", events[events.length - 1].path("type").asText());
+    var toolCompleted = java.util.Arrays.stream(events)
+      .filter(e -> "activity.completed".equals(e.path("type").asText()) && "tool".equals(e.path("activity").path("kind").asText()))
+      .findFirst().orElseThrow();
+    assertEquals("error", toolCompleted.path("activity").path("status").asText());
+    assertEquals("不支持的操作", toolCompleted.path("activity").path("label").asText());
+    assertTrue(java.util.Arrays.stream(events).noneMatch(e -> "activity.started".equals(e.path("type").asText()) && "tool".equals(e.path("activity").path("kind").asText())),
+      "an unknown tool name must never reach an activity.started (running) state — it is never executed");
+  }
+
+  @Test void streamInterruptedDuringASecondToolRoundPersistsNothing() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    // Round 1 succeeds (tool executes normally); round 2's model call then fails after it had already
+    // streamed partial text. Nothing may be persisted — same contract as a plain mid-answer interruption.
+    llm.scriptedStream = new java.util.LinkedList<>(List.of(
+      LlmGateway.StreamResult.toolCalls(List.of(new LlmGateway.ToolCall("call-1", "get_farm_summary", "{}")))
+    ));
+    llm.streamFailure = new RuntimeException("模拟上游中断");
+    llm.streamPartialBeforeFailure = "部分正文";
+    var events = streamEvents(admin, id, Map.of("question", "汇总一下", "requestId", "stream-tool-interrupt-1"), 200);
+    assertEquals("run.error", events[events.length - 1].path("type").asText());
+    assertTrue(java.util.Arrays.stream(events).anyMatch(e -> "activity.completed".equals(e.path("type").asText()) && "tool".equals(e.path("activity").path("kind").asText()) && "completed".equals(e.path("activity").path("status").asText())),
+      "the first tool round did complete before the later interruption");
+    assertEquals(0, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size(), "an interrupted multi-round run must not persist anything, even if an earlier tool round succeeded");
+  }
+
+  @Test void streamEmitsApprovalActivityForPendingIrrigationProposalWithoutChangingItsState() throws Exception {
+    var p = irrigationFixture();
+    call(admin, "PUT", "/ai/irrigation/policy", p, 200);
+    String runId = propose(p);
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("已汇总，请在灌溉管理页签确认建议。", List.of()));
+    var events = streamEvents(admin, id, Map.of("question", "现在要不要灌溉", "requestId", "stream-approval-1"), 200);
+
+    var approval = java.util.Arrays.stream(events)
+      .filter(e -> "activity.completed".equals(e.path("type").asText()) && "approval".equals(e.path("activity").path("kind").asText()))
+      .findFirst().orElseThrow();
+    assertTrue(approval.path("activity").path("label").asText().contains("灌溉建议待确认"));
+    assertEquals("irrigation-run:" + runId, approval.path("activity").path("id").asText());
+
+    // Streaming only surfaces the proposal; it must still be PROPOSED, never approved/started by the chat.
+    assertEquals("PROPOSED", db.queryForObject("SELECT status FROM ai_irrigation_runs WHERE tenant_id=? AND id=?", String.class, tenant(), runId));
+    assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=?", Integer.class, tenant(), p.get("pumpId")));
+
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    var activities = persisted.get(1).path("activities");
+    var approvalRow = activities.get(activities.size() - 1);
+    assertEquals("approval", approvalRow.path("KIND").asText());
+    assertEquals("irrigation-run:" + runId, approvalRow.path("ACTIVITY_ID").asText());
+  }
+
   String login(String tenant, String username) throws Exception {
     return call(null, "POST", "/auth/login",
       Map.of("tenantCode", tenant, "username", username, "password", "Test-Only-Password-429!"), 200)
@@ -431,6 +571,28 @@ class AiIntegrationTest {
     TestLlmGateway testLlmGateway() {
       return new TestLlmGateway();
     }
+
+    @Bean
+    @Primary
+    TestAiStreamTools testAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json) {
+      return new TestAiStreamTools(farmWorkspace, fieldWork, analysis, json);
+    }
+  }
+
+  /** Task 6: mirrors {@link TestLlmGateway}'s override pattern so a single named tool can be made to
+   * throw on demand, without touching real farm data or adding any production-only test hook. */
+  static class TestAiStreamTools extends AiStreamTools {
+    volatile String forcedFailureTool;
+
+    TestAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json) {
+      super(farmWorkspace, fieldWork, analysis, json);
+    }
+
+    @Override
+    protected Object run(String name, String farmId) {
+      if (name.equals(forcedFailureTool)) throw new RuntimeException("simulated tool failure for test " + name);
+      return super.run(name, farmId);
+    }
   }
 
   static class TestLlmGateway extends LlmGateway {
@@ -446,6 +608,11 @@ class AiIntegrationTest {
     // When streamFailure is set, emit this text as a delta first (simulating a partial model answer)
     // before throwing. Left null to simulate a failure that never produced any text at all.
     volatile String streamPartialBeforeFailure;
+    // Task 6: when non-null, each stream() call pops the next scripted StreamResult instead of using
+    // `answer` — lets a test script a tool_calls round followed by a final text round. Once the queue
+    // is empty, stream() falls back to the normal answer/streamFailure-driven behavior below (so a
+    // scripted tool_calls round can be followed by a scripted or injected failure for the final round).
+    volatile java.util.Deque<StreamResult> scriptedStream;
 
     @Override
     public Optional<LlmResponse> complete(List<Map<String, Object>> messages, List<Map<String, Object>> tools) {
@@ -458,6 +625,9 @@ class AiIntegrationTest {
     public StreamResult stream(List<Map<String, Object>> messages, List<Map<String, Object>> tools, StreamListener listener, java.util.function.BooleanSupplier cancelled) {
       calls.incrementAndGet();
       lastMessages=List.copyOf(messages);
+      if (scriptedStream != null && !scriptedStream.isEmpty()) {
+        return scriptedStream.poll();
+      }
       if (streamFailure != null) {
         if (streamPartialBeforeFailure != null) listener.onDelta(streamPartialBeforeFailure);
         throw streamFailure;

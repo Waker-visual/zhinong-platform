@@ -123,6 +123,19 @@ export function shouldShowCaret(status, text) {
   return status === "running" && !!text;
 }
 
+// 灌溉审批活动的 target 解析：后端把目标编码进 activity.id（"irrigation-run:<runId>"），不需要
+// 额外的事件字段或数据库列。只有 kind==="approval" 且确实带这个前缀时才返回目标，否则返回 null——
+// 调用方（AiActivityRow）据此决定是否渲染“去确认”按钮。
+const IRRIGATION_APPROVAL_PREFIX = "irrigation-run:";
+
+export function irrigationApprovalTarget(activity) {
+  if (!activity || activity.kind !== "approval") return null;
+  const id = activity.id || "";
+  if (!id.startsWith(IRRIGATION_APPROVAL_PREFIX)) return null;
+  const runId = id.slice(IRRIGATION_APPROVAL_PREFIX.length);
+  return runId ? { type: "irrigation-run", id: runId } : null;
+}
+
 // 组合当前展示用的消息列表：在不改动已持久化历史的前提下，
 // 追加这次运行的临时用户消息和流式中的助手占位消息。
 // run 为空时直接返回原始历史（不新建数组也可以，但为了调用方一致性这里仍返回新数组的浅拷贝）。

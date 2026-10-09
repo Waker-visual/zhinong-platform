@@ -3,8 +3,8 @@
 import { ref, watch } from 'vue';
 import AiActivityRow from './AiActivityRow.vue';
 import { shouldAutoOpenActivities, activitySummaryText } from './agent-events.js';
-const props = defineProps({ activities: { type: Array, default: () => [] }, runStatus: { type: String, default: 'completed' } });
-const emit = defineEmits(['toggle']);
+const props = defineProps({ activities: { type: Array, default: () => [] }, runStatus: { type: String, default: 'completed' }, writer: { type: Boolean, default: false } });
+const emit = defineEmits(['toggle', 'view-approval']);
 const manualOverride = ref(false);
 const open = ref(shouldAutoOpenActivities(props.runStatus));
 watch(
@@ -25,7 +25,7 @@ function onToggle(event) {
     <summary>{{ activitySummaryText(activities, runStatus) }}</summary>
     <div class="ai-activity-collapse">
       <ol class="ai-activity-list">
-        <AiActivityRow v-for="a in activities" :key="a.id" :activity="a" />
+        <AiActivityRow v-for="a in activities" :key="a.id" :activity="a" :writer="writer" @view-approval="t => emit('view-approval', t)" />
       </ol>
     </div>
   </details>

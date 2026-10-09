@@ -89,4 +89,58 @@ class LlmGatewayStreamTest {
       server.stop(0);
     }
   }
+
+  // Task 6: tool_calls deltas arrive split across many SSE chunks — id/name on the first chunk for a
+  // given index, function.arguments concatenated piece by piece across several more chunks, finished
+  // by a chunk whose finish_reason is "tool_calls" (with no further [DONE] in some implementations).
+  // This proves LlmGateway.stream reassembles that into a single, valid ToolCall instead of acting on
+  // any individual fragment.
+  @Test
+  void toolCallDeltaFragmentsAcrossManyChunksAreReassembledIntoAWholeToolCall() throws Exception {
+    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+    server.createContext("/chat/completions", exchange -> {
+      exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
+      exchange.sendResponseHeaders(200, 0);
+      var out = exchange.getResponseBody();
+      String[] chunks = {
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-abc\",\"type\":\"function\",\"function\":{\"name\":\"get_pending_tasks\",\"arguments\":\"\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"far\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"mId\\\":\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"\\\"f1\\\"}\"}}]}}]}\n\n",
+        "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n",
+        "data: [DONE]\n\n"
+      };
+      for (String chunk : chunks) {
+        out.write(chunk.getBytes(StandardCharsets.UTF_8));
+        out.flush();
+      }
+      exchange.close();
+    });
+    server.start();
+    try {
+      LlmGateway gateway = new LlmGateway();
+      gateway.url = "http://127.0.0.1:" + server.getAddress().getPort();
+      gateway.apiKey = "test-key";
+      gateway.model = "test-model";
+      gateway.timeoutSeconds = 20;
+
+      StringBuilder seenText = new StringBuilder();
+      LlmGateway.StreamResult result = gateway.stream(
+        List.of(Map.of("role", "user", "content", "有什么待办？")),
+        List.of(Map.of("type", "function", "function", Map.of("name", "get_pending_tasks"))),
+        seenText::append,
+        () -> false
+      );
+
+      assertEquals(LlmGateway.StreamOutcome.TOOL_CALLS, result.outcome());
+      assertEquals("", seenText.toString(), "a pure tool_calls round must not emit any text delta");
+      assertEquals(1, result.toolCalls().size());
+      LlmGateway.ToolCall call = result.toolCalls().get(0);
+      assertEquals("call-abc", call.id());
+      assertEquals("get_pending_tasks", call.name());
+      assertEquals("{\"farmId\":\"f1\"}", call.arguments());
+    } finally {
+      server.stop(0);
+    }
+  }
 }

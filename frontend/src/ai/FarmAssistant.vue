@@ -14,6 +14,7 @@ const report = ref(null), conversations = ref([]), messages = ref([]), selected 
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
 const run = ref(null);
+const highlightedRunId = ref(''); // 从聊天里的灌溉审批活动点击“去确认”后，高亮对应建议
 const initialLoading = ref(true); // 首次读取完成前，历史栏/消息区/分析页/灌溉页展示与最终布局等高的骨架屏，避免跳动
 const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
@@ -98,6 +99,13 @@ async function send(text=question.value) {
 function retry() { if(run.value && !sending.value) send(run.value.question); }
 function cancel() { activeCancel?.(); }
 function onActivityToggle() { /* 手动展开/收起由 AiActivityDisclosure 自行记忆本轮运行内的状态 */ }
+// 聊天里的灌溉审批活动点“去确认”：只是导航到既有灌溉管理页签并高亮对应建议，批准/取消仍然
+// 只能通过该页签原有的确认对话框完成——聊天本身不审批、不下发任何设备指令。
+function onViewApproval(target) {
+  if (!target || target.type !== 'irrigation-run') return;
+  panel.value = 'irrigation';
+  highlightedRunId.value = target.id;
+}
 async function perform(work) {if(busy.value) return;busy.value=true;error.value='';notice.value='';try{await work();}catch(e){error.value=e.message;}finally{busy.value=false;}}
 function editPolicy(plotId) {
   const p=irrigation.value.policies.find(p=>p.plotId===plotId);
@@ -159,14 +167,17 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
             <article v-for="(m,index) in displayedMessages" :key="m.id||('tmp-'+index)" class="ai-message" :class="m.role">
               <small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'"> · 规则回退</span></small>
               <template v-if="m.pending">
-                <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" @toggle="onActivityToggle" />
+                <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" :writer="writer" @toggle="onActivityToggle" @view-approval="onViewApproval" />
                 <div class="ai-message-text">
                   <template v-if="m.run.text"><AssistantText :text="m.run.text" /><span v-if="shouldShowCaret(m.run.status,m.run.text)" class="ai-caret" aria-hidden="true"></span></template>
                   <div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:42%"></span></div>
                 </div>
                 <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" @retry="retry" @cancel="cancel" />
               </template>
-              <div v-else class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
+              <template v-else>
+                <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" :writer="writer" @view-approval="onViewApproval" />
+                <div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
+              </template>
               <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnostics[m.diagnostic] || '模型暂不可用'}}</small>
             </article>
             <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()">回到最新 ↓</button>
@@ -213,7 +224,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
         <label>每天最多启动次数<input v-model.number="policy.dailyLimit" type="number" min="1" max="6" required /></label>
       </div><p>演示阈值需按作物与传感器校准；本规则不适用于水稻水位管理。保存新策略会停止原运行并使待确认建议失效。</p><div><button type="button" @click="editing=false">取消</button><button class="primary" :disabled="busy">保存策略</button></div></form>
       <h3>建议与执行记录</h3><p v-if="!irrigation.runs.length" class="muted">尚无灌溉建议。配置策略后，点击“检查并生成建议”。</p>
-      <article v-for="r in irrigation.runs" :key="r.id" class="ai-run"><div class="ai-section-head"><h4>{{r.plotName}} · {{states[r.status]}}</h4><small>{{time(r.createdAt)}}</small></div><p>{{r.reason}}</p><p>水泵：{{r.pumpName}} · 时长：{{r.durationSeconds}} 秒 · {{r.approvedBy?'确认人：'+r.approvedBy:'尚未下发'}}</p><small v-if="r.status==='RUNNING'">预计停泵 {{time(r.stopAt)}}</small><small v-else>{{r.resultNote}}</small><div class="ai-run-actions" v-if="writer"><button v-if="r.status==='PROPOSED'" class="primary" :disabled="busy" @click="act(r,'approve')">确认并启动模拟灌溉</button><button v-if="['PROPOSED','RUNNING'].includes(r.status)" :disabled="busy" @click="act(r,'cancel')">{{r.status==='RUNNING'?'立即停止':'取消建议'}}</button></div></article>
+      <article v-for="r in irrigation.runs" :key="r.id" class="ai-run" :class="{'ai-run-highlight': r.id===highlightedRunId}"><div class="ai-section-head"><h4>{{r.plotName}} · {{states[r.status]}}</h4><small>{{time(r.createdAt)}}</small></div><p>{{r.reason}}</p><p>水泵：{{r.pumpName}} · 时长：{{r.durationSeconds}} 秒 · {{r.approvedBy?'确认人：'+r.approvedBy:'尚未下发'}}</p><small v-if="r.status==='RUNNING'">预计停泵 {{time(r.stopAt)}}</small><small v-else>{{r.resultNote}}</small><div class="ai-run-actions" v-if="writer"><button v-if="r.status==='PROPOSED'" class="primary" :disabled="busy" @click="act(r,'approve')">确认并启动模拟灌溉</button><button v-if="['PROPOSED','RUNNING'].includes(r.status)" :disabled="busy" @click="act(r,'cancel')">{{r.status==='RUNNING'?'立即停止':'取消建议'}}</button></div></article>
     </div>
   </section>
   <section v-else class="panel"><p>请选择一座农场，开始使用 AI 助手。</p></section>

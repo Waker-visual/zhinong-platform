@@ -35,6 +35,14 @@
 .ai-activity-body {min-width:0;}
 .ai-activity-label {margin:0;color:var(--text-2);font-weight:600;overflow-wrap:anywhere;}
 .ai-activity-detail,.ai-activity-result {margin:3px 0 0;color:var(--label-fg);font-size:11.5px;line-height:1.7;overflow-wrap:anywhere;}
+/* 审批活动（例如灌溉建议待确认）：浅底色条带与“田间作业条带”风格一致，用点的颜色区分状态；
+   “去确认”按钮只是导航到既有页签，不在聊天里直接批准任何设备动作。 */
+.ai-activity-row.ai-activity-approval {background:var(--brand-soft);border-radius:10px;padding:10px 10px 10px 14px;margin:2px 0;}
+.ai-activity-row.ai-activity-approval .ai-activity-dot {background:var(--brand);}
+.ai-activity-approve-btn {margin-top:8px;font-size:12px;font-weight:600;color:var(--on-brand);background:var(--brand);border:none;border-radius:8px;padding:6px 12px;cursor:pointer;}
+.ai-activity-approve-btn:focus-visible {outline:2px solid var(--brand);outline-offset:2px;}
+/* 从聊天的审批活动点击“去确认”后，短暂高亮对应的灌溉建议卡片，帮助用户定位。 */
+.ai-run.ai-run-highlight {border-color:var(--brand);box-shadow:0 0 0 2px var(--brand-soft);}
 /* 流式状态条 */
 .ai-streaming-status {display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--label-fg);padding:8px 2px 0;}
 .ai-streaming-status.error {color:var(--danger);}

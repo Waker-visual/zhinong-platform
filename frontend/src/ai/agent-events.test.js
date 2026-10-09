@@ -13,6 +13,7 @@ import {
   activitySummaryText,
   streamingStatusText,
   shouldShowCaret,
+  irrigationApprovalTarget,
 } from "./agent-events.js";
 import { syncConversationAdapter, streamConversationAdapter, defaultConversationAdapter } from "./agent-adapter.js";
 import { isNearBottom } from "./scroll.js";
@@ -452,6 +453,23 @@ test("shouldShowCaret only appears while running and text has already started st
   assert.equal(shouldShowCaret("submitted", "部分正文"), false);
   assert.equal(shouldShowCaret("completed", "全部正文"), false);
   assert.equal(shouldShowCaret("error", "部分正文"), false);
+});
+
+test("irrigationApprovalTarget parses the irrigation-run id encoded in an approval activity", () => {
+  assert.deepEqual(
+    irrigationApprovalTarget({ id: "irrigation-run:run-123", kind: "approval" }),
+    { type: "irrigation-run", id: "run-123" },
+  );
+});
+
+test("irrigationApprovalTarget returns null for non-approval activities, even with a matching id", () => {
+  assert.equal(irrigationApprovalTarget({ id: "irrigation-run:run-123", kind: "tool" }), null);
+});
+
+test("irrigationApprovalTarget returns null when the approval activity has no encoded target", () => {
+  assert.equal(irrigationApprovalTarget({ id: "context", kind: "approval" }), null);
+  assert.equal(irrigationApprovalTarget({ id: "irrigation-run:", kind: "approval" }), null);
+  assert.equal(irrigationApprovalTarget(null), null);
 });
 
 // --- 静态源码检查：role/aria-busy/aria-live、装饰性动画元素的 aria-hidden、reduced-motion 覆盖均需存在 ---
