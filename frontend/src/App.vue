@@ -12,6 +12,7 @@ import FarmAssistant from "./ai/FarmAssistant.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
 import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
+import brandLogo from "./assets/zhihe-logo.svg";
 import FarmSelect from "./ui/FarmSelect.vue";
 import SelectMenu from "./ui/SelectMenu.vue";
 import DatePicker from "./ui/DatePicker.vue";
@@ -628,7 +629,10 @@ onUnmounted(() => {
 <template>
   <div v-if="!identity" class="login-layout">
     <section class="login-story">
-      <div class="brand"><span class="brand-mark">禾</span>智禾农场</div>
+      <div class="brand">
+        <img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" />
+        智禾农场
+      </div>
       <div>
         <p class="eyebrow">农场经营工作空间</p>
         <h1>田间有序<br />经营有据</h1>
@@ -701,8 +705,8 @@ onUnmounted(() => {
     <aside id="app-sidebar" class="sidebar" aria-label="主导航">
       <div class="sidebar-head">
         <div class="brand">
-          <span class="brand-mark">禾</span
-          ><span class="sidebar-label">智禾农场<small>ZHIHE FARM</small></span>
+          <img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" />
+          <span class="sidebar-label">智禾农场<small>ZHIHE FARM</small></span>
         </div>
         <button
           type="button"
@@ -813,7 +817,7 @@ onUnmounted(() => {
     <div class="main-shell">
       <header class="topbar">
         <span class="topbar-brand"
-          ><span class="brand-mark">禾</span>智禾农场</span
+          ><img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" />智禾农场</span
         ><span class="topbar-trail"
           >工作空间 <b>/</b> {{ current.title }}</span
         ><FarmSelect
