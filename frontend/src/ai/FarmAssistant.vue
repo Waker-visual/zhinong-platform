@@ -2,13 +2,16 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret } from './agent-events.js';
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret, formatMessageTime, irrigationApprovalTarget } from './agent-events.js';
 import { defaultConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
 import AssistantText from './AssistantText.vue';
 import AiActivityDisclosure from './AiActivityDisclosure.vue';
+import AiApprovalCard from './AiApprovalCard.vue';
 import AiStreamingStatus from './AiStreamingStatus.vue';
+import AiMessageActions from './AiMessageActions.vue';
+import AppIcon from '../ui/AppIcon.vue';
 import { diagnosticLabels } from './diagnostics';
 const props = defineProps({ farmId: String, role: String, revision: Number });
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
@@ -99,12 +102,34 @@ async function send(text=question.value) {
 function retry() { if(run.value && !sending.value) send(run.value.question); }
 function cancel() { activeCancel?.(); }
 function onActivityToggle() { /* 手动展开/收起由 AiActivityDisclosure 自行记忆本轮运行内的状态 */ }
-// 聊天里的灌溉审批活动点“去确认”：只是导航到既有灌溉管理页签并高亮对应建议，批准/取消仍然
+// 聊天里的灌溉审批卡片点“去确认”：只是导航到既有灌溉管理页签并高亮对应建议，批准/取消仍然
 // 只能通过该页签原有的确认对话框完成——聊天本身不审批、不下发任何设备指令。
 function onViewApproval(target) {
   if (!target || target.type !== 'irrigation-run') return;
   panel.value = 'irrigation';
   highlightedRunId.value = target.id;
+}
+// 时间线下方的审批卡片只在建议仍然有效（PROPOSED）时展示；一旦在灌溉管理页签批准/取消/过期，
+// 已持久化的活动摘要是一张静态快照不会跟着变，这里用当前已加载的 irrigation.runs 再核对一次，
+// 避免聊天里一直挂着一个其实早就处理完的“去确认”卡片。找不到对应建议时（例如还没加载）默认展示。
+function approvalActivities(activities) {
+  return (activities || []).filter((a) => {
+    const target = irrigationApprovalTarget(a);
+    if (!target) return false;
+    const run = irrigation.value.runs.find((r) => r.id === target.id);
+    return !run || run.status === 'PROPOSED';
+  });
+}
+// 消息时间：只有已持久化的消息才有 createdAt；流式占位消息还没有，不显示时间。
+function messageTime(m) {
+  return m.createdAt ? formatMessageTime(m.createdAt) : null;
+}
+// 从某条消息“分支”出一个新对话后：刷新历史栏并直接选中新对话，和新建对话的体验一致。
+async function onBranched(newId) {
+  await perform(async () => {
+    conversations.value = await api('/ai/conversations?farmId=' + props.farmId);
+    await select(newId);
+  });
 }
 async function perform(work) {if(busy.value) return;busy.value=true;error.value='';notice.value='';try{await work();}catch(e){error.value=e.message;}finally{busy.value=false;}}
 function editPolicy(plotId) {
@@ -162,12 +187,13 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
           <div v-if="initialLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
           <template v-else>
             <div v-if="!displayedMessages.length" class="ai-welcome"><span class="ai-monogram">禾</span><h3>今天想了解农场的什么？</h3><p>我会结合当前农场的种植、气象、监测和生产记录，为你梳理依据与行动建议；发送问题后会先读取当前农场资料。</p>
-              <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="sending" @click="send(p)">{{p}} ↗</button></div>
+              <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="sending" @click="send(p)"><AppIcon name="send" />{{p}}</button></div>
             </div>
             <article v-for="(m,index) in displayedMessages" :key="m.id||('tmp-'+index)" class="ai-message" :class="m.role">
-              <small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'"> · 规则回退</span></small>
+              <small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'" class="ai-mode-badge">规则回退</span></small>
               <template v-if="m.pending">
-                <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" :writer="writer" @toggle="onActivityToggle" @view-approval="onViewApproval" />
+                <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" @toggle="onActivityToggle" />
+                <AiApprovalCard v-for="a in approvalActivities(m.run.activities)" :key="a.id" :activity="a" :writer="writer" @view-approval="onViewApproval" />
                 <div class="ai-message-text">
                   <template v-if="m.run.text"><AssistantText :text="m.run.text" /><span v-if="shouldShowCaret(m.run.status,m.run.text)" class="ai-caret" aria-hidden="true"></span></template>
                   <div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:42%"></span></div>
@@ -175,15 +201,17 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
                 <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" @retry="retry" @cancel="cancel" />
               </template>
               <template v-else>
-                <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" :writer="writer" @view-approval="onViewApproval" />
+                <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" />
+                <AiApprovalCard v-for="a in approvalActivities(m.activities)" :key="a.activityId" :activity="a" :writer="writer" @view-approval="onViewApproval" />
                 <div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
+                <AiMessageActions :id="m.id" :text="m.content" :role="m.role" :time="messageTime(m)" :conversation-id="selected" @branched="onBranched" />
               </template>
               <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnosticLabels[m.diagnostic] || '模型暂不可用'}}</small>
             </article>
-            <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()">回到最新 ↓</button>
+            <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button>
           </template>
         </div>
-        <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small>Enter 发送 · Shift + Enter 换行 · {{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()">{{sending?'正在回答…':'发送 ↑'}}</button></div></form>
+        <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small>Enter 发送 · Shift + Enter 换行 · {{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()"><template v-if="!sending"><AppIcon name="send" /></template>{{sending?'正在回答…':'发送'}}</button></div></form>
         <p class="ai-footnote">发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
     </div>
