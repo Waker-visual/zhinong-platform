@@ -10,9 +10,16 @@ async function defaultSend({ conversationId, question, requestId, signal }) {
 
 // 流式适配器的默认发送：真正的 SSE 实现延迟到调用时才导入 api.js（原因同上，避免在 Node
 // 测试环境加载时触发 sessionStorage 访问）。
-async function defaultStreamSend({ conversationId, question, requestId, signal }) {
+// 必须是 async function*（而不是普通 async function 再 return 一个异步生成器）：调用方
+// 用 `for await (const event of send(...))` 直接迭代返回值。普通 async function 的返回值
+// 会被包成 Promise<AsyncGenerator>，Promise 本身不是 async-iterable，`for await...of` 会在
+// 取迭代器时立即抛 TypeError——还没拿到任何事件就报错，于是在 streamConversationAdapter 里
+// 被当成“流式彻底不可用”，每次都静默回退到同步接口，SSE 永远用不上（该问题已在手工浏览器
+// 验收中复现：实际发送请求只命中 /messages，从未命中 /stream）。用 yield* 委托，
+// defaultStreamSend(...) 调用后立即同步返回一个真正的异步生成器，才能被正确迭代。
+async function* defaultStreamSend({ conversationId, question, requestId, signal }) {
   const { streamJson } = await import("../api.js");
-  return streamJson(`/ai/conversations/${conversationId}/stream`, { question, requestId }, { timeoutMs: 70000, signal });
+  yield* streamJson(`/ai/conversations/${conversationId}/stream`, { question, requestId }, { timeoutMs: 70000, signal });
 }
 
 const diagnostics = {
