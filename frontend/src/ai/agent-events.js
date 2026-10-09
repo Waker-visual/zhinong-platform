@@ -110,7 +110,7 @@ export function streamingStatusText(status, diagnostic) {
     case "completed":
       return "已完成";
     case "cancelled":
-      return "已停止，可能仍在后台继续，刷新对话后可看到结果";
+      return "已停止；若已回退到同步请求，仍可能在后台继续，刷新对话后可看到结果";
     case "error":
       return diagnostic || "回答失败，请重试";
     default:

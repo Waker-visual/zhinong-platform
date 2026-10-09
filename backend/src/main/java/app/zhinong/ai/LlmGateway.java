@@ -135,6 +135,141 @@ public class LlmGateway {
     return !blank(fallbackUrl);
   }
 
+  /** 流式文本增量回调；不回传原始工具参数或凭据，只回传安全文本片段。 */
+  public interface StreamListener {
+    void onDelta(String text);
+  }
+
+  /**
+   * 流式补全：仅使用云端 OpenAI 兼容 SSE（stream:true），文本增量通过 listener 实时回传。
+   * 与 {@link #complete} 共用同一并发信号量与超时配置；不支持本地 fallback 端点的流式转发——
+   * 云端未配置或流式请求失败时直接返回 empty，由上层回退到规则答案（与同步路径的“模型不可用”
+   * 语义一致），避免为很少配置的本地回退再实现一套非流式转单片 delta 的特殊路径。
+   * cancelled 由上游调用方传入（例如 SSE 客户端已断开），为 true 时立即停止读取上游响应流。
+   */
+  public Optional<LlmResponse> stream(
+    List<Map<String, Object>> messages,
+    List<Map<String, Object>> tools,
+    StreamListener listener,
+    java.util.function.BooleanSupplier cancelled
+  ) {
+    lastIssue.set("NOT_CONFIGURED");
+    if (!capacity.tryAcquire()) {
+      lastIssue.set("BUSY");
+      return Optional.empty();
+    }
+    try {
+      String endpoint, key, selectedModel;
+      synchronized (this) {
+        endpoint = url;
+        key = apiKey;
+        selectedModel = model;
+      }
+      if (blank(endpoint) || blank(key)) return Optional.empty();
+      return streamCompletions(
+        endpoint,
+        key,
+        blank(selectedModel) ? "deepseek-flash" : selectedModel,
+        messages,
+        tools,
+        listener,
+        cancelled
+      );
+    } finally {
+      capacity.release();
+    }
+  }
+
+  private Optional<LlmResponse> streamCompletions(
+    String base,
+    String key,
+    String m,
+    List<Map<String, Object>> messages,
+    List<Map<String, Object>> tools,
+    StreamListener listener,
+    java.util.function.BooleanSupplier cancelled
+  ) {
+    HttpResponse<java.io.InputStream> res = null;
+    try {
+      validateEndpoint(base);
+      Map<String, Object> body =
+        new LinkedHashMap<>(Map.of("model", m, "messages", messages, "temperature", 0.3, "max_tokens", 1600, "stream", true));
+      if (!tools.isEmpty()) {
+        body.put("tools", tools);
+        body.put("tool_choice", "auto");
+      }
+      if ("api.deepseek.com".equals(URI.create(base).getHost())) body.put("thinking", Map.of("type", "disabled"));
+      HttpRequest.Builder b =
+        HttpRequest
+          .newBuilder()
+          .uri(URI.create(base.replaceAll("/+$", "") + "/chat/completions"))
+          .timeout(Duration.ofSeconds(timeoutSeconds))
+          .header("Content-Type", "application/json")
+          .header("Accept", "text/event-stream")
+          .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
+      if (!key.isBlank()) b.header("Authorization", "Bearer " + key);
+      res = http.send(b.build(), HttpResponse.BodyHandlers.ofInputStream());
+      if (res.statusCode() / 100 != 2) {
+        lastIssue.set(
+          switch (res.statusCode()) {
+            case 401, 403 -> "AUTH_FAILED";
+            case 402 -> "BALANCE_REQUIRED";
+            case 429 -> "RATE_LIMITED";
+            default -> "SERVICE_ERROR";
+          }
+        );
+        return Optional.empty();
+      }
+      StringBuilder content = new StringBuilder();
+      try (
+        var reader = new java.io.BufferedReader(new java.io.InputStreamReader(res.body(), java.nio.charset.StandardCharsets.UTF_8))
+      ) {
+        String line;
+        while ((line = reader.readLine()) != null) {
+          if (cancelled.getAsBoolean()) {
+            lastIssue.set("CANCELLED");
+            return Optional.empty();
+          }
+          if (line.isBlank() || !line.startsWith("data:")) continue;
+          String data = line.substring(5).trim();
+          if ("[DONE]".equals(data)) break;
+          JsonNode root;
+          try {
+            root = json.readTree(data);
+          } catch (Exception parseError) {
+            continue; // 忽略无法解析的分片，不中断整个流
+          }
+          JsonNode delta = root.path("choices").path(0).path("delta");
+          if (delta.path("content").isTextual()) {
+            String text = delta.path("content").asText();
+            if (!text.isEmpty()) {
+              content.append(text);
+              listener.onDelta(text);
+            }
+          }
+        }
+      }
+      if (content.length() == 0) {
+        lastIssue.set("EMPTY_RESPONSE");
+        return Optional.empty();
+      }
+      lastIssue.set("OK");
+      return Optional.of(new LlmResponse(content.toString().trim(), List.of()));
+    } catch (Exception e) {
+      if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+      lastIssue.set(e instanceof java.net.http.HttpTimeoutException ? "TIMEOUT" : "UNAVAILABLE");
+      return Optional.empty();
+    } finally {
+      if (res != null) {
+        try {
+          res.body().close();
+        } catch (IOException ignored) {
+          /* 已经结束读取 */
+        }
+      }
+    }
+  }
+
   /** 简单问答：无工具，保留给 insights 等调用。 */
   public Optional<String> chat(String system, String user) {
     return complete(

@@ -14,8 +14,9 @@ import {
   streamingStatusText,
   shouldShowCaret,
 } from "./agent-events.js";
-import { syncConversationAdapter } from "./agent-adapter.js";
+import { syncConversationAdapter, streamConversationAdapter, defaultConversationAdapter } from "./agent-adapter.js";
 import { isNearBottom } from "./scroll.js";
+import { createSseParser } from "./sse-parser.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(dir, name), "utf8");
@@ -280,6 +281,131 @@ test("syncConversationAdapter reports rule fallback diagnostic when model unavai
   assert.equal(delta.delta, "规则回退建议");
 });
 
+// --- 纯 SSE 解析器：覆盖跨 chunk 断行、\r\n 行尾和多行 data 字段拼接 ---
+
+test("createSseParser parses a single complete event delivered in one chunk", () => {
+  const parser = createSseParser();
+  const events = parser.feed('data:{"type":"run.started","sequence":1}\n\n');
+  assert.equal(events.length, 1);
+  assert.deepEqual(JSON.parse(events[0].data), { type: "run.started", sequence: 1 });
+});
+
+test("createSseParser reassembles an event split mid-line across multiple feed() calls", () => {
+  const parser = createSseParser();
+  let events = parser.feed('data:{"type":"message.delta","del');
+  assert.equal(events.length, 0, "no complete line yet");
+  events = parser.feed('ta":"土壤水分偏低"}\n\n');
+  assert.equal(events.length, 1);
+  assert.deepEqual(JSON.parse(events[0].data), { type: "message.delta", delta: "土壤水分偏低" });
+});
+
+test("createSseParser handles \\r\\n line endings the same as \\n", () => {
+  const parser = createSseParser();
+  const events = parser.feed('data:{"type":"run.completed"}\r\n\r\n');
+  assert.equal(events.length, 1);
+  assert.deepEqual(JSON.parse(events[0].data), { type: "run.completed" });
+});
+
+test("createSseParser joins multiple data: lines of the same event with \\n", () => {
+  const parser = createSseParser();
+  const events = parser.feed("data:line one\ndata:line two\n\n");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].data, "line one\nline two");
+});
+
+test("createSseParser parses two events delivered back to back in one chunk, in order", () => {
+  const parser = createSseParser();
+  const events = parser.feed('data:{"sequence":1}\n\ndata:{"sequence":2}\n\n');
+  assert.equal(events.length, 2);
+  assert.equal(JSON.parse(events[0].data).sequence, 1);
+  assert.equal(JSON.parse(events[1].data).sequence, 2);
+});
+
+// --- streamConversationAdapter / defaultConversationAdapter ---
+
+async function* fakeEventStream(events) {
+  for (const e of events) yield e;
+}
+
+test("streamConversationAdapter forwards every event the backend sends, unchanged", async () => {
+  const backendEvents = [
+    { sequence: 1, type: "run.started" },
+    { sequence: 2, type: "message.delta", delta: "结论：" },
+    { sequence: 3, type: "run.completed" },
+  ];
+  const send = () => fakeEventStream(backendEvents);
+  const events = [];
+  for await (const e of streamConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", send })) events.push(e);
+  assert.deepEqual(events, backendEvents);
+});
+
+test("streamConversationAdapter rethrows when the backend fails before any event is yielded", async () => {
+  const send = async function* () {
+    throw Object.assign(new Error("流式接口不可用"), { status: 404 });
+  };
+  await assert.rejects(
+    (async () => {
+      for await (const _ of streamConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", send })) {
+        // no-op
+      }
+    })(),
+    /流式接口不可用/,
+  );
+});
+
+test("streamConversationAdapter yields run.error instead of throwing once it already produced events", async () => {
+  const send = async function* () {
+    yield { sequence: 1, type: "run.started" };
+    yield { sequence: 2, type: "message.delta", delta: "部分" };
+    throw Object.assign(new Error("连接中断"), { diagnostic: "UNAVAILABLE" });
+  };
+  const events = [];
+  for await (const e of streamConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", send })) events.push(e);
+  assert.equal(events.length, 3);
+  assert.equal(events[2].type, "run.error");
+  assert.equal(events[2].diagnostic, "UNAVAILABLE");
+});
+
+test("streamConversationAdapter ends silently on a user-initiated cancellation (no run.error)", async () => {
+  const send = async function* () {
+    yield { sequence: 1, type: "run.started" };
+    const cancelled = new Error("已取消");
+    cancelled.cancelled = true;
+    throw cancelled;
+  };
+  const events = [];
+  for await (const e of streamConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", send })) events.push(e);
+  assert.deepEqual(events, [{ sequence: 1, type: "run.started" }]);
+});
+
+test("defaultConversationAdapter falls back to the sync adapter when streaming is unavailable before any event", async () => {
+  const streamSend = async function* () {
+    throw Object.assign(new Error("Not Found"), { status: 404 });
+  };
+  const syncSend = async () => ({ answer: "同步回退的回答", mode: "llm", diagnostic: "OK" });
+  const events = [];
+  for await (const e of defaultConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", streamSend, syncSend })) events.push(e);
+  const types = events.map((e) => e.type);
+  assert.deepEqual(types, ["run.started", "activity.started", "activity.completed", "message.delta", "message.completed", "run.completed"]);
+  assert.equal(events.find((e) => e.type === "message.delta").delta, "同步回退的回答");
+});
+
+test("defaultConversationAdapter never falls back once the stream already produced events (surfaces run.error instead)", async () => {
+  let syncCalled = false;
+  const streamSend = async function* () {
+    yield { sequence: 1, type: "run.started" };
+    throw Object.assign(new Error("连接中断"), { diagnostic: "UNAVAILABLE" });
+  };
+  const syncSend = async () => {
+    syncCalled = true;
+    return { answer: "不应该走到这里", mode: "llm", diagnostic: "OK" };
+  };
+  const events = [];
+  for await (const e of defaultConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", streamSend, syncSend })) events.push(e);
+  assert.equal(syncCalled, false, "must not double-submit the same question through the sync endpoint");
+  assert.equal(events.at(-1).type, "run.error");
+});
+
 // --- 纯文案/判定辅助函数：供折叠区、活动行、流式状态条复用的可访问性文案 ---
 
 test("activityStatusLabel maps known statuses to Chinese labels and falls back to the raw value", () => {
@@ -314,7 +440,7 @@ test("streamingStatusText returns the expected Chinese text per status, includin
   assert.equal(streamingStatusText("submitted"), "正在读取当前农场资料…");
   assert.equal(streamingStatusText("running"), "正在生成回答…");
   assert.equal(streamingStatusText("completed"), "已完成");
-  assert.equal(streamingStatusText("cancelled"), "已停止，可能仍在后台继续，刷新对话后可看到结果");
+  assert.equal(streamingStatusText("cancelled"), "已停止；若已回退到同步请求，仍可能在后台继续，刷新对话后可看到结果");
   assert.equal(streamingStatusText("error", "模型服务响应超时"), "模型服务响应超时");
   assert.equal(streamingStatusText("error", ""), "回答失败，请重试");
   assert.equal(streamingStatusText("error"), "回答失败，请重试");

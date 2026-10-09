@@ -59,6 +59,7 @@ class AiIntegrationTest {
     llm.answer = Optional.empty();
     llm.calls.set(0);
     llm.saved = null;
+    llm.streamFailure = null;
   }
 
   @AfterEach void finishTestRuns() {
@@ -246,6 +247,125 @@ class AiIntegrationTest {
     }
   }
 
+  // ---------- Task 5: streaming endpoint ----------
+
+  JsonNode[] streamEvents(String token, String id, Object question, int expectedStatus) throws Exception {
+    var request = HttpRequest
+      .newBuilder(URI.create("http://127.0.0.1:" + port + "/api/ai/conversations/" + id + "/stream"))
+      .header("Content-Type", "application/json")
+      // 同时接受 JSON：鉴权失败等场景在建立 SSE 连接之前就返回普通 JSON 错误体，
+      // 只接受 text/event-stream 会导致协商失败变成 500（与真实前端 streamJson 的 Accept 一致）。
+      .header("Accept", "text/event-stream, application/json;q=0.9, */*;q=0.1");
+    if (token != null) request.header("Authorization", "Bearer " + token);
+    request.POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(question)));
+    var response = client.send(request.build(), HttpResponse.BodyHandlers.ofString());
+    assertEquals(expectedStatus, response.statusCode(), response.body());
+    if (response.statusCode() != 200) return new JsonNode[0];
+    List<JsonNode> events = new ArrayList<>();
+    for (String block : response.body().replace("\r", "").split("\n\n")) {
+      for (String line : block.split("\n")) {
+        if (line.startsWith("data:")) events.add(json.readTree(line.substring(5).trim()));
+      }
+    }
+    return events.toArray(new JsonNode[0]);
+  }
+
+  @Test void streamEmitsOrderedEventsAndPersistsLikeSyncPath() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("基于当前农场记录的流式测试回答。", List.of()));
+    var events = streamEvents(admin, id, Map.of("question", "请分析当前农场", "requestId", "stream-turn-1"), 200);
+    assertTrue(events.length >= 5, "expected at least run.started/activity/message/run.completed events");
+    assertEquals("run.started", events[0].path("type").asText());
+    assertEquals("run.completed", events[events.length - 1].path("type").asText());
+    assertTrue(java.util.Arrays.stream(events).anyMatch(e -> "activity.started".equals(e.path("type").asText())));
+    assertTrue(java.util.Arrays.stream(events).anyMatch(e -> "activity.completed".equals(e.path("type").asText())));
+    StringBuilder text = new StringBuilder();
+    for (JsonNode e : events) if ("message.delta".equals(e.path("type").asText())) text.append(e.path("delta").asText());
+    assertEquals("基于当前农场记录的流式测试回答。", text.toString());
+    int lastSeq = -1;
+    for (JsonNode e : events) {
+      int seq = e.path("sequence").asInt();
+      assertTrue(seq > lastSeq, "sequence must be strictly increasing");
+      lastSeq = seq;
+    }
+    JsonNode completedEvent = java.util.Arrays.stream(events).filter(e -> "message.completed".equals(e.path("type").asText())).findFirst().orElseThrow();
+    String messageId = completedEvent.path("messageId").asText();
+    assertFalse(messageId.isBlank());
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertEquals(2, persisted.size());
+    assertEquals("请分析当前农场", persisted.get(0).path("CONTENT").asText());
+    assertEquals("基于当前农场记录的流式测试回答。", persisted.get(1).path("CONTENT").asText());
+    assertEquals(messageId, persisted.get(1).path("ID").asText());
+    assertEquals("llm", persisted.get(1).path("MODE").asText());
+  }
+
+  @Test void streamRuleFallbackWhenModelUnavailableIsPersistedAndMarked() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    // llm.answer stays Optional.empty() from @BeforeEach -> model "unavailable", same as the sync rule fallback path.
+    var events = streamEvents(admin, id, Map.of("question", "现在需要灌溉吗", "requestId", "stream-rule-1"), 200);
+    assertEquals("run.completed", events[events.length - 1].path("type").asText());
+    assertTrue(java.util.Arrays.stream(events).anyMatch(e -> "message.delta".equals(e.path("type").asText())));
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertEquals(2, persisted.size());
+    assertEquals("rule", persisted.get(1).path("MODE").asText());
+    assertTrue(persisted.get(1).path("CONTENT").asText().contains("没有下发"));
+  }
+
+  @Test void streamDuplicateRequestIdReplaysWithoutDuplicateRowsOrModelCalls() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("只应该出现一次的回答。", List.of()));
+    var question = Map.of("question", "请总结一下现状", "requestId", "stream-dup-1");
+    var first = streamEvents(admin, id, question, 200);
+    assertEquals(1, llm.calls.get());
+    String firstMessageId = java.util.Arrays.stream(first).filter(e -> "message.completed".equals(e.path("type").asText())).findFirst().orElseThrow().path("messageId").asText();
+    var replay = streamEvents(admin, id, question, 200);
+    assertEquals(1, llm.calls.get(), "duplicate requestId must not call the model again");
+    assertEquals("run.started", replay[0].path("type").asText());
+    assertEquals("run.completed", replay[replay.length - 1].path("type").asText());
+    StringBuilder replayedText = new StringBuilder();
+    for (JsonNode e : replay) if ("message.delta".equals(e.path("type").asText())) replayedText.append(e.path("delta").asText());
+    assertEquals("只应该出现一次的回答。", replayedText.toString());
+    String replayMessageId = java.util.Arrays.stream(replay).filter(e -> "message.completed".equals(e.path("type").asText())).findFirst().orElseThrow().path("messageId").asText();
+    assertEquals(firstMessageId, replayMessageId);
+    assertEquals(2, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
+  }
+
+  @Test void streamUpstreamFailureEmitsRunErrorAndDoesNotPersistAnAssistantSuccessRow() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.streamFailure = new RuntimeException("模拟上游中断");
+    var events = streamEvents(admin, id, Map.of("question", "这次会失败", "requestId", "stream-fail-1"), 200);
+    assertEquals("run.error", events[events.length - 1].path("type").asText());
+    assertFalse(events[events.length - 1].path("error").asText().isBlank());
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertEquals(0, persisted.size(), "a failed run must not leave a persisted user/assistant message behind");
+    // Retrying with the same requestId after the failure must still be possible (nothing was partially written).
+    llm.streamFailure = null;
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("重试后的回答。", List.of()));
+    var retried = streamEvents(admin, id, Map.of("question", "这次会失败", "requestId", "stream-fail-1"), 200);
+    assertEquals("run.completed", retried[retried.length - 1].path("type").asText());
+    assertEquals(2, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
+  }
+
+  @Test void streamCrossTenantAndUnauthorizedRequestsNeverStartAStream() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    var question = Map.of("question", "不应该被允许", "requestId", "stream-forbidden-1");
+    streamEvents(null, id, question, 401);
+    streamEvents(otherAdmin, id, question, 404);
+    streamEvents(operator, id, question, 404);
+    streamEvents(platform, id, question, 403);
+    assertEquals(0, llm.calls.get());
+    assertEquals(0, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
+  }
+
+  @Test void syncMessagesEndpointStillWorksUnchangedAfterStreamingWasAdded() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("同步接口依旧可用。", List.of()));
+    var response = call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "同步测试", "requestId", "sync-after-stream-1"), 200);
+    assertEquals("同步接口依旧可用。", response.path("answer").asText());
+    assertEquals("llm", response.path("mode").asText());
+    assertEquals(2, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
+  }
+
   String login(String tenant, String username) throws Exception {
     return call(null, "POST", "/auth/login",
       Map.of("tenantCode", tenant, "username", username, "password", "Test-Only-Password-429!"), 200)
@@ -277,11 +397,31 @@ class AiIntegrationTest {
     volatile List<String> saved;
     final AtomicInteger calls = new AtomicInteger();
     volatile List<Map<String,Object>> lastMessages=List.of();
+    // Task 5 streaming fixtures: when set, stream() throws instead of returning, simulating an
+    // upstream failure/disconnect so tests can assert run.error without touching real HTTP SSE parsing
+    // (which is exercised for real by LlmGateway.stream itself, outside of this fake).
+    volatile RuntimeException streamFailure;
 
     @Override
     public Optional<LlmResponse> complete(List<Map<String, Object>> messages, List<Map<String, Object>> tools) {
       calls.incrementAndGet();
       lastMessages=List.copyOf(messages);
+      return answer;
+    }
+
+    @Override
+    public Optional<LlmResponse> stream(List<Map<String, Object>> messages, List<Map<String, Object>> tools, StreamListener listener, java.util.function.BooleanSupplier cancelled) {
+      calls.incrementAndGet();
+      lastMessages=List.copyOf(messages);
+      if (streamFailure != null) throw streamFailure;
+      if (answer.isEmpty() || answer.get().content() == null) return Optional.empty();
+      String text = answer.get().content();
+      // Split into a couple of chunks so ordering/accumulation of message.delta is actually exercised.
+      int mid = Math.max(1, text.length() / 2);
+      for (String chunk : List.of(text.substring(0, mid), text.substring(mid))) {
+        if (cancelled.getAsBoolean()) return Optional.empty();
+        if (!chunk.isEmpty()) listener.onDelta(chunk);
+      }
       return answer;
     }
 

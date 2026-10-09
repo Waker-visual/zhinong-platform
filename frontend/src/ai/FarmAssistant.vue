@@ -3,7 +3,7 @@ import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
 import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret } from './agent-events.js';
-import { syncConversationAdapter } from './agent-adapter.js';
+import { defaultConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
 import AssistantText from './AssistantText.vue';
@@ -66,20 +66,22 @@ async function removeChat() {
 async function send(text=question.value) {
   text=text.trim(); if(!text || sending.value || text.length>2000) return;
   sending.value=true; error.value=''; question.value='';
+  const controller=new AbortController();
   let cancelled=false;
-  activeCancel=()=>{cancelled=true; if(run.value) run.value=cancelAgentRun(run.value);};
+  activeCancel=()=>{cancelled=true; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
   try {
     if(!selected.value) {const c=await api('/ai/conversations','POST',{farmId:props.farmId});selected.value=c.id;}
     const id=selected.value;
     if(!pendingRequest || pendingRequest.text!==text || pendingRequest.id!==id) pendingRequest={text,id,requestId:crypto.randomUUID()};
     run.value=createAgentRun(text,pendingRequest.requestId);
     await scrollToLatest();
-    for await (const event of syncConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId})) {
+    for await (const event of defaultConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId,signal:controller.signal})) {
       if(!alive || cancelled) break;
       run.value=reduceAgentEvent(run.value,event);
       if(event.type==='message.delta' && followOutput.value) await scrollToLatest();
     }
-    // 取消：adapter 的后台请求可能仍在运行并最终写入成功回答；下次重新打开此对话会看到它。
+    // 取消：真实流式连接会被 controller.abort() 立即中断，服务端检测到断开后不会写入成功回答；
+    // 如果当时已经回退到旧的同步接口，那次请求仍可能在后台跑完并写入，下次重新打开此对话会看到它。
     if(cancelled || !alive) return;
     if(run.value.status==='error') { question.value=text; return; } // 保留已生成正文与活动摘要，交由 retry() 重试
     pendingRequest=null;

@@ -8,7 +8,24 @@
 
 每个农场每位成员最多保存50个对话，每个对话100轮，单条问题最多2000字。对话由账号私有保存，同租户其他成员也不能读取；删除对话不删除灌溉审计。发送失败后重试相同问题沿用请求编号，避免重复产生回答。页面会等待模型处理，最长约70秒。
 
-读取对话消息时，每条消息附带一个 `activities` 数组，记录这条回答执行过程中的只读活动摘要，字段包括 `activityId`、`sequenceNo`（顺序号）、`kind`（`context`/`tool`/`source`/`approval`/`task`）、`label`、`status`（`pending`/`running`/`completed`/`error`）、`detail`、`resultSummary` 以及开始/结束时间，按 `sequenceNo` 排序。数据库只保存脱敏后的安全摘要，不保存模型原始请求、完整工具参数或凭据；在本功能上线前产生的旧消息没有活动记录，读取时返回空数组，不影响已有对话。删除对话会级联删除其消息和活动摘要。当前这些摘要由后端在一次同步问答完成后整体写入；后续版本计划在模型生成过程中逐步推送 `AgentRunEvent` 流（`run.started`、`activity.started/updated/completed`、`message.delta/completed`、`run.completed`、`run.error` 等类型），让活动随生成过程实时显示，这部分流式推送尚未上线。
+读取对话消息时，每条消息附带一个 `activities` 数组，记录这条回答执行过程中的只读活动摘要，字段包括 `activityId`、`sequenceNo`（顺序号）、`kind`（`context`/`tool`/`source`/`approval`/`task`）、`label`、`status`（`pending`/`running`/`completed`/`error`）、`detail`、`resultSummary` 以及开始/结束时间，按 `sequenceNo` 排序。数据库只保存脱敏后的安全摘要，不保存模型原始请求、完整工具参数或凭据；在本功能上线前产生的旧消息没有活动记录，读取时返回空数组，不影响已有对话。删除对话会级联删除其消息和活动摘要。
+
+### 流式回答
+
+前端发送问题时优先调用 `POST /api/ai/conversations/{id}/stream`，响应为 `text/event-stream`，按下列类型依次推送 `AgentRunEvent`（字段为空时省略）：
+
+- `run.started`：本次运行已开始鉴权通过的处理。
+- `activity.started` / `activity.completed`：目前只有一个 `id="context"` 的 `context` 活动，表示“读取当前农场资料”；开始时 `status="running"`，结束时 `status="completed"` 并带 `resultSummary`。
+- `message.delta`：模型文本的增量片段（`delta` 字段），按顺序拼接得到完整回答；规则回退时作为一次性的整段文本发出，不假装是模型逐字生成。
+- `message.completed`：带真实的助手消息 `messageId`（已落库）。
+- `run.completed`：运行成功结束。
+- `run.error`：运行失败（上游异常或服务端内部错误），`diagnostic`/`error` 说明原因；此时不会有相应的用户/助手消息被落库，可以用同一个 `requestId` 重试。
+
+鉴权（会话、租户、对话归属、平台账号禁止读写经营数据）和 `requestId` 幂等检查都在建立 SSE 连接**之前**完成：未授权、跨租户或请求编号冲突会得到普通的 404/403/409 JSON 响应，不会先建立一个流再报错。重复提交同一个 `requestId` 不会调用模型或重复写库，而是重放已完成运行的事件（`run.started` → 整段 `message.delta` → 已有的 `messageId` → `run.completed`）。真正的并发重复请求依赖 `ai_messages` 表上 `(tenant_id, conversation_id, request_id, role)` 的唯一约束兜底：后到的写入会被数据库拒绝，服务端据此直接返回先到者已经落库的结果，不会出现两条助手消息。
+
+模型未配置或调用失败时走规则回退，和同步接口语义一致：整段规则文本作为一次 `message.delta` 发出，消息按 `mode="rule"` 落库，`run.completed` 正常结束——这不是错误，`run.error` 只用于真正的运行失败（例如上游连接在处理中途被打断）。客户端中止连接（点击“停止”）后，服务端会停止继续读取上游响应、释放并发信号量，并且不会写入任何半截或完整的成功回答；已经打断的这次 `requestId` 可以直接重试。
+
+前端的“停止”按钮通过 `AbortController` 真正中断这次 HTTP 连接（流式请求和旧的同步请求都支持），不仅仅是本地忽略后续事件。如果流式接口在产出任何事件之前就失败（例如部署环境未升级、暂时 404/405，或网络层面完全连不上），前端会在未重复提交问题的前提下自动回退到旧的同步接口；一旦流式连接已经产出过事件，即使中途失败也只会显示“回答失败，请重试”并允许用同一个 `requestId` 重试，不会静默切换到同步接口重新提交一遍（避免同一个问题被处理两次）。
 
 模型不可用时显示“规则回退”和脱敏原因，例如认证失败、余额不足、请求超时。规则检查不是模型回答，也不表示问题已得到完整解答。聊天不能直接启动设备、修改阈值或开启自动模式。
 
@@ -50,7 +67,8 @@
 | --- | --- |
 | `GET /api/ai/analysis?farmId=...` | 当前农场天气、四情与生产数据快照 |
 | `GET/POST /api/ai/conversations` | 本人对话列表或新建（GET需farmId，POST传farmId） |
-| `GET/POST /api/ai/conversations/{id}/messages` | 读取对话（每条消息含 `activities` 活动摘要数组）或提问（question、requestId） |
+| `GET/POST /api/ai/conversations/{id}/messages` | 读取对话（每条消息含 `activities` 活动摘要数组）或提问（question、requestId），同步等待完整回答 |
+| `POST /api/ai/conversations/{id}/stream` | 同样的输入（question、requestId），以 `text/event-stream` 流式推送 `AgentRunEvent`；前端默认优先使用，不可用时回退到上一行的同步接口 |
 | `DELETE /api/ai/conversations/{id}` | 删除本人对话 |
 | `GET /api/ai/irrigation?farmId=...` | 策略、候选设备和执行记录 |
 | `PUT /api/ai/irrigation/policy` | 管理员保存含revision的地块策略 |

@@ -40,4 +40,24 @@ public record Identity(
       throw new ApiException(403, "当前角色没有操作权限");
     }
   }
+
+  /**
+   * 在另一个线程上临时套用请求线程已认证的身份运行一段工作（例如流式响应的异步执行器线程）。
+   * 身份须先在原始请求线程上通过 {@link #current()} 捕获，再传入此方法；不会凭空提升权限。
+   */
+  public static void runAs(Identity identity, Runnable work) {
+    Identity previous = null;
+    try {
+      previous = current();
+    } catch (ApiException ignored) {
+      /* 异步线程本来就没有身份 */
+    }
+    set(identity);
+    try {
+      work.run();
+    } finally {
+      if (previous == null) clear();
+      else set(previous);
+    }
+  }
 }
