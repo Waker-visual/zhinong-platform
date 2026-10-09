@@ -248,8 +248,9 @@ onBeforeUnmount(() => {
           ×
         </button>
       </div>
-      <p v-if="error" role="alert" class="error">{{ error }}</p>
-      <template v-if="device">
+      <div class="device-detail-body">
+        <p v-if="error" role="alert" class="error">{{ error }}</p>
+        <template v-if="device">
         <div class="detail-meta">
           <span class="status-chip" :class="device.freshness.toLowerCase()">{{
             stateNames[device.freshness]
@@ -503,7 +504,8 @@ onBeforeUnmount(() => {
           </div>
           <p v-if="!device.alerts.length" class="empty">暂无阈值告警记录</p>
         </section>
-      </template>
+        </template>
+      </div>
     </section>
   </div>
 </template>
