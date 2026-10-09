@@ -472,6 +472,17 @@ test("irrigationApprovalTarget returns null when the approval activity has no en
   assert.equal(irrigationApprovalTarget(null), null);
 });
 
+// 持久化消息走 GET /conversations/{id}/messages 时，活动摘要的字段名是文档约定的 activityId
+// （数据库列 ACTIVITY_ID 经 api.js 的 normalize() 转换而来），不是实时 SSE 事件用的 id。
+// 两条路径共用同一个 AiActivityRow/AiActivityDisclosure，必须都认得，否则重新打开对话后
+// “去确认”按钮会消失。
+test("irrigationApprovalTarget also recognizes the persisted activityId field (reload path), not just the live SSE id field", () => {
+  assert.deepEqual(
+    irrigationApprovalTarget({ activityId: "irrigation-run:run-456", kind: "approval" }),
+    { type: "irrigation-run", id: "run-456" },
+  );
+});
+
 // --- 静态源码检查：role/aria-busy/aria-live、装饰性动画元素的 aria-hidden、reduced-motion 覆盖均需存在 ---
 // 没有 DOM 测试运行器，这里直接读取 .vue/.css 源文本做字符串级断言，覆盖本任务要求的可访问性标记。
 

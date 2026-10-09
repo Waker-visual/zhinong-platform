@@ -25,7 +25,7 @@ function onToggle(event) {
     <summary>{{ activitySummaryText(activities, runStatus) }}</summary>
     <div class="ai-activity-collapse">
       <ol class="ai-activity-list">
-        <AiActivityRow v-for="a in activities" :key="a.id" :activity="a" :writer="writer" @view-approval="t => emit('view-approval', t)" />
+        <AiActivityRow v-for="a in activities" :key="a.id || a.activityId" :activity="a" :writer="writer" @view-approval="t => emit('view-approval', t)" />
       </ol>
     </div>
   </details>

@@ -123,14 +123,18 @@ export function shouldShowCaret(status, text) {
   return status === "running" && !!text;
 }
 
-// 灌溉审批活动的 target 解析：后端把目标编码进 activity.id（"irrigation-run:<runId>"），不需要
+// 灌溉审批活动的 target 解析：后端把目标编码进活动的标识字段（"irrigation-run:<runId>"），不需要
 // 额外的事件字段或数据库列。只有 kind==="approval" 且确实带这个前缀时才返回目标，否则返回 null——
 // 调用方（AiActivityRow）据此决定是否渲染“去确认”按钮。
+// 注意：这个标识字段在两条数据路径上的字段名不同——SSE 实时事件（AgentEvent.Activity）序列化为
+// `id`；而 GET /conversations/{id}/messages 返回的已持久化活动摘要，字段名是文档约定的
+// `activityId`（经 api.js 的 normalize() 把数据库列 ACTIVITY_ID 转成 activityId，而不是 id）。
+// 两种形状都要兼容，否则重新打开对话后“去确认”按钮会消失（活动摘要来自 REST 接口而不是实时事件）。
 const IRRIGATION_APPROVAL_PREFIX = "irrigation-run:";
 
 export function irrigationApprovalTarget(activity) {
   if (!activity || activity.kind !== "approval") return null;
-  const id = activity.id || "";
+  const id = activity.id || activity.activityId || "";
   if (!id.startsWith(IRRIGATION_APPROVAL_PREFIX)) return null;
   const runId = id.slice(IRRIGATION_APPROVAL_PREFIX.length);
   return runId ? { type: "irrigation-run", id: runId } : null;
