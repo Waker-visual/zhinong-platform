@@ -34,7 +34,9 @@ const database = ref(null);
 onMounted(async () => {
   if (props.account.mustChangePassword) return;
   try { database.value = await api("/system/database"); } catch { database.value = { connected: false }; }
+  try { aiStatus.value = await api("/ai/status"); } catch { aiStatus.value = null; }
 });
+const aiStatus = ref(null);
 const isPlatformAdmin = props.account.role === "PLATFORM_ADMIN";
 const modelInfo = ref(null);
 const modelForm = reactive({ url: "", model: "", apiKey: "" });
@@ -798,6 +800,11 @@ onBeforeUnmount(() => applyAppearance(props.account));
             <div>
               <dt>经营模拟</dt>
               <dd>公开天气 + 可调整的情景参数</dd>
+            </div>
+            <div v-if="aiStatus">
+              <dt>AI 模型服务</dt>
+              <dd>{{ aiStatus.llm ? "云端模型已启用" : "未配置，AI 助手使用规则回退" }}</dd>
+              <dd v-if="!isPlatformAdmin" class="muted">由平台管理员在“模型服务”中配置</dd>
             </div>
           </dl>
           <p class="muted">
