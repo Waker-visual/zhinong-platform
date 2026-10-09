@@ -197,6 +197,133 @@ class AiIntegrationTest {
     assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE farm_id=?",Integer.class,farmId));
   }
 
+  // Regression/benchmark test for the bounded latest-reading rewrite in AgronomyAnalysis.report():
+  // seeds tens of thousands of telemetry rows across several devices/metrics (plus a second
+  // tenant's farm) and checks that the latest value per (device,metric) and its freshness flag
+  // are still computed correctly and tenant/farm-isolated, while logging how long the old
+  // per-row correlated NOT EXISTS query took next to the new windowed query on identical data.
+  @Test void latestSensorReadingIsCorrectTenantIsolatedAndFastAtScale() throws Exception {
+    String plot = call(admin, "POST", "/plots", Map.of("farmId", farmId, "name", "规模测试地", "crop", "蔬菜", "areaMu", 5), 200).path("ID").asText();
+    String weather = createDevice(plot, "WEATHER");
+    String soil = createDevice(plot, "SOIL");
+    String pest = createDevice(plot, "PEST");
+    var devices = List.of(weather, soil, pest);
+    var metrics = List.of("TEMPERATURE", "HUMIDITY", "WIND_SPEED", "RAINFALL", "SOIL_MOISTURE", "PEST_COUNT");
+    String tenantId = tenant();
+    var now = java.time.OffsetDateTime.now();
+    var rnd = new Random(42);
+
+    // expected.get("<deviceId>|<metric>") = {latestValue, freshFlag(1/0)}
+    var expected = new LinkedHashMap<String, double[]>();
+    var batch = new ArrayList<Object[]>();
+    int rowsPerPair = 1500; // 3 devices * 6 metrics * 1500 = 27,000 historical rows
+    for (String device : devices) {
+      for (String metric : metrics) {
+        for (int i = 0; i < rowsPerPair; i++) {
+          long secondsAgo = 2000 + rnd.nextInt(30 * 24 * 3600); // spread across the 30-day demo window, always older than the sentinels below
+          double value = rnd.nextDouble() * 50;
+          var t = now.minusSeconds(secondsAgo);
+          batch.add(new Object[]{UUID.randomUUID().toString(), tenantId, device, metric, value, t, t});
+        }
+      }
+    }
+    // One designated latest reading per (device,metric): fresh (<15min) for weather/soil, stale for pest,
+    // so both freshness branches are exercised with a known expected value.
+    for (String device : devices) {
+      for (String metric : metrics) {
+        boolean fresh = !device.equals(pest);
+        long secondsAgo = fresh ? 30 : 1000; // stale sentinel is still newer than every noise row (>=2000s) but older than the 900s fresh cutoff
+        double value = 900.0 + metrics.indexOf(metric);
+        var t = now.minusSeconds(secondsAgo);
+        batch.add(new Object[]{UUID.randomUUID().toString(), tenantId, device, metric, value, t, t});
+        expected.put(device + "|" + metric, new double[]{value, fresh ? 1 : 0});
+      }
+    }
+    db.batchUpdate("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')", batch);
+
+    // A second tenant/farm with its own telemetry; it must never leak into this farm's report.
+    String otherFarmId = call(otherAdmin, "POST", "/farms", Map.of("name", "二租户规模测试场-" + UUID.randomUUID(), "description", "虚构测试数据"), 200).path("ID").asText();
+    String otherPlot = call(otherAdmin, "POST", "/plots", Map.of("farmId", otherFarmId, "name", "二租户地块", "crop", "蔬菜", "areaMu", 2), 200).path("ID").asText();
+    var otherDeviceInput = new LinkedHashMap<String, Object>();
+    otherDeviceInput.put("farmId", otherFarmId); otherDeviceInput.put("plotId", otherPlot);
+    otherDeviceInput.put("name", "虚构WEATHER"); otherDeviceInput.put("code", "TEST-" + UUID.randomUUID());
+    otherDeviceInput.put("deviceType", "WEATHER"); otherDeviceInput.put("protocol", "SIMULATED");
+    otherDeviceInput.put("lifecycle", "ACTIVE"); otherDeviceInput.put("model", "测试"); otherDeviceInput.put("notes", "虚构");
+    otherDeviceInput.put("intervalSeconds", 60); otherDeviceInput.put("revision", 0); otherDeviceInput.put("controlEnabled", false);
+    otherDeviceInput.put("channels", app.zhinong.workspace.MetricCatalog.PRESETS.get("WEATHER").stream().map(m -> Map.of("metric", m)).toList());
+    String otherDevice = call(otherAdmin, "POST", "/assets", otherDeviceInput, 200).path("id").asText();
+    String otherTenantId = db.queryForObject("SELECT id FROM tenants WHERE code='demo-b'", String.class);
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",
+      UUID.randomUUID().toString(), otherTenantId, otherDevice, "TEMPERATURE", 12345, now.minusSeconds(10), now.minusSeconds(10));
+
+    long httpStart = System.nanoTime();
+    var report = call(admin, "GET", "/ai/analysis?farmId=" + farmId, null, 200);
+    long httpElapsedMs = (System.nanoTime() - httpStart) / 1_000_000;
+    System.out.println("[perf] GET /ai/analysis over " + batch.size() + " seeded telemetry rows took " + httpElapsedMs + "ms");
+
+    var sensors = report.path("sensors");
+    assertEquals(devices.size() * metrics.size(), sensors.size(), "expected exactly one latest row per (device,metric)");
+    var byKey = new HashMap<String, JsonNode>();
+    for (var s : sensors) byKey.put(s.path("deviceId").asText() + "|" + s.path("METRIC").asText(), s);
+    for (var e : expected.entrySet()) {
+      var row = byKey.get(e.getKey());
+      assertNotNull(row, "missing sensor row for " + e.getKey());
+      assertEquals(e.getValue()[0], row.path("value").asDouble(), 0.0001, "wrong latest value for " + e.getKey());
+      assertEquals(e.getValue()[1] == 1, row.path("fresh").asBoolean(), "wrong freshness for " + e.getKey());
+    }
+    // Tenant/farm isolation: the other tenant's device must never surface in this farm's report.
+    for (var s : sensors) assertNotEquals(otherDevice, s.path("deviceId").asText());
+    var otherReport = call(otherAdmin, "GET", "/ai/analysis?farmId=" + otherFarmId, null, 200);
+    boolean otherDeviceSeen = false;
+    for (var s : otherReport.path("sensors")) if (otherDevice.equals(s.path("deviceId").asText())) otherDeviceSeen = true;
+    assertTrue(otherDeviceSeen, "the other tenant's own farm report should still see its own device");
+
+    // Prove semantic equivalence: the original per-row correlated NOT EXISTS query (kept here only
+    // as a literal comparison baseline, not production code) must pick the exact same latest
+    // (device,metric,value) rows on this identical dataset, and we log its elapsed time alongside
+    // the new windowed query run directly against the DB (no HTTP/JSON overhead) for comparison.
+    var oldSql = """
+      SELECT d.id AS "deviceId",t.metric,t.measured_value AS "value"
+      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+      JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
+      LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id
+      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
+        AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
+        AND NOT EXISTS(SELECT 1 FROM telemetry_readings n WHERE n.tenant_id=t.tenant_id AND n.device_id=t.device_id
+          AND n.metric=t.metric AND (n.measured_at>t.measured_at OR (n.measured_at=t.measured_at AND n.id>t.id)))
+      ORDER BY d.name,t.metric
+      """;
+    var newSql = """
+      SELECT "deviceId",metric,"value" FROM (
+        SELECT d.id AS "deviceId",t.metric,t.measured_value AS "value",
+          ROW_NUMBER() OVER (PARTITION BY t.device_id,t.metric ORDER BY t.measured_at DESC,t.id DESC) AS rn
+        FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+        JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
+        WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
+          AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
+      ) ranked WHERE rn=1
+      ORDER BY "deviceId",metric
+      """;
+
+    long oldStart = System.nanoTime();
+    var oldRows = db.queryForList(oldSql, tenantId, farmId);
+    long oldElapsedMs = (System.nanoTime() - oldStart) / 1_000_000;
+    long newStart = System.nanoTime();
+    var newRows = db.queryForList(newSql, tenantId, farmId);
+    long newElapsedMs = (System.nanoTime() - newStart) / 1_000_000;
+    System.out.println("[perf] direct SQL on " + batch.size() + " rows -- old correlated NOT EXISTS: " + oldElapsedMs
+      + "ms, new windowed query: " + newElapsedMs + "ms");
+
+    java.util.function.Function<List<Map<String, Object>>, Set<String>> toKeySet = rows -> {
+      Set<String> keys = new HashSet<>();
+      for (var r : rows) keys.add(r.get("deviceId") + "|" + r.get("METRIC") + "|" + Math.round(((Number) r.get("value")).doubleValue() * 10000.0));
+      return keys;
+    };
+    assertEquals(toKeySet.apply(oldRows), toKeySet.apply(newRows), "rewritten query must select the exact same latest rows as the original");
+    assertEquals(devices.size() * metrics.size(), oldRows.size());
+    assertEquals(oldRows.size(), newRows.size());
+  }
+
   String tenant() {return db.queryForObject("SELECT id FROM tenants WHERE code='demo-a'",String.class);}
   Map<String,Object> irrigationFixture() throws Exception {
     String plot=call(admin,"POST","/plots",Map.of("farmId",farmId,"name","虚构蔬菜地","crop","蔬菜","areaMu",5),200).path("ID").asText();
