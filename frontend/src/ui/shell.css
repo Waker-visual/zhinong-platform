@@ -123,27 +123,51 @@ button[aria-busy="true"]::after {
   padding: 28px;
 }
 
-/* 指标的统计口径：默认折叠，说明数字从哪里来、包含什么 */
-.stat-notes {
+/* 可展开详情：展开后用圆角底色卡片承载较长说明，便于快速定位信息 */
+.disclosure {
   color: var(--label-fg);
   font-size: 13px;
 }
-.stat-notes summary {
+.disclosure > summary {
   width: fit-content;
-  padding: 2px 0;
+  padding: 8px 0;
   cursor: pointer;
+  color: var(--label-fg);
+  font-weight: 500;
 }
-.stat-notes summary:hover {
+.disclosure > summary:hover {
   color: var(--text);
 }
-.stat-notes ul {
-  display: grid;
-  gap: 4px;
-  max-width: 76ch;
-  margin: 6px 0 0;
-  padding-left: 18px;
+.disclosure-content {
+  margin-top: 6px;
+  padding: 14px 18px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--subtle-bg);
   color: var(--text-2);
   line-height: 1.7;
+}
+.disclosure-content > :first-child {
+  margin-top: 0;
+}
+.disclosure-content > :last-child {
+  margin-bottom: 0;
+}
+.disclosure-content p {
+  margin: 0 0 10px;
+}
+.disclosure-content ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.stat-notes .disclosure-content {
+  max-height: min(360px, 42vh);
+  overflow: auto;
+}
+.stat-notes .disclosure-content ul {
+  display: grid;
+  gap: 8px;
+  max-width: 76ch;
 }
 .screen-mode > .stat-notes {
   display: none;
