@@ -18,6 +18,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '项目检查工具测试未通过' }
     node --test tools/tests/coordinates.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '地图坐标回归测试未通过' }
+    node --test tools/tests/model-config.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw '模型服务配置表单测试未通过' }
+    node --test tools/tests/ai-diagnostics.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw 'AI 诊断码文案测试未通过' }
     node tools/check_project.cjs scan
     if ($LASTEXITCODE -ne 0) { throw '项目公开范围或敏感信息检查未通过' }
     node tools/generate_mysql_schema.cjs --check

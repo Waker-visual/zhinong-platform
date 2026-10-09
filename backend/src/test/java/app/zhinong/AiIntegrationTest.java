@@ -183,6 +183,42 @@ class AiIntegrationTest {
   }
 
   @Test
+  void modelConnectionTestAndModelOptionManagementAreRestrictedToPlatformAdmin() throws Exception {
+    for (String token : List.of(admin, otherAdmin, operator, viewer)) {
+      call(token, "POST", "/ai/config/test", Map.of(), 403);
+      call(token, "POST", "/ai/config/models", Map.of(), 403);
+      call(token, "POST", "/ai/config/models/options", Map.of("ids", List.of("sk-test-placeholder-model")), 403);
+      call(token, "POST", "/ai/config/models/options/remove", Map.of("id", "sk-test-placeholder-model"), 403);
+    }
+    call(null, "POST", "/ai/config/test", Map.of(), 401);
+
+    JsonNode test = call(platform, "POST", "/ai/config/test", Map.of(), 200);
+    assertEquals("OK", test.path("code").asText());
+
+    JsonNode fetched = call(platform, "POST", "/ai/config/models", Map.of(), 200);
+    assertEquals("OK", fetched.path("diagnostic").asText());
+    assertEquals(2, fetched.path("models").size());
+    assertFalse(fetched.toString().toLowerCase().contains("apikey"));
+
+    JsonNode added = call(platform, "POST", "/ai/config/models/options",
+      Map.of("ids", List.of("test-model-a", "test-model-b", "test-model-a")), 200);
+    List<String> options = new ArrayList<>();
+    added.path("modelOptions").forEach(n -> options.add(n.asText()));
+    assertEquals(List.of("test-model-a", "test-model-b"), options);
+
+    JsonNode config = call(platform, "GET", "/ai/config", null, 200);
+    assertFalse(config.toString().toLowerCase().contains("sk-test-placeholder"));
+    List<String> configOptions = new ArrayList<>();
+    config.path("modelOptions").forEach(n -> configOptions.add(n.asText()));
+    assertEquals(List.of("test-model-a", "test-model-b"), configOptions);
+
+    JsonNode removed = call(platform, "POST", "/ai/config/models/options/remove", Map.of("id", "test-model-a"), 200);
+    List<String> afterRemove = new ArrayList<>();
+    removed.path("modelOptions").forEach(n -> afterRemove.add(n.asText()));
+    assertEquals(List.of("test-model-b"), afterRemove);
+  }
+
+  @Test
   void farmAccessIsCheckedBeforeAnyModelCall() throws Exception {
     // Even a model that answers without requesting tools cannot bypass farm authorization.
     llm.answer = Optional.of(
@@ -257,9 +293,18 @@ class AiIntegrationTest {
       return answer.map(LlmResponse::content);
     }
 
+    volatile Boolean savedClear;
+
     @Override
-    public void saveConfig(String url, String key, String model) {
+    public void saveConfig(String url, String key, String model, boolean clearApiKey) {
       saved = Arrays.asList(url, key, model);
+      savedClear = clearApiKey;
+    }
+
+    @Override
+    public String test(String url, String key, String model) {
+      calls.incrementAndGet();
+      return "OK";
     }
 
     @Override
@@ -273,5 +318,38 @@ class AiIntegrationTest {
 
     @Override
     public boolean cloudEnabled() { return false; }
+
+    volatile List<String> modelOptionsValue = new ArrayList<>(List.of());
+
+    @Override
+    public synchronized List<String> modelOptions() {
+      return List.copyOf(modelOptionsValue);
+    }
+
+    @Override
+    public synchronized List<String> mergeModelOptions(List<String> ids) {
+      calls.incrementAndGet();
+      for (String raw : ids == null ? List.<String>of() : ids) {
+        String id = raw == null ? "" : raw.trim();
+        if (!id.isEmpty() && !modelOptionsValue.contains(id)) modelOptionsValue.add(id);
+      }
+      return List.copyOf(modelOptionsValue);
+    }
+
+    @Override
+    public synchronized List<String> removeModelOption(String id) {
+      calls.incrementAndGet();
+      modelOptionsValue.remove(id == null ? "" : id.trim());
+      return List.copyOf(modelOptionsValue);
+    }
+
+    volatile LlmGateway.FetchModelsResult fetchModelsResult =
+      new LlmGateway.FetchModelsResult(List.of("test-model-a", "test-model-b"), "OK");
+
+    @Override
+    public LlmGateway.FetchModelsResult fetchModels(String url, String apiKey) {
+      calls.incrementAndGet();
+      return fetchModelsResult;
+    }
   }
 }

@@ -9,10 +9,17 @@ import {
 } from "vue";
 import { api } from "../api";
 import { labels } from "../catalog";
+import { diagnosticLabel } from "../ai/diagnostics";
 import AppIcon from "../ui/AppIcon.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
+import { confirmAction } from "../ui/confirm";
 import { important, toast } from "../ui/feedback";
 import { applyAppearance } from "./appearance";
+import {
+  buildConfigOverridePayload,
+  buildSaveConfigPayload,
+  mergeModelIds,
+} from "./model-config";
 const props = defineProps({ account: Object });
 const emit = defineEmits(["close", "updated", "password-changed"]);
 const tab = ref(props.account.mustChangePassword ? "security" : "profile"),
@@ -28,6 +35,29 @@ onMounted(async () => {
   if (props.account.mustChangePassword) return;
   try { database.value = await api("/system/database"); } catch { database.value = { connected: false }; }
 });
+const isPlatformAdmin = props.account.role === "PLATFORM_ADMIN";
+const modelInfo = ref(null);
+const modelForm = reactive({ url: "", model: "", apiKey: "" });
+const showModelKey = ref(false);
+const modelTestResult = ref("");
+const modelTestCode = ref("");
+const modelFetchNotice = ref("");
+const modelFetchCode = ref("");
+const newModelId = ref("");
+onMounted(() => {
+  if (isPlatformAdmin && !props.account.mustChangePassword) work(loadModelConfig);
+});
+async function loadModelConfig() {
+  modelInfo.value = await api("/ai/config");
+  modelForm.url = modelInfo.value.url || "";
+  modelForm.model = modelInfo.value.model || "";
+  modelForm.apiKey = "";
+  showModelKey.value = false;
+  modelTestResult.value = "";
+  modelTestCode.value = "";
+  modelFetchNotice.value = "";
+  modelFetchCode.value = "";
+}
 const profile = reactive({
   displayName: props.account.displayName,
   avatarData: props.account.avatarData || "",
@@ -71,6 +101,9 @@ const tabs = computed(() =>
         ...(props.account.role === "ADMIN"
           ? [{ id: "team", name: "成员管理", icon: "team" }]
           : []),
+        ...(isPlatformAdmin
+          ? [{ id: "model", name: "模型服务", icon: "operations" }]
+          : []),
         { id: "about", name: "系统信息", icon: "info" },
       ],
 );
@@ -110,6 +143,11 @@ function switchTab(id) {
   password.currentPassword = "";
   password.newPassword = "";
   password.confirmation = "";
+  modelTestResult.value = "";
+  modelTestCode.value = "";
+  modelFetchNotice.value = "";
+  modelFetchCode.value = "";
+  newModelId.value = "";
 }
 function saveProfile() {
   work(async () => {
@@ -140,6 +178,76 @@ function changePassword() {
       newPassword: password.newPassword,
     });
     emit("password-changed");
+  });
+}
+function saveModelConfig() {
+  work(async () => {
+    await api("/ai/config", "POST", buildSaveConfigPayload(modelForm, false));
+    await loadModelConfig();
+    message.value = "模型服务配置已保存";
+    important("模型服务配置已保存");
+  });
+}
+async function clearModelKey() {
+  const ok = await confirmAction({
+    title: "清除模型密钥",
+    message: "清除后云端模型将不可用，需重新配置密钥才能恢复为启用状态。",
+    confirmLabel: "清除密钥",
+    danger: true,
+  });
+  if (!ok) return;
+  work(async () => {
+    await api("/ai/config", "POST", buildSaveConfigPayload(modelForm, true));
+    await loadModelConfig();
+    message.value = "模型密钥已清除";
+    important("模型密钥已清除");
+  });
+}
+function testModelConnection() {
+  modelTestResult.value = "";
+  modelTestCode.value = "";
+  work(async () => {
+    const res = await api("/ai/config/test", "POST", buildConfigOverridePayload(modelForm));
+    modelTestCode.value = res.code;
+    modelTestResult.value = diagnosticLabel(res.code);
+  });
+}
+function fetchModelOptions() {
+  modelFetchNotice.value = "";
+  modelFetchCode.value = "";
+  work(async () => {
+    const res = await api("/ai/config/models", "POST", buildConfigOverridePayload(modelForm));
+    modelFetchCode.value = res.diagnostic;
+    if (res.diagnostic !== "OK") {
+      modelFetchNotice.value = diagnosticLabel(res.diagnostic);
+      return;
+    }
+    const existing = modelInfo.value?.modelOptions || [];
+    const merged = mergeModelIds(existing, res.models);
+    if (merged.length === existing.length) {
+      modelFetchNotice.value = "服务返回的模型均已在选项列表中";
+      return;
+    }
+    const data = await api("/ai/config/models/options", "POST", { ids: res.models });
+    modelInfo.value = { ...modelInfo.value, modelOptions: data.modelOptions };
+    modelFetchNotice.value = `已合并 ${merged.length - existing.length} 个新模型到选项列表`;
+  });
+}
+function addCustomModelOption() {
+  const id = newModelId.value.trim();
+  if (!id) return;
+  work(async () => {
+    const data = await api("/ai/config/models/options", "POST", { ids: [id] });
+    modelInfo.value = { ...modelInfo.value, modelOptions: data.modelOptions };
+    newModelId.value = "";
+    message.value = "模型选项已添加";
+  });
+}
+function removeModelOption(id) {
+  work(async () => {
+    const data = await api("/ai/config/models/options/remove", "POST", { id });
+    modelInfo.value = { ...modelInfo.value, modelOptions: data.modelOptions };
+    message.value = "模型选项已移除";
   });
 }
 async function upload(event) {
@@ -570,6 +678,111 @@ onBeforeUnmount(() => applyAppearance(props.account));
             仅管理当前租户。普通成员密码由管理员重置；管理员自身通过“账号安全”改密。
           </p>
         </section>
+        <form v-validate v-if="tab === 'model'" @submit.prevent="saveModelConfig">
+          <p class="muted">
+            全局模型配置对所有租户生效；密钥只保存在本机私有配置文件中，从不下发到前端，也不会显示原文。
+          </p>
+          <p v-if="modelInfo" :class="modelInfo.cloudEnabled ? 'success' : 'settings-notice'">
+            {{ modelInfo.cloudEnabled ? "已启用云端模型" : "未配置" }}
+          </p>
+          <label
+            >接口地址<input
+              v-model.trim="modelForm.url"
+              type="url"
+              maxlength="300"
+              placeholder="https://api.example.com/v1"
+          /></label>
+          <label
+            >模型名称<input
+              v-model.trim="modelForm.model"
+              maxlength="100"
+              placeholder="例如 deepseek-flash"
+          /></label>
+          <label
+            >API 密钥<input
+              :type="showModelKey ? 'text' : 'password'"
+              v-model="modelForm.apiKey"
+              maxlength="300"
+              autocomplete="new-password"
+              :placeholder="modelInfo?.apiKeySet ? '已设置，留空则保持不变' : '未设置'"
+          /></label>
+          <label class="inline-check"
+            ><input type="checkbox" v-model="showModelKey" />显示输入的密钥</label
+          >
+          <div class="settings-actions">
+            <button class="primary" :disabled="busy">保存</button
+            ><button
+              type="button"
+              class="outline"
+              :disabled="busy"
+              @click="testModelConnection"
+            >
+              测试连接</button
+            ><button
+              type="button"
+              class="outline"
+              :disabled="busy || !modelInfo?.apiKeySet"
+              @click="clearModelKey"
+            >
+              清除密钥
+            </button>
+          </div>
+          <p v-if="modelTestResult" :class="modelTestCode === 'OK' ? 'success' : 'error'" role="status">
+            测试结果：{{ modelTestResult }}
+          </p>
+          <h3>模型选项</h3>
+          <p class="muted">
+            勾选上方“模型名称”对应的选项即为当前使用的模型；移除某个选项前须先切换到其他模型。
+          </p>
+          <div class="model-options-list">
+            <p v-if="!modelInfo?.modelOptions?.length" class="muted">
+              暂无模型选项，可从服务获取或手动添加。
+            </p>
+            <label
+              v-for="id in modelInfo?.modelOptions || []"
+              :key="id"
+              class="model-option-row"
+              :class="{ active: modelForm.model === id }"
+            >
+              <span class="model-option-pick"
+                ><input
+                  type="radio"
+                  name="active-model-option"
+                  :value="id"
+                  v-model="modelForm.model"
+                />{{ id }}</span
+              ><button
+                type="button"
+                class="icon-button"
+                :aria-label="'移除 ' + id"
+                :disabled="busy || id === modelForm.model"
+                @click="removeModelOption(id)"
+              >
+                <AppIcon name="trash" />
+              </button>
+            </label>
+          </div>
+          <div class="settings-team-tools">
+            <input
+              v-model.trim="newModelId"
+              maxlength="100"
+              placeholder="手动输入模型 id，例如 deepseek-v4-pro"
+              aria-label="手动添加模型 id"
+            /><button
+              type="button"
+              class="outline"
+              :disabled="busy || !newModelId.trim()"
+              @click="addCustomModelOption"
+            >
+              添加</button
+            ><button type="button" class="outline" :disabled="busy" @click="fetchModelOptions">
+              从服务获取
+            </button>
+          </div>
+          <p v-if="modelFetchNotice" :class="modelFetchCode === 'OK' || !modelFetchCode ? 'muted' : 'error'" role="status">
+            {{ modelFetchNotice }}
+          </p>
+        </form>
         <section v-if="tab === 'about'">
           <h3>智禾农场 0.3.0</h3>
           <p>多租户农场经营管理、实景地图与情景验收。</p>
