@@ -398,7 +398,7 @@ html .app-layout {
   display: flex;
   align-items: center;
   min-height: 40px;
-  margin: -30px 48px 24px 0;
+  margin: 0 48px 24px 0;
   padding: 16px 0 12px;
   background: var(--surface);
 }
@@ -684,7 +684,7 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
     padding: 20px;
   }
   .settings-content > header {
-    margin: -20px 48px 20px 0;
+    margin: 0 48px 20px 0;
   }
   .settings-facts {
     grid-template-columns: 1fr;
