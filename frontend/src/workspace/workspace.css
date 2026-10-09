@@ -775,11 +775,26 @@
 .workspace-overlay {
   z-index: 10000 !important;
 }
-.asset-editor {
+.modal.asset-editor {
   width: min(880px, 94vw) !important;
   max-height: 92vh !important;
-  overflow: auto;
-  scrollbar-gutter: stable;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+/* 修复：sticky 标题的负边距（-28px 抵消 padding）在滚动容器中发生偏移，
+   导致标题底部盖住表单首行标签（设备名称/设备编码）。全局 shell.css 的
+   `.modal > .section-title`（sticky/-28px/带背景）特定性相同且声明更靠后，
+   会覆盖此修复，故用 `.modal.asset-editor` 双类提高特定性强制生效；
+   该全局规则现已在 shell.css 中修正（margin 0/padding 0），此处保持一致。 */
+.modal.asset-editor > .section-title {
+  margin: 0 0 20px;
+  padding: 0 0 12px;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--surface);
+  flex-shrink: 0;
 }
 .form-grid {
   display: grid;
@@ -791,6 +806,22 @@
 }
 .asset-editor form {
   display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+/* 修复：表单内容超出弹窗高度时，“保存设备/取消”按钮被顶出滚动区，
+   用户看不到保存入口。弹窗改为三段式布局：标题固定顶部、表单区独立滚动、
+   按钮固定底部——任意滚动位置按钮始终可见，内容不会从按钮背后穿过。 */
+.asset-editor .modal-actions {
+  position: static;
+  flex-shrink: 0;
+  margin-top: 16px;
+  padding-top: 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 .channel-settings {
   border-top: 1px solid var(--border);
@@ -1248,7 +1279,7 @@
     max-height: 94vh !important;
   }
   .workspace-overlay .modal > .section-title {
-    margin-top: -20px;
+    margin-top: 0;
   }
   .alert-item {
     align-items: flex-start;
