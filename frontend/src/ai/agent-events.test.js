@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createAgentRun, reduceAgentEvent, cancelAgentRun } from "./agent-events.js";
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages } from "./agent-events.js";
 import { syncConversationAdapter } from "./agent-adapter.js";
+import { isNearBottom } from "./scroll.js";
 
 test("createAgentRun returns the initial submitted state", () => {
   const state = createAgentRun("今天地块需要灌溉吗？", "req-1");
@@ -154,6 +155,62 @@ test("cancelAgentRun marks the run cancelled without losing partial text", () =>
   assert.equal(cancelled.status, "cancelled");
   assert.equal(cancelled.text, "部分");
   assert.notEqual(cancelled, state);
+});
+
+test("cancelAgentRun marks pending/running activities as error, not completed", () => {
+  let state = createAgentRun("问题", "req-1");
+  state = reduceAgentEvent(state, { sequence: 1, type: "run.started" });
+  state = reduceAgentEvent(state, {
+    sequence: 2,
+    type: "activity.started",
+    activity: { id: "a", kind: "context", label: "读取资料", status: "running" },
+  });
+  state = reduceAgentEvent(state, {
+    sequence: 3,
+    type: "activity.started",
+    activity: { id: "b", kind: "tool", label: "等待确认", status: "pending" },
+  });
+  const cancelled = cancelAgentRun(state);
+  assert.equal(cancelled.activities[0].status, "error");
+  assert.equal(cancelled.activities[0].detail, "已停止");
+  assert.equal(cancelled.activities[1].status, "error");
+  assert.notEqual(cancelled.activities[0].status, "completed");
+});
+
+test("visibleMessages appends temporary user message and streaming placeholder without mutating history", () => {
+  const history = [{ id: "m1", role: "user", content: "之前的问题" }, { id: "m2", role: "assistant", content: "之前的回答" }];
+  const frozenHistory = JSON.parse(JSON.stringify(history));
+  let run = createAgentRun("新的问题", "req-9");
+  run = reduceAgentEvent(run, { sequence: 1, type: "run.started" });
+  run = reduceAgentEvent(run, { sequence: 2, type: "message.delta", delta: "正在生成" });
+  const visible = visibleMessages(history, run);
+  assert.deepEqual(history, frozenHistory);
+  assert.notEqual(visible, history);
+  assert.equal(visible.length, 4);
+  assert.equal(visible[0], history[0]);
+  assert.equal(visible[1], history[1]);
+  assert.equal(visible[2].role, "user");
+  assert.equal(visible[2].content, "新的问题");
+  assert.equal(visible[2].temporary, true);
+  assert.equal(visible[3].role, "assistant");
+  assert.equal(visible[3].pending, true);
+  assert.equal(visible[3].content, "正在生成");
+  assert.equal(visible[3].run, run);
+});
+
+test("visibleMessages returns the original history when there is no active run", () => {
+  const history = [{ id: "m1", role: "user", content: "问题" }];
+  assert.equal(visibleMessages(history, null), history);
+});
+
+test("isNearBottom treats distances within the 72px threshold as near", () => {
+  // scrollHeight 1000, clientHeight 600 -> distance = 1000 - scrollTop - 600
+  assert.equal(isNearBottom(400, 1000, 600), true); // distance 0
+  assert.equal(isNearBottom(328, 1000, 600), true); // distance 72, boundary inclusive
+  assert.equal(isNearBottom(327, 1000, 600), false); // distance 73
+  assert.equal(isNearBottom(0, 1000, 600), false); // distance 400, scrolled far up
+  assert.equal(isNearBottom(0, 400, 600), true); // content shorter than viewport
+  assert.equal(isNearBottom(200, 1000, 600, 300), true); // custom wider threshold
 });
 
 test("syncConversationAdapter emits the expected event sequence on success", async () => {

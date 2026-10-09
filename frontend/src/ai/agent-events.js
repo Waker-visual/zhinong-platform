@@ -68,5 +68,21 @@ export function reduceAgentEvent(state, event) {
 }
 
 export function cancelAgentRun(state) {
-  return { ...state, status: "cancelled", activities: finalizeRunningActivities(state.activities, "completed") };
+  // 停止/未完成的活动标记为 error（附“已停止”说明），不能标成 completed——那会谎称已完成。
+  const stopped = state.activities.map((a) =>
+    a.status === "running" || a.status === "pending" ? { ...a, status: "error", detail: a.detail || "已停止" } : a,
+  );
+  return { ...state, status: "cancelled", activities: stopped };
+}
+
+// 组合当前展示用的消息列表：在不改动已持久化历史的前提下，
+// 追加这次运行的临时用户消息和流式中的助手占位消息。
+// run 为空时直接返回原始历史（不新建数组也可以，但为了调用方一致性这里仍返回新数组的浅拷贝）。
+export function visibleMessages(history, run) {
+  if (!run) return history;
+  return [
+    ...history,
+    { role: "user", content: run.question, temporary: true },
+    { role: "assistant", content: run.text, temporary: true, pending: true, run },
+  ];
 }
