@@ -42,6 +42,7 @@ class AiIntegrationTest {
   TestLlmGateway llm;
   @Autowired org.springframework.jdbc.core.JdbcTemplate db;
   @Autowired app.zhinong.ai.IrrigationTicker ticker;
+  @Autowired app.zhinong.ai.AiConversations aiConversations;
 
   final HttpClient client = HttpClient.newHttpClient();
   String admin, otherAdmin, operator, viewer, platform, farmId;
@@ -83,6 +84,39 @@ class AiIntegrationTest {
     call(operator,"DELETE","/ai/conversations/"+id,null,404);
     call(admin,"DELETE","/ai/conversations/"+id,null,200);
     call(admin,"GET","/ai/conversations/"+id+"/messages",null,404);
+  }
+
+  @Test void activitySummariesPersistOrderedStayTenantIsolatedAndSurviveDeletion() throws Exception {
+    String id=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    llm.answer=Optional.of(new LlmGateway.LlmResponse("测试回答。",List.of()));
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","请检查墒情","requestId","turn-1"),200);
+    var before=call(admin,"GET","/ai/conversations/"+id+"/messages",null,200);
+    assertEquals(2,before.size());
+    for(var m:before) assertTrue(m.path("activities").isArray()&&m.path("activities").isEmpty());
+    String assistantMessageId=before.get(1).path("ID").asText();
+
+    var activities=List.of(
+      new app.zhinong.ai.AiConversations.ActivitySummary("act-2",2,"tool","读取墒情数据","completed","查询最新土壤水分","已找到3条记录",java.time.OffsetDateTime.now(),java.time.OffsetDateTime.now()),
+      new app.zhinong.ai.AiConversations.ActivitySummary("act-1",1,"context","读取农场上下文","completed",null,"已汇总当前农场资料",java.time.OffsetDateTime.now(),java.time.OffsetDateTime.now())
+    );
+    aiConversations.saveActivities(tenant(),id,assistantMessageId,activities);
+
+    var after=call(admin,"GET","/ai/conversations/"+id+"/messages",null,200);
+    var assistantAfter=after.get(1);
+    assertEquals(2,assistantAfter.path("activities").size());
+    assertEquals("act-1",assistantAfter.path("activities").get(0).path("ACTIVITY_ID").asText());
+    assertEquals("context",assistantAfter.path("activities").get(0).path("KIND").asText());
+    assertEquals("completed",assistantAfter.path("activities").get(0).path("STATUS").asText());
+    assertEquals("已汇总当前农场资料",assistantAfter.path("activities").get(0).path("RESULT_SUMMARY").asText());
+    assertTrue(assistantAfter.path("activities").get(0).path("DETAIL").isNull());
+    assertEquals("act-2",assistantAfter.path("activities").get(1).path("ACTIVITY_ID").asText());
+    assertEquals("查询最新土壤水分",assistantAfter.path("activities").get(1).path("DETAIL").asText());
+    assertTrue(after.get(0).path("activities").isEmpty());
+
+    call(otherAdmin,"GET","/ai/conversations/"+id+"/messages",null,404);
+
+    call(admin,"DELETE","/ai/conversations/"+id,null,200);
+    assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM ai_message_activities WHERE tenant_id=? AND message_id=?",Integer.class,tenant(),assistantMessageId));
   }
 
   @Test void emptyAnalysisStatesMissingEvidenceAndChatFallsBackHonestly() throws Exception {

@@ -243,7 +243,22 @@ CREATE TABLE IF NOT EXISTS ai_messages (
  diagnostic VARCHAR(40) NOT NULL,created_at TIMESTAMP(6) NOT NULL,
  UNIQUE(tenant_id,conversation_id,request_id,role),
  FOREIGN KEY(tenant_id,conversation_id) REFERENCES ai_conversations(tenant_id,id) ON DELETE CASCADE,
- CHECK(role IN ('user','assistant'))
+ CHECK(role IN ('user','assistant')),
+ CONSTRAINT uq_ai_messages_tenant UNIQUE(tenant_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS ai_message_activities (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,conversation_id VARCHAR(36) NOT NULL,
+ message_id VARCHAR(36) NOT NULL,activity_id VARCHAR(80) NOT NULL,sequence_no INTEGER NOT NULL,
+ kind VARCHAR(20) NOT NULL,label VARCHAR(120) NOT NULL,status VARCHAR(20) NOT NULL,
+ detail VARCHAR(500),result_summary VARCHAR(500),
+ started_at TIMESTAMP(6),finished_at TIMESTAMP(6),
+ UNIQUE(tenant_id,message_id,activity_id),
+ FOREIGN KEY(tenant_id,message_id) REFERENCES ai_messages(tenant_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(tenant_id,conversation_id) REFERENCES ai_conversations(tenant_id,id) ON DELETE CASCADE,
+ CHECK(kind IN ('context','tool','source','approval','task')),
+ CHECK(status IN ('pending','running','completed','error')),
+ INDEX ix_ai_activities_message(tenant_id,message_id,sequence_no)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS ai_irrigation_policies (

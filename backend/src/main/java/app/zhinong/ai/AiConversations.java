@@ -22,6 +22,12 @@ public class AiConversations {
   }
   public record NewChat(@NotBlank String farmId) {}
   public record Question(@NotBlank @Size(max=2000) String question,@NotBlank @Pattern(regexp="[A-Za-z0-9_.:-]{1,80}") String requestId) {}
+  // Safe, already-completed activity summary; never raw prompts, tool arguments or credentials.
+  public record ActivitySummary(@NotBlank @Size(max=80) String activityId,int sequenceNo,
+    @NotBlank @Pattern(regexp="context|tool|source|approval|task") String kind,
+    @NotBlank @Size(max=120) String label,@NotBlank @Pattern(regexp="pending|running|completed|error") String status,
+    @Size(max=500) String detail,@Size(max=500) String resultSummary,
+    OffsetDateTime startedAt,OffsetDateTime finishedAt) {}
   @GetMapping("/analysis") public Map<String,Object> report(@RequestParam String farmId) { return analysis.report(farmId); }
   @GetMapping("/conversations") public List<Map<String,Object>> list(@RequestParam String farmId) {
     store.get("farms",farmId);
@@ -40,7 +46,26 @@ public class AiConversations {
   }
   @GetMapping("/conversations/{id}/messages") public List<Map<String,Object>> messages(@PathVariable String id) {
     owned(id,false);
-    return db.queryForList("SELECT id,role,content,mode,diagnostic,created_at AS \"createdAt\" FROM ai_messages WHERE tenant_id=? AND conversation_id=? ORDER BY created_at,id",Identity.tenant(),id);
+    String tenant=Identity.tenant();
+    var rows=db.queryForList("SELECT id,role,content,mode,diagnostic,created_at AS \"createdAt\" FROM ai_messages WHERE tenant_id=? AND conversation_id=? ORDER BY created_at,id",tenant,id);
+    var activitiesByMessage=new LinkedHashMap<String,List<Map<String,Object>>>();
+    for(var row:db.queryForList("SELECT message_id,activity_id,sequence_no,kind,label,status,detail,result_summary,started_at,finished_at FROM ai_message_activities WHERE tenant_id=? AND conversation_id=? ORDER BY sequence_no",tenant,id)) {
+      activitiesByMessage.computeIfAbsent(row.remove("MESSAGE_ID").toString(),k -> new ArrayList<>()).add(row);
+    }
+    for(var row:rows) row.put("activities",activitiesByMessage.getOrDefault(row.get("ID").toString(),List.of()));
+    return rows;
+  }
+  // Saves completed activity summaries for a message (tenant-scoped); used by the streaming run service (Task 5)
+  // to persist only safe summary fields after it has already authorized the request and written the message.
+  // Takes the tenant explicitly (rather than Identity.current()) because the caller may run off the request thread.
+  @Transactional
+  public void saveActivities(String tenantId,String conversationId,String messageId,List<ActivitySummary> activities) {
+    if(db.queryForList("SELECT id FROM ai_messages WHERE tenant_id=? AND conversation_id=? AND id=?",tenantId,conversationId,messageId).isEmpty()) throw ApiException.missing();
+    db.update("DELETE FROM ai_message_activities WHERE tenant_id=? AND message_id=?",tenantId,messageId);
+    for(var a:activities) {
+      db.update("INSERT INTO ai_message_activities(id,tenant_id,conversation_id,message_id,activity_id,sequence_no,kind,label,status,detail,result_summary,started_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        UUID.randomUUID().toString(),tenantId,conversationId,messageId,a.activityId(),a.sequenceNo(),a.kind(),a.label(),a.status(),a.detail(),a.resultSummary(),a.startedAt(),a.finishedAt());
+    }
   }
   @DeleteMapping("/conversations/{id}") @Transactional public Map<String,Boolean> delete(@PathVariable String id) {
     owned(id,true);db.update("DELETE FROM ai_conversations WHERE tenant_id=? AND member_id=? AND id=?",Identity.tenant(),Identity.current().memberId(),id);return Map.of("ok",true);

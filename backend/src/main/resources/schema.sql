@@ -219,6 +219,21 @@ CREATE TABLE IF NOT EXISTS ai_messages (
  FOREIGN KEY(tenant_id,conversation_id) REFERENCES ai_conversations(tenant_id,id) ON DELETE CASCADE,
  CHECK(role IN ('user','assistant'))
 );
+ALTER TABLE ai_messages ADD CONSTRAINT IF NOT EXISTS uq_ai_messages_tenant UNIQUE(tenant_id,id);
+-- Safe, already-completed activity summaries only; no raw prompts, tool args or credentials.
+CREATE TABLE IF NOT EXISTS ai_message_activities (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,conversation_id VARCHAR(36) NOT NULL,
+ message_id VARCHAR(36) NOT NULL,activity_id VARCHAR(80) NOT NULL,sequence_no INTEGER NOT NULL,
+ kind VARCHAR(20) NOT NULL,label VARCHAR(120) NOT NULL,status VARCHAR(20) NOT NULL,
+ detail VARCHAR(500),result_summary VARCHAR(500),
+ started_at TIMESTAMP WITH TIME ZONE,finished_at TIMESTAMP WITH TIME ZONE,
+ UNIQUE(tenant_id,message_id,activity_id),
+ FOREIGN KEY(tenant_id,message_id) REFERENCES ai_messages(tenant_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(tenant_id,conversation_id) REFERENCES ai_conversations(tenant_id,id) ON DELETE CASCADE,
+ CHECK(kind IN ('context','tool','source','approval','task')),
+ CHECK(status IN ('pending','running','completed','error'))
+);
+CREATE INDEX IF NOT EXISTS ix_ai_activities_message ON ai_message_activities(tenant_id,message_id,sequence_no);
 CREATE TABLE IF NOT EXISTS ai_irrigation_policies (
  tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
  sensor_id VARCHAR(36) NOT NULL,pump_id VARCHAR(36) NOT NULL,mode VARCHAR(16) NOT NULL DEFAULT 'MANUAL',

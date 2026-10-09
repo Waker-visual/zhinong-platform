@@ -8,6 +8,8 @@
 
 每个农场每位成员最多保存50个对话，每个对话100轮，单条问题最多2000字。对话由账号私有保存，同租户其他成员也不能读取；删除对话不删除灌溉审计。发送失败后重试相同问题沿用请求编号，避免重复产生回答。页面会等待模型处理，最长约70秒。
 
+读取对话消息时，每条消息附带一个 `activities` 数组，记录这条回答执行过程中的只读活动摘要，字段包括 `activityId`、`sequenceNo`（顺序号）、`kind`（`context`/`tool`/`source`/`approval`/`task`）、`label`、`status`（`pending`/`running`/`completed`/`error`）、`detail`、`resultSummary` 以及开始/结束时间，按 `sequenceNo` 排序。数据库只保存脱敏后的安全摘要，不保存模型原始请求、完整工具参数或凭据；在本功能上线前产生的旧消息没有活动记录，读取时返回空数组，不影响已有对话。删除对话会级联删除其消息和活动摘要。当前这些摘要由后端在一次同步问答完成后整体写入；后续版本计划在模型生成过程中逐步推送 `AgentRunEvent` 流（`run.started`、`activity.started/updated/completed`、`message.delta/completed`、`run.completed`、`run.error` 等类型），让活动随生成过程实时显示，这部分流式推送尚未上线。
+
 模型不可用时显示“规则回退”和脱敏原因，例如认证失败、余额不足、请求超时。规则检查不是模型回答，也不表示问题已得到完整解答。聊天不能直接启动设备、修改阈值或开启自动模式。
 
 ## 天气与四情
@@ -48,7 +50,7 @@
 | --- | --- |
 | `GET /api/ai/analysis?farmId=...` | 当前农场天气、四情与生产数据快照 |
 | `GET/POST /api/ai/conversations` | 本人对话列表或新建（GET需farmId，POST传farmId） |
-| `GET/POST /api/ai/conversations/{id}/messages` | 读取对话或提问（question、requestId） |
+| `GET/POST /api/ai/conversations/{id}/messages` | 读取对话（每条消息含 `activities` 活动摘要数组）或提问（question、requestId） |
 | `DELETE /api/ai/conversations/{id}` | 删除本人对话 |
 | `GET /api/ai/irrigation?farmId=...` | 策略、候选设备和执行记录 |
 | `PUT /api/ai/irrigation/policy` | 管理员保存含revision的地块策略 |
