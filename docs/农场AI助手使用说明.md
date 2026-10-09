@@ -59,7 +59,11 @@
 
 把 `config/llm.example.properties` 复制为启动工作目录的 `config/llm.properties`；使用仓库启动脚本时为 `backend/config/llm.properties`。只在私有文件填入地址、密钥和模型标识，不能在模板中填写。配置也可由环境变量 `FARM_LLM_URL`、`FARM_LLM_API_KEY`、`FARM_LLM_MODEL` 提供；私有文件中的非空值优先。修改文件后重启。
 
-平台管理员可用 `/api/ai/config` 查看脱敏配置或更新；租户管理员不能修改全局网关。地址需为 HTTPS（本机测试允许 HTTP），更换地址需同时提供密钥。配置状态只代表填写完成，不代表请求一定成功。问题、农场摘要及近期对话会交给所配置的模型服务处理；发送前页面说明这一点。未提交设备密钥、账号口令、数据库连接或用户认证信息。自动化执行不向模型发送控制凭据。
+平台管理员登录后在“设置 → 模型服务”面板中维护全局模型配置（接口地址、模型名称、API 密钥），也可直接调用 `/api/ai/config` 查看脱敏配置或更新；租户管理员看不到此设置页，也不能修改全局网关。地址需为 HTTPS（本机测试允许 HTTP），更换地址需同时提供密钥。密钥输入框留空保存表示保持原密钥不变；需要作废密钥时点击“清除密钥”（二次确认后生效，等价于提交 `clearApiKey:true`，此时忽略同时填写的密钥）。密钥一经保存就不会再回显，页面也不会把它打印到日志或本机以外的任何地方。
+
+面板内的“测试连接”“从服务获取”按钮分别对应 `POST /api/ai/config/test` 与 `POST /api/ai/config/models`：两者都只返回脱敏诊断码（OK/AUTH_FAILED/BALANCE_REQUIRED/RATE_LIMITED/TIMEOUT/UNAVAILABLE/SERVICE_ERROR/NOT_CONFIGURED）或模型 id 列表，从不回显密钥或上游响应正文，可用来在保存前先验证待填的地址与密钥是否可用。模型名称旁维护一份“模型选项”列表（如 `deepseek-flash`、`deepseek-v4-pro`），可手动输入添加，也可从服务拉取后合并；选项与当前地址、密钥一样只保存在本机私有配置文件中。移除某个选项前必须先把“模型名称”切换到其他选项，正在使用的模型不能被直接移除。
+
+配置状态只代表填写完成，不代表请求一定成功。问题、农场摘要及近期对话会交给所配置的模型服务处理；发送前页面说明这一点。未提交设备密钥、账号口令、数据库连接或用户认证信息。自动化执行不向模型发送控制凭据。
 
 本版本使用农场上下文与系统约束进行任务适配，没有更新模型权重，不能作为完成模型微调的证明。后续训练需准备经过农学审核的问答、独立评估集和支持训练的环境；实际田间建议还需要专业验证。当前临时凭据不在文档或仓库中记录。
 
@@ -79,5 +83,10 @@
 | `POST /api/ai/irrigation/plots/{id}/propose` | 操作员或管理员生成建议 |
 | `POST /api/ai/irrigation/runs/{id}/approve` | 重新校验后审批执行 |
 | `POST /api/ai/irrigation/runs/{id}/cancel` | 取消建议或立即停止 |
+| `GET/POST /api/ai/config` | 查看脱敏模型配置（含 `modelOptions`）或保存（仅平台管理员） |
+| `POST /api/ai/config/test` | 用保存或待保存的配置发起一次最小请求，只返回诊断码（仅平台管理员） |
+| `POST /api/ai/config/models` | 拉取 OpenAI 兼容服务的模型列表，只返回 id 与诊断码（仅平台管理员） |
+| `POST /api/ai/config/models/options` | 新增/合并模型选项（仅平台管理员） |
+| `POST /api/ai/config/models/options/remove` | 移除一个模型选项，当前使用的模型需先切换（仅平台管理员） |
 
 所有业务接口从会话推导租户，平台账号不能读取经营数据。旧 `/api/ai/ask` 与 `/api/ai/insights` 保留兼容。新增表通过启动时的加法DDL创建，不重置原数据。测试默认禁用私有模型配置读取，AI测试使用替身，避免泄露凭据或产生调用费用。运行 `scripts/verify.ps1`；已配置本地 MySQL 测试库时再运行 `scripts/verify-mysql.ps1`。

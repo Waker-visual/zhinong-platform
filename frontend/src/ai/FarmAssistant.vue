@@ -9,6 +9,7 @@ import './assistant.css';
 import AssistantText from './AssistantText.vue';
 import AiActivityDisclosure from './AiActivityDisclosure.vue';
 import AiStreamingStatus from './AiStreamingStatus.vue';
+import { diagnosticLabels } from './diagnostics';
 const props = defineProps({ farmId: String, role: String, revision: Number });
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
@@ -24,7 +25,6 @@ const policy = reactive({ plotId: '', sensorId: '', pumpId: '', mode: 'MANUAL', 
 const writer = computed(() => ['ADMIN','OPERATOR'].includes(props.role));
 const sensors = computed(() => irrigation.value.devices.filter(d => d.deviceType !== 'PUMP' && d.plotId === policy.plotId));
 const pumps = computed(() => irrigation.value.devices.filter(d => d.deviceType === 'PUMP'));
-const diagnostics = { NOT_CONFIGURED:'模型服务尚未配置', AUTH_FAILED:'模型认证失败，请联系平台管理员更换凭据', BALANCE_REQUIRED:'模型账户余额不足', RATE_LIMITED:'模型请求过于频繁，请稍后重试', TIMEOUT:'模型服务响应超时', BUSY:'模型服务繁忙', UNAVAILABLE:'模型服务暂不可用', SERVICE_ERROR:'模型服务返回错误', EMPTY_RESPONSE:'模型未返回有效回答' };
 const states = { PROPOSED:'等待人工确认', RUNNING:'模拟灌溉中', COMPLETED:'已停止', CANCELLED:'已取消', EXPIRED:'已过期' };
 const prompts = ['结合当前作物和四情数据，今天优先做什么？','分析近7天的天气变化及对作物的影响','当前地块是否需要灌溉？请说明依据和缺失信息。','对比历史生产记录，给出下季管理建议。'];
 let generation=0, timer, pendingRequest=null, alive=true;
@@ -178,7 +178,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
                 <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" :writer="writer" @view-approval="onViewApproval" />
                 <div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
               </template>
-              <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnostics[m.diagnostic] || '模型暂不可用'}}</small>
+              <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnosticLabels[m.diagnostic] || '模型暂不可用'}}</small>
             </article>
             <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()">回到最新 ↓</button>
           </template>

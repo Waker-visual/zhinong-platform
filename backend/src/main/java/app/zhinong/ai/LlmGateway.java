@@ -55,9 +55,20 @@ public class LlmGateway {
   private final ThreadLocal<String> lastIssue = ThreadLocal.withInitial(() -> "NOT_CONFIGURED");
   public String diagnostic() { return lastIssue.get(); }
 
-  /** 持久化配置文件：{user.dir}/config/llm.properties，优先级高于环境变量，一次配置永久生效。 */
-  private final Path configPath =
-    Path.of(System.getProperty("user.dir"), "config", "llm.properties");
+  /** 可选模型名单（平台管理员维护），独立于当前生效的 model 字段。 */
+  private List<String> modelOptions = new ArrayList<>();
+  private static final int MAX_MODEL_OPTIONS = 50;
+  private static final int MAX_MODEL_ID_LENGTH = 100;
+  private static final int MAX_FETCHED_MODELS = 200;
+
+  /** 一次模型列表拉取的结果：models 为脱敏后的 id 列表，diagnostic 为诊断码。 */
+  public record FetchModelsResult(List<String> models, String diagnostic) {}
+
+  /**
+   * 持久化配置文件：{user.dir}/config/llm.properties，优先级高于环境变量，一次配置永久生效。
+   * 包内可见（非 final）仅供单元测试指向临时文件，避免测试写入开发者本机的真实配置。
+   */
+  Path configPath = Path.of(System.getProperty("user.dir"), "config", "llm.properties");
 
   @PostConstruct
   void loadFileConfig() {
@@ -78,17 +89,72 @@ public class LlmGateway {
           /* 保留默认 */
         }
       }
+      String mo = p.getProperty("model-options");
+      if (!blank(mo)) {
+        List<String> parsed = new ArrayList<>();
+        for (String id : mo.split(",")) {
+          String trimmed = id.trim();
+          if (!trimmed.isEmpty() && !parsed.contains(trimmed) && parsed.size() < MAX_MODEL_OPTIONS) parsed.add(trimmed);
+        }
+        modelOptions = parsed;
+      }
     } catch (IOException ignored) {
       /* 读不到就沿用环境变量 */
     }
   }
 
-  /** 保存配置：立即生效并持久化到本地文件，空值表示保持当前值。 */
-  public synchronized void saveConfig(String newUrl, String newApiKey, String newModel) {
+  /**
+   * 保存配置：立即生效并持久化到本地文件。
+   * 密钥字段留空表示保持当前密钥不变；clearApiKey=true 时显式清除密钥（忽略 newApiKey）。
+   */
+  public synchronized void saveConfig(String newUrl, String newApiKey, String newModel, boolean clearApiKey) {
     if (!blank(newUrl)) validateEndpoint(newUrl.trim());
-    if (!blank(newUrl) && !newUrl.trim().equals(url) && blank(newApiKey))
+    if (!clearApiKey && !blank(newUrl) && !newUrl.trim().equals(url) && blank(newApiKey))
       throw new ApiException(400,"更换模型地址时必须重新提供密钥");
-    String nextUrl=blank(newUrl)?url:newUrl.trim(), nextKey=blank(newApiKey)?apiKey:newApiKey.trim(), nextModel=blank(newModel)?model:newModel.trim();
+    String nextUrl=blank(newUrl)?url:newUrl.trim();
+    String nextKey=clearApiKey?"":(blank(newApiKey)?apiKey:newApiKey.trim());
+    String nextModel=blank(newModel)?model:newModel.trim();
+    persist(nextUrl, nextKey, nextModel, modelOptions);
+    url=nextUrl;apiKey=nextKey;model=nextModel;
+  }
+
+  /** 合并新增模型选项（去重、长度与数量限制），用于手动添加或从服务拉取后批量合并。 */
+  public synchronized List<String> mergeModelOptions(List<String> ids) {
+    List<String> next = new ArrayList<>(modelOptions);
+    for (String raw : ids == null ? List.<String>of() : ids) {
+      String id = raw == null ? "" : raw.trim();
+      if (id.isEmpty()) continue;
+      if (id.length() > MAX_MODEL_ID_LENGTH) throw new ApiException(400, "模型名称过长");
+      if (next.contains(id)) continue;
+      if (next.size() >= MAX_MODEL_OPTIONS) throw new ApiException(400, "模型选项数量已达上限");
+      next.add(id);
+    }
+    persist(url, apiKey, model, next);
+    modelOptions = next;
+    return List.copyOf(modelOptions);
+  }
+
+  /** 移除一个模型选项；当前生效模型必须先切换到其他选项才能移除。 */
+  public synchronized List<String> removeModelOption(String rawId) {
+    String id = rawId == null ? "" : rawId.trim();
+    if (!id.isEmpty() && id.equals(model))
+      throw new ApiException(400, "请先选择其他模型，再移除当前使用的模型");
+    List<String> next = new ArrayList<>(modelOptions);
+    next.remove(id);
+    persist(url, apiKey, model, next);
+    modelOptions = next;
+    return List.copyOf(modelOptions);
+  }
+
+  public synchronized List<String> modelOptions() {
+    return List.copyOf(modelOptions);
+  }
+
+  /**
+   * 原子写入持久化文件：{user.dir}/config/llm.properties（或测试指向的临时路径）。
+   * 只在写入成功后才由调用方更新内存字段，避免写盘失败和内存状态不一致。
+   */
+  private void persist(String nextUrl, String nextKey, String nextModel, List<String> nextModelOptions) {
     Properties p = new Properties();
     p.setProperty("url", nextUrl == null ? "" : nextUrl);
     p.setProperty("api-key", nextKey == null ? "" : nextKey);
@@ -96,6 +162,7 @@ public class LlmGateway {
     p.setProperty("fallback-url", fallbackUrl == null ? "" : fallbackUrl);
     p.setProperty("fallback-model", fallbackModel == null ? "" : fallbackModel);
     p.setProperty("timeout-seconds", String.valueOf(timeoutSeconds));
+    p.setProperty("model-options", String.join(",", nextModelOptions));
     try {
       Files.createDirectories(configPath.getParent());
       Path temporary=Files.createTempFile(configPath.getParent(),"llm-", ".private.tmp");
@@ -104,7 +171,6 @@ public class LlmGateway {
         p.store(out, "Zhinong LLM config (managed by platform admin)");
       }
       Files.move(temporary,configPath,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-      url=nextUrl;apiKey=nextKey;model=nextModel;
       } finally {Files.deleteIfExists(temporary);}
     } catch (IOException ignored) {
       throw new ApiException(500,"模型配置未能写入私有配置文件");
@@ -413,6 +479,85 @@ public class LlmGateway {
     }
     return Optional.empty();
     } finally { capacity.release(); }
+  }
+
+  /**
+   * 测试连接：对保存的配置（或传入的待保存配置覆盖）发起一次最小请求，只返回诊断码，
+   * 从不回显密钥或上游响应正文。不持久化、不影响当前生效配置。
+   */
+  public String test(String testUrl, String testApiKey, String testModel) {
+    String u, k, m;
+    synchronized (this) {
+      u = blank(testUrl) ? url : testUrl.trim();
+      k = blank(testApiKey) ? apiKey : testApiKey.trim();
+      m = blank(testModel) ? model : testModel.trim();
+    }
+    if (blank(u) || blank(k)) return "NOT_CONFIGURED";
+    try {
+      validateEndpoint(u);
+    } catch (ApiException e) {
+      return "SERVICE_ERROR";
+    }
+    if (!capacity.tryAcquire()) return "BUSY";
+    try {
+      List<Map<String, Object>> messages = List.of(Map.of("role", "user", "content", "ping"));
+      callCompletions(u, k, blank(m) ? "deepseek-chat" : m, messages, List.of(), 15);
+      return lastIssue.get();
+    } finally {
+      capacity.release();
+    }
+  }
+
+  /**
+   * 拉取 OpenAI 兼容服务的可用模型列表（GET {baseUrl}/models），用保存的或表单待提交的配置覆盖。
+   * 返回脱敏结果：只有 id 列表与诊断码，从不回显密钥或上游响应正文。
+   */
+  public FetchModelsResult fetchModels(String testUrl, String testApiKey) {
+    String u, k;
+    synchronized (this) {
+      u = blank(testUrl) ? url : testUrl.trim();
+      k = blank(testApiKey) ? apiKey : testApiKey.trim();
+    }
+    if (blank(u) || blank(k)) return new FetchModelsResult(List.of(), "NOT_CONFIGURED");
+    try {
+      validateEndpoint(u);
+    } catch (ApiException e) {
+      return new FetchModelsResult(List.of(), "SERVICE_ERROR");
+    }
+    if (!capacity.tryAcquire()) return new FetchModelsResult(List.of(), "BUSY");
+    try {
+      HttpRequest req = HttpRequest
+        .newBuilder()
+        .uri(URI.create(u.replaceAll("/+$", "") + "/models"))
+        .timeout(Duration.ofSeconds(Math.max(5, Math.min(15, timeoutSeconds))))
+        .header("Authorization", "Bearer " + k)
+        .GET()
+        .build();
+      HttpResponse<String> res = http.send(req, HttpResponse.BodyHandlers.ofString());
+      if (res.statusCode() / 100 != 2) {
+        String code = switch (res.statusCode()) {
+          case 401, 403 -> "AUTH_FAILED";
+          case 402 -> "BALANCE_REQUIRED";
+          case 429 -> "RATE_LIMITED";
+          default -> "SERVICE_ERROR";
+        };
+        return new FetchModelsResult(List.of(), code);
+      }
+      JsonNode root = json.readTree(res.body());
+      List<String> ids = new ArrayList<>();
+      for (JsonNode m : root.path("data")) {
+        String id = m.path("id").asText("");
+        if (!id.isBlank() && id.length() <= MAX_MODEL_ID_LENGTH && !ids.contains(id)) ids.add(id);
+      }
+      List<String> sorted = ids.stream().sorted().limit(MAX_FETCHED_MODELS).toList();
+      return new FetchModelsResult(sorted, "OK");
+    } catch (Exception e) {
+      if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+      String code = e instanceof java.net.http.HttpTimeoutException ? "TIMEOUT" : "UNAVAILABLE";
+      return new FetchModelsResult(List.of(), code);
+    } finally {
+      capacity.release();
+    }
   }
 
   private void validateEndpoint(String base) {
