@@ -2,12 +2,15 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
+import { createAgentRun, reduceAgentEvent } from './agent-events.js';
+import { syncConversationAdapter } from './agent-adapter.js';
 import './assistant.css';
 import AssistantText from './AssistantText.vue';
 const props = defineProps({ farmId: String, role: String, revision: Number });
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
+const run = ref(null);
 const editing = ref(false);
 const policy = reactive({ plotId: '', sensorId: '', pumpId: '', mode: 'MANUAL', thresholdValue: 30, durationSeconds: 60, cooldownMinutes: 120, dailyLimit: 3, revision: 0 });
 const writer = computed(() => ['ADMIN','OPERATOR'].includes(props.role));
@@ -49,13 +52,25 @@ async function send(text=question.value) {
     const id=selected.value;
     if(!pendingRequest || pendingRequest.text!==text || pendingRequest.id!==id) pendingRequest={text,id,requestId:crypto.randomUUID()};
     const outgoing={role:'user',content:text,temporary:true};messages.value.push(outgoing);await scroll();
-    await api(`/ai/conversations/${id}/messages`,'POST',{question:text,requestId:pendingRequest.requestId},{timeoutMs:70000});
+    run.value=createAgentRun(text,pendingRequest.requestId);
+    for await (const event of syncConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId})) {
+      if(!alive) return;
+      run.value=reduceAgentEvent(run.value,event);
+    }
+    if(run.value.status==='error') throw Object.assign(new Error(run.value.error||'回答失败，请重试'),{diagnostic:run.value.diagnostic});
     pendingRequest=null;
     if(!alive) return;
     messages.value=await api(`/ai/conversations/${id}/messages`); conversations.value=await api('/ai/conversations?farmId='+props.farmId);await scroll();
   } catch(e) { if(alive) {error.value=e.message;question.value=text;messages.value=messages.value.filter(m=>!m.temporary);} }
-  finally {sending.value=false;}
+  finally {sending.value=false;run.value=null;}
 }
+const runStatusLabel = computed(() => {
+  if(!run.value) return '正在读取当前农场资料并整理建议…';
+  const activity = run.value.activities.find(a => a.status === 'running');
+  if(activity) return activity.label + '…';
+  if(run.value.status === 'error') return run.value.error || '回答失败，请重试';
+  return '正在整理回答…';
+});
 async function perform(work) {if(busy.value) return;busy.value=true;error.value='';notice.value='';try{await work();}catch(e){error.value=e.message;}finally{busy.value=false;}}
 function editPolicy(plotId) {
   const p=irrigation.value.policies.find(p=>p.plotId===plotId);
@@ -110,7 +125,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
             <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="sending" @click="send(p)">{{p}} ↗</button></div>
           </div>
           <article v-for="(m,index) in messages" :key="m.id||index" class="ai-message" :class="m.role"><small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'"> · 规则回退</span></small><div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div><small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnostics[m.diagnostic] || '模型暂不可用'}}</small></article>
-          <div v-if="sending" class="ai-thinking" role="status">正在读取当前农场资料并整理建议…</div>
+          <div v-if="sending" class="ai-thinking" role="status">{{runStatusLabel}}</div>
         </div>
         <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small>Enter 发送 · Shift + Enter 换行 · {{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()">{{sending?'正在回答…':'发送 ↑'}}</button></div></form>
         <p class="ai-footnote">发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
