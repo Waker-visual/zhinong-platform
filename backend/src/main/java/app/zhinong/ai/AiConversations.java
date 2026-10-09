@@ -103,9 +103,11 @@ public class AiConversations {
 
   /** Snapshot of everything the streaming run needs, captured in one short transaction (no DB
    * transaction stays open across the model call itself). If {@code replay} is true, the request id
-   * was already answered and the run must only replay {@code existingAnswer} rather than call the model. */
+   * was already answered and the run must only replay {@code existingAnswer} (and {@code existingActivities},
+   * if any were saved) rather than call the model. */
   record PreparedRun(String tenant,String farmId,String title,List<Map<String,Object>> context,Map<String,Object> report,
-    boolean replay,String existingMessageId,String existingAnswer,String existingMode,String existingDiagnostic) {}
+    boolean replay,String existingMessageId,String existingAnswer,String existingMode,String existingDiagnostic,
+    List<Map<String,Object>> existingActivities) {}
 
   @Transactional
   PreparedRun prepareStream(String id,Question input) {
@@ -114,28 +116,33 @@ public class AiConversations {
     if(!existing.isEmpty()) {
       if(existing.stream().noneMatch(m -> "user".equals(m.get("ROLE")) && input.question().strip().equals(m.get("CONTENT")))) throw new ApiException(409,"请求编号已用于其他问题");
       var asst=existing.stream().filter(m -> "assistant".equals(m.get("ROLE"))).findFirst().orElseThrow();
+      String assistantId=asst.get("ID").toString();
+      var activities=db.queryForList("SELECT activity_id,kind,label,status,detail,result_summary,started_at,finished_at FROM ai_message_activities WHERE tenant_id=? AND message_id=? ORDER BY sequence_no",tenant,assistantId);
       return new PreparedRun(tenant,chat.get("FARM_ID").toString(),chat.get("TITLE").toString(),null,null,
-        true,asst.get("ID").toString(),asst.get("CONTENT").toString(),asst.get("MODE").toString(),String.valueOf(asst.get("DIAGNOSTIC")));
+        true,assistantId,asst.get("CONTENT").toString(),asst.get("MODE").toString(),String.valueOf(asst.get("DIAGNOSTIC")),activities);
     }
     var history=messages(id);
     if(history.size()>=200) throw new ApiException(409,"此对话已达100轮，请新建对话");
     var report=analysis.report(chat.get("FARM_ID").toString());
     var context=buildContext(report,history,input.question());
     String title=history.isEmpty()?input.question().strip().substring(0,Math.min(36,input.question().strip().length())):chat.get("TITLE").toString();
-    return new PreparedRun(tenant,chat.get("FARM_ID").toString(),title,context,report,false,null,null,null,null);
+    return new PreparedRun(tenant,chat.get("FARM_ID").toString(),title,context,report,false,null,null,null,null,List.of());
   }
 
   /** Result of persisting a finished streaming run. */
   record FinalizedRun(String messageId,String answer,String mode,String diagnostic) {}
 
   /**
-   * Persists the user question and assistant answer exactly like the sync path, then returns the real
+   * Persists the user question and assistant answer exactly like the sync path, then the safe activity
+   * summaries for that assistant message (same table/columns {@link #saveActivities} writes, just inside
+   * this same short transaction so the message and its activities never disagree), then returns the real
    * assistant message id. If a concurrent duplicate request id already won the race (the unique
    * constraint on ai_messages(tenant_id,conversation_id,request_id,role) rejects the second insert),
-   * this does not double-write — it simply returns the winner's already-persisted result instead.
+   * this does not double-write — it simply returns the winner's already-persisted result instead (the
+   * winner's own finalizeStream call already saved its own activities).
    */
   @Transactional
-  FinalizedRun finalizeStream(String tenant,String id,String requestId,String question,String answer,String mode,String diagnostic,String title) {
+  FinalizedRun finalizeStream(String tenant,String id,String requestId,String question,String answer,String mode,String diagnostic,String title,List<ActivitySummary> activities) {
     var now=OffsetDateTime.now();
     try {
       insert(id,requestId,"user",question,"user","",now);
@@ -148,6 +155,7 @@ public class AiConversations {
     }
     db.update("UPDATE ai_conversations SET title=?,updated_at=? WHERE tenant_id=? AND member_id=? AND id=?",title,now,tenant,Identity.current().memberId(),id);
     String assistantId=db.queryForObject("SELECT id FROM ai_messages WHERE tenant_id=? AND conversation_id=? AND request_id=? AND role='assistant'",String.class,tenant,id,requestId);
+    if(!activities.isEmpty()) saveActivities(tenant,id,assistantId,activities);
     return new FinalizedRun(assistantId,answer,mode,diagnostic);
   }
 

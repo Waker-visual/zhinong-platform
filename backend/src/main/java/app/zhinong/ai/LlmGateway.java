@@ -140,23 +140,45 @@ public class LlmGateway {
     void onDelta(String text);
   }
 
+  /** 流式运行的最终状态：区分“正常走完”“中途被打断（已经输出了部分正文）”“完全没有输出任何正文”。
+   * 调用方据此决定行为：COMPLETED 正常展示；UNAVAILABLE（模型未配置、鉴权失败、连接失败、超时等但
+   * 从未吐出过文本）等同于同步路径的“模型不可用”，走规则回退；INTERRUPTED（已经吐出过文本后才失败）
+   * 绝不能再悄悄拼接规则回退文本——那会让客户端看到的内容和落库内容不一致，必须报错并允许用同一个
+   * requestId 重试。diagnostic 放在结果里而不是读取 {@link #diagnostic()}，因为后者是按线程保存的，
+   * 流式调用横跨虚拟线程时用结果自带的诊断更不容易出错。 */
+  public enum StreamOutcome { COMPLETED, INTERRUPTED, UNAVAILABLE }
+
+  public record StreamResult(StreamOutcome outcome, String content, String diagnostic) {
+    public static StreamResult unavailable(String diagnostic) {
+      return new StreamResult(StreamOutcome.UNAVAILABLE, null, diagnostic);
+    }
+
+    public static StreamResult interrupted(String content, String diagnostic) {
+      return new StreamResult(StreamOutcome.INTERRUPTED, content, diagnostic);
+    }
+
+    public static StreamResult completed(String content) {
+      return new StreamResult(StreamOutcome.COMPLETED, content, "OK");
+    }
+  }
+
   /**
    * 流式补全：仅使用云端 OpenAI 兼容 SSE（stream:true），文本增量通过 listener 实时回传。
    * 与 {@link #complete} 共用同一并发信号量与超时配置；不支持本地 fallback 端点的流式转发——
-   * 云端未配置或流式请求失败时直接返回 empty，由上层回退到规则答案（与同步路径的“模型不可用”
-   * 语义一致），避免为很少配置的本地回退再实现一套非流式转单片 delta 的特殊路径。
-   * cancelled 由上游调用方传入（例如 SSE 客户端已断开），为 true 时立即停止读取上游响应流。
+   * 云端未配置或流式请求在吐出任何文本之前就失败时返回 UNAVAILABLE，由上层回退到规则答案
+   * （与同步路径的“模型不可用”语义一致），避免为很少配置的本地回退再实现一套非流式转单片
+   * delta 的特殊路径。cancelled 由上游调用方传入（例如 SSE 客户端已断开），为 true 时尽快停止
+   * 读取上游响应流——不仅在两行之间检查，还有一个后台看门狗线程在超时或取消时主动关闭底层连接，
+   * 避免卡在一次阻塞的 readLine() 里导致信号量被长期占用。
    */
-  public Optional<LlmResponse> stream(
+  public StreamResult stream(
     List<Map<String, Object>> messages,
     List<Map<String, Object>> tools,
     StreamListener listener,
     java.util.function.BooleanSupplier cancelled
   ) {
-    lastIssue.set("NOT_CONFIGURED");
     if (!capacity.tryAcquire()) {
-      lastIssue.set("BUSY");
-      return Optional.empty();
+      return StreamResult.unavailable("BUSY");
     }
     try {
       String endpoint, key, selectedModel;
@@ -165,7 +187,7 @@ public class LlmGateway {
         key = apiKey;
         selectedModel = model;
       }
-      if (blank(endpoint) || blank(key)) return Optional.empty();
+      if (blank(endpoint) || blank(key)) return StreamResult.unavailable("NOT_CONFIGURED");
       return streamCompletions(
         endpoint,
         key,
@@ -180,7 +202,7 @@ public class LlmGateway {
     }
   }
 
-  private Optional<LlmResponse> streamCompletions(
+  private StreamResult streamCompletions(
     String base,
     String key,
     String m,
@@ -189,7 +211,13 @@ public class LlmGateway {
     StreamListener listener,
     java.util.function.BooleanSupplier cancelled
   ) {
+    long deadlineNanos = System.nanoTime() + Duration.ofSeconds(Math.max(1, timeoutSeconds)).toNanos();
+    StringBuilder content = new StringBuilder();
+    boolean[] sawDelta = { false };
+    boolean[] cleanFinish = { false };
     HttpResponse<java.io.InputStream> res = null;
+    java.util.concurrent.atomic.AtomicBoolean finishedReading = new java.util.concurrent.atomic.AtomicBoolean(false);
+    Thread watchdog = null;
     try {
       validateEndpoint(base);
       Map<String, Object> body =
@@ -210,64 +238,99 @@ public class LlmGateway {
       if (!key.isBlank()) b.header("Authorization", "Bearer " + key);
       res = http.send(b.build(), HttpResponse.BodyHandlers.ofInputStream());
       if (res.statusCode() / 100 != 2) {
-        lastIssue.set(
-          switch (res.statusCode()) {
-            case 401, 403 -> "AUTH_FAILED";
-            case 402 -> "BALANCE_REQUIRED";
-            case 429 -> "RATE_LIMITED";
-            default -> "SERVICE_ERROR";
-          }
-        );
-        return Optional.empty();
+        return StreamResult.unavailable(statusDiagnostic(res.statusCode()));
       }
-      StringBuilder content = new StringBuilder();
+      // 看门狗：readLine() 本身只会在收到下一行时才返回，超时/取消标记只在两行之间被检查；
+      // 一次缓慢滴水的响应体会让这次检查永远等不到机会。独立线程按截止时间或取消标记主动关闭
+      // 响应流，强制唤醒被阻塞的读取，不让信号量被占用超过预算。
+      HttpResponse<java.io.InputStream> finalRes = res;
+      watchdog = Thread.ofVirtual().start(() -> {
+        try {
+          while (!finishedReading.get()) {
+            if (cancelled.getAsBoolean() || System.nanoTime() > deadlineNanos) {
+              try {
+                finalRes.body().close();
+              } catch (IOException ignored) {
+                /* 已经在结束 */
+              }
+              return;
+            }
+            Thread.sleep(200);
+          }
+        } catch (InterruptedException ignored) {
+          /* 正常读取已经结束，看门狗被中断退出 */
+        }
+      });
       try (
         var reader = new java.io.BufferedReader(new java.io.InputStreamReader(res.body(), java.nio.charset.StandardCharsets.UTF_8))
       ) {
         String line;
         while ((line = reader.readLine()) != null) {
-          if (cancelled.getAsBoolean()) {
-            lastIssue.set("CANCELLED");
-            return Optional.empty();
-          }
+          if (cancelled.getAsBoolean()) break;
           if (line.isBlank() || !line.startsWith("data:")) continue;
           String data = line.substring(5).trim();
-          if ("[DONE]".equals(data)) break;
+          if ("[DONE]".equals(data)) {
+            cleanFinish[0] = true;
+            break;
+          }
           JsonNode root;
           try {
             root = json.readTree(data);
           } catch (Exception parseError) {
             continue; // 忽略无法解析的分片，不中断整个流
           }
-          JsonNode delta = root.path("choices").path(0).path("delta");
+          JsonNode choice = root.path("choices").path(0);
+          JsonNode delta = choice.path("delta");
           if (delta.path("content").isTextual()) {
             String text = delta.path("content").asText();
             if (!text.isEmpty()) {
               content.append(text);
+              sawDelta[0] = true;
               listener.onDelta(text);
             }
           }
+          // 并非所有 OpenAI 兼容实现都会再发 [DONE]；finish_reason 本身就是这个选择已经结束的信号。
+          if (choice.path("finish_reason").isTextual()) cleanFinish[0] = true;
         }
       }
-      if (content.length() == 0) {
-        lastIssue.set("EMPTY_RESPONSE");
-        return Optional.empty();
-      }
-      lastIssue.set("OK");
-      return Optional.of(new LlmResponse(content.toString().trim(), List.of()));
     } catch (Exception e) {
       if (e instanceof InterruptedException) Thread.currentThread().interrupt();
-      lastIssue.set(e instanceof java.net.http.HttpTimeoutException ? "TIMEOUT" : "UNAVAILABLE");
-      return Optional.empty();
+      String diagnostic;
+      if (cancelled.getAsBoolean()) diagnostic = "CANCELLED";
+      else if (System.nanoTime() > deadlineNanos || e instanceof java.net.http.HttpTimeoutException) diagnostic = "TIMEOUT";
+      else diagnostic = "UNAVAILABLE";
+      return sawDelta[0] ? StreamResult.interrupted(content.toString(), diagnostic) : StreamResult.unavailable(diagnostic);
     } finally {
+      finishedReading.set(true);
+      if (watchdog != null) watchdog.interrupt();
       if (res != null) {
         try {
           res.body().close();
-        } catch (IOException ignored) {
-          /* 已经结束读取 */
+        } catch (Exception ignored) {
+          /* 已经结束读取，或者已经被看门狗关闭 */
         }
       }
     }
+    if (cancelled.getAsBoolean()) {
+      return sawDelta[0] ? StreamResult.interrupted(content.toString(), "CANCELLED") : StreamResult.unavailable("CANCELLED");
+    }
+    if (cleanFinish[0]) {
+      return content.length() == 0
+        ? StreamResult.unavailable("EMPTY_RESPONSE")
+        : StreamResult.completed(content.toString().trim());
+    }
+    // 循环正常退出（EOF）但既没看到 [DONE]/finish_reason，也没被取消：连接提前断开。
+    String diagnostic = System.nanoTime() > deadlineNanos ? "TIMEOUT" : "SERVICE_ERROR";
+    return sawDelta[0] ? StreamResult.interrupted(content.toString(), diagnostic) : StreamResult.unavailable(diagnostic);
+  }
+
+  private static String statusDiagnostic(int statusCode) {
+    return switch (statusCode) {
+      case 401, 403 -> "AUTH_FAILED";
+      case 402 -> "BALANCE_REQUIRED";
+      case 429 -> "RATE_LIMITED";
+      default -> "SERVICE_ERROR";
+    };
   }
 
   /** 简单问答：无工具，保留给 insights 等调用。 */

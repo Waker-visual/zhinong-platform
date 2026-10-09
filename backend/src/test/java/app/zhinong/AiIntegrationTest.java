@@ -60,6 +60,7 @@ class AiIntegrationTest {
     llm.calls.set(0);
     llm.saved = null;
     llm.streamFailure = null;
+    llm.streamPartialBeforeFailure = null;
   }
 
   @AfterEach void finishTestRuns() {
@@ -297,6 +298,21 @@ class AiIntegrationTest {
     assertEquals("基于当前农场记录的流式测试回答。", persisted.get(1).path("CONTENT").asText());
     assertEquals(messageId, persisted.get(1).path("ID").asText());
     assertEquals("llm", persisted.get(1).path("MODE").asText());
+    // The context activity summary emitted during the run must actually be persisted (not just shown
+    // live over SSE) so it survives a reload, exactly like the sync path's saveActivities contract.
+    assertEquals(1, persisted.get(1).path("activities").size());
+    var persistedActivity = persisted.get(1).path("activities").get(0);
+    assertEquals("context", persistedActivity.path("ACTIVITY_ID").asText());
+    assertEquals("context", persistedActivity.path("KIND").asText());
+    assertEquals("completed", persistedActivity.path("STATUS").asText());
+    assertFalse(persistedActivity.path("RESULT_SUMMARY").asText().isBlank());
+    assertTrue(persisted.get(0).path("activities").isEmpty(), "the user message has no activities of its own");
+
+    // Replaying the same requestId must emit the stored activity as an activity.completed event too.
+    var replay = streamEvents(admin, id, Map.of("question", "请分析当前农场", "requestId", "stream-turn-1"), 200);
+    var replayedActivity = java.util.Arrays.stream(replay).filter(e -> "activity.completed".equals(e.path("type").asText())).findFirst().orElseThrow();
+    assertEquals("context", replayedActivity.path("activity").path("id").asText());
+    assertFalse(replayedActivity.path("activity").path("resultSummary").asText().isBlank());
   }
 
   @Test void streamRuleFallbackWhenModelUnavailableIsPersistedAndMarked() throws Exception {
@@ -330,20 +346,45 @@ class AiIntegrationTest {
     assertEquals(2, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
   }
 
-  @Test void streamUpstreamFailureEmitsRunErrorAndDoesNotPersistAnAssistantSuccessRow() throws Exception {
+  // Upstream failed AFTER it had already streamed some model text to the client: the partial text must
+  // never be silently patched up with a rule-fallback tail (that would make the client's screen disagree
+  // with the database). This must surface run.error and leave nothing persisted, and a retry with the
+  // same requestId must still succeed normally afterwards.
+  @Test void streamFailureAfterPartialModelTextEmitsRunErrorAndDoesNotPersistAnything() throws Exception {
     String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
     llm.streamFailure = new RuntimeException("模拟上游中断");
+    llm.streamPartialBeforeFailure = "部分模型正文";
     var events = streamEvents(admin, id, Map.of("question", "这次会失败", "requestId", "stream-fail-1"), 200);
+    StringBuilder seenText = new StringBuilder();
+    for (JsonNode e : events) if ("message.delta".equals(e.path("type").asText())) seenText.append(e.path("delta").asText());
+    assertEquals("部分模型正文", seenText.toString(), "the partial model text the client saw");
     assertEquals("run.error", events[events.length - 1].path("type").asText());
     assertFalse(events[events.length - 1].path("error").asText().isBlank());
+    assertTrue(java.util.Arrays.stream(events).noneMatch(e -> "message.completed".equals(e.path("type").asText()) || "run.completed".equals(e.path("type").asText())));
     var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
-    assertEquals(0, persisted.size(), "a failed run must not leave a persisted user/assistant message behind");
+    assertEquals(0, persisted.size(), "a run interrupted mid-answer must not leave a persisted user/assistant message behind, partial or otherwise");
     // Retrying with the same requestId after the failure must still be possible (nothing was partially written).
     llm.streamFailure = null;
+    llm.streamPartialBeforeFailure = null;
     llm.answer = Optional.of(new LlmGateway.LlmResponse("重试后的回答。", List.of()));
     var retried = streamEvents(admin, id, Map.of("question", "这次会失败", "requestId", "stream-fail-1"), 200);
     assertEquals("run.completed", retried[retried.length - 1].path("type").asText());
     assertEquals(2, call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).size());
+  }
+
+  // Upstream failed before producing ANY text at all (e.g. connection refused, immediate exception):
+  // that's equivalent to "model unavailable" in the sync path — it must fall back to the rule answer,
+  // marked mode=rule, persisted and completed normally. It must NOT be reported as run.error.
+  @Test void streamFailureBeforeAnyModelTextFallsBackToRuleAnswerLikeModelUnavailable() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.streamFailure = new RuntimeException("连接失败");
+    var events = streamEvents(admin, id, Map.of("question", "现在需要灌溉吗", "requestId", "stream-unavailable-1"), 200);
+    assertTrue(java.util.Arrays.stream(events).noneMatch(e -> "run.error".equals(e.path("type").asText())));
+    assertEquals("run.completed", events[events.length - 1].path("type").asText());
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertEquals(2, persisted.size());
+    assertEquals("rule", persisted.get(1).path("MODE").asText());
+    assertTrue(persisted.get(1).path("CONTENT").asText().contains("没有下发"));
   }
 
   @Test void streamCrossTenantAndUnauthorizedRequestsNeverStartAStream() throws Exception {
@@ -397,10 +438,14 @@ class AiIntegrationTest {
     volatile List<String> saved;
     final AtomicInteger calls = new AtomicInteger();
     volatile List<Map<String,Object>> lastMessages=List.of();
-    // Task 5 streaming fixtures: when set, stream() throws instead of returning, simulating an
-    // upstream failure/disconnect so tests can assert run.error without touching real HTTP SSE parsing
+    // Task 5 streaming fixtures: when set, stream() throws instead of returning normally, simulating an
+    // upstream failure/disconnect so tests can assert either rule-fallback (zero deltas emitted before
+    // the failure) or run.error (some deltas already emitted) without touching real HTTP SSE parsing
     // (which is exercised for real by LlmGateway.stream itself, outside of this fake).
     volatile RuntimeException streamFailure;
+    // When streamFailure is set, emit this text as a delta first (simulating a partial model answer)
+    // before throwing. Left null to simulate a failure that never produced any text at all.
+    volatile String streamPartialBeforeFailure;
 
     @Override
     public Optional<LlmResponse> complete(List<Map<String, Object>> messages, List<Map<String, Object>> tools) {
@@ -410,19 +455,22 @@ class AiIntegrationTest {
     }
 
     @Override
-    public Optional<LlmResponse> stream(List<Map<String, Object>> messages, List<Map<String, Object>> tools, StreamListener listener, java.util.function.BooleanSupplier cancelled) {
+    public StreamResult stream(List<Map<String, Object>> messages, List<Map<String, Object>> tools, StreamListener listener, java.util.function.BooleanSupplier cancelled) {
       calls.incrementAndGet();
       lastMessages=List.copyOf(messages);
-      if (streamFailure != null) throw streamFailure;
-      if (answer.isEmpty() || answer.get().content() == null) return Optional.empty();
+      if (streamFailure != null) {
+        if (streamPartialBeforeFailure != null) listener.onDelta(streamPartialBeforeFailure);
+        throw streamFailure;
+      }
+      if (answer.isEmpty() || answer.get().content() == null) return StreamResult.unavailable("NOT_CONFIGURED");
       String text = answer.get().content();
       // Split into a couple of chunks so ordering/accumulation of message.delta is actually exercised.
       int mid = Math.max(1, text.length() / 2);
       for (String chunk : List.of(text.substring(0, mid), text.substring(mid))) {
-        if (cancelled.getAsBoolean()) return Optional.empty();
+        if (cancelled.getAsBoolean()) return StreamResult.interrupted(text.substring(0, Math.min(mid, text.length())), "CANCELLED");
         if (!chunk.isEmpty()) listener.onDelta(chunk);
       }
-      return answer;
+      return StreamResult.completed(text);
     }
 
     @Override
