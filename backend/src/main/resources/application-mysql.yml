@@ -1,0 +1,15 @@
+spring:
+  datasource:
+    url: jdbc:mysql://${farm.database.host}:${farm.database.port:3306}/${farm.database.name}?sslMode=${farm.database.ssl-mode:VERIFY_IDENTITY}&characterEncoding=UTF-8&rewriteBatchedStatements=true
+    username: ${farm.database.username}
+    password: ${farm.database.password}
+    hikari:
+      connection-init-sql: "SET SESSION sql_mode = CONCAT(@@sql_mode, ',ANSI_QUOTES')"
+      connection-timeout: 10000
+      maximum-pool-size: 8
+  sql:
+    init:
+      schema-locations: classpath:schema-mysql.sql
+farm:
+  simulation:
+    use-primary: true

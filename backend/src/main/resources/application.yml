@@ -17,6 +17,8 @@ spring:
 farm:
   demo: ${FARM_DEMO:false}
   demo-rich: ${FARM_DEMO_RICH:true}
+  demo-live: ${FARM_DEMO_LIVE:false}
+  research-history: ${FARM_RESEARCH_HISTORY:false}
   bootstrap-password: ${FARM_BOOTSTRAP_PASSWORD:}
   llm:
     url: ${FARM_LLM_URL:}

@@ -42,6 +42,32 @@ test('scanner blocks persisted model credentials from either launch directory', 
   assert.deepEqual(scanFiles(root, files), files.map(file => ({ type: 'private_file', path: file })));
 });
 
+test('scanner blocks database credentials but permits the empty template', t => {
+  const { root, put } = fixture(t);
+  const files = ['config/database.properties', 'backend/config/database.local.properties', 'rds.txt'];
+  for (const file of files) put(file, 'fixture-only');
+  put('config/database.example.properties', 'farm.database.host=\nfarm.database.password=\nfarm.database.ssl-mode=VERIFY_IDENTITY\n');
+  assert.deepEqual(scanFiles(root, [...files, 'config/database.example.properties']), files.map(file => ({ type: 'private_file', path: file })));
+  put('config/database.example.properties', 'farm.database.password=fixture-only');
+  assert.deepEqual(scanFiles(root, ['config/database.example.properties']), [{ type: 'filled_database_template', path: 'config/database.example.properties' }]);
+});
+
+test('scanner refuses a filled model credential template', t => {
+  const { root, put } = fixture(t);
+  const file = 'config/llm.example.properties';
+  put(file, 'url=\napi-key=\nmodel=\n');
+  assert.deepEqual(scanFiles(root, [file]), []);
+  put(file, 'api-key=fixture-only');
+  assert.deepEqual(scanFiles(root, [file]), [{ type: 'filled_model_template', path: file }]);
+});
+
+test('scanner blocks local private configuration summaries', t => {
+  const { root, put } = fixture(t);
+  const file = 'config/deployment.private.txt';
+  put(file, 'fixture-only');
+  assert.deepEqual(scanFiles(root, [file]), [{ type: 'private_file', path: file }]);
+});
+
 test('scanner requires frontend colors to come from theme tokens', t => {
   const { root, put } = fixture(t);
   put('frontend/src/account/theme.css', ':root { --text: #0b0b0b; --backdrop: rgba(0, 0, 0, 0.4); }');

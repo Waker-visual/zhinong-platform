@@ -23,9 +23,11 @@ public class Store {
     "members"
   );
   private final JdbcTemplate db;
+  private final app.zhinong.database.DatabaseSql sql;
 
-  public Store(JdbcTemplate db) {
+  public Store(JdbcTemplate db, app.zhinong.database.DatabaseSql sql) {
     this.db = db;
+    this.sql = sql;
   }
 
   private String table(String name) {
@@ -103,6 +105,8 @@ public class Store {
   public JdbcTemplate db() {
     return db;
   }
+
+  public app.zhinong.database.DatabaseSql sql() { return sql; }
 
   public static LinkedHashMap<String, Object> fields(Object... pairs) {
     var result = new LinkedHashMap<String, Object>();

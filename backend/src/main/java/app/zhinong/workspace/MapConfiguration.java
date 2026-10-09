@@ -100,10 +100,7 @@ public class MapConfiguration {
     store
       .db()
       .update(
-        """
-        MERGE INTO farm_georeference(tenant_id,farm_id,mode,latitude,longitude,width_meters,height_meters,location_label,revision)
-        KEY(tenant_id,farm_id) VALUES(?,?,?,?,?,?,?,?,?)
-        """,
+        store.sql().upsert("farm_georeference", "tenant_id,farm_id", "tenant_id,farm_id,mode,latitude,longitude,width_meters,height_meters,location_label,revision"),
         Identity.tenant(),
         farmId,
         input.mode(),

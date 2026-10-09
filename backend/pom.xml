@@ -13,7 +13,11 @@
     <dependency><groupId>com.mysql</groupId><artifactId>mysql-connector-j</artifactId><version>9.5.0</version><scope>runtime</scope></dependency>
   </dependencies>
   <build>
-    <plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins>
+    <plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
+      <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId>
+        <configuration><systemPropertyVariables><farm.llm.file-enabled>false</farm.llm.file-enabled></systemPropertyVariables></configuration>
+      </plugin>
+    </plugins>
     <resources>
       <resource><directory>src/main/resources</directory></resource>
       <resource><directory>../frontend/dist</directory><targetPath>static</targetPath></resource>

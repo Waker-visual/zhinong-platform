@@ -54,7 +54,7 @@ public class WorkspaceData implements ApplicationRunner {
     );
     db.update(
       """
-      UPDATE asset_profiles p SET last_received_at=(SELECT CAST(MAX(o.measured_at) AS TIMESTAMP WITH TIME ZONE)
+      UPDATE asset_profiles p SET last_received_at=(SELECT MAX(o.measured_at)
       FROM observations o WHERE o.tenant_id=p.tenant_id AND o.device_id=p.device_id)
       WHERE p.last_received_at IS NULL AND EXISTS
       (SELECT 1 FROM observations o WHERE o.tenant_id=p.tenant_id AND o.device_id=p.device_id)

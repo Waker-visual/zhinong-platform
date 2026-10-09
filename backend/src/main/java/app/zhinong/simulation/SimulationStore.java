@@ -30,9 +30,8 @@ public class SimulationStore {
     WeatherData weather
   ) {
     this.json = json;
-    String url = env.getProperty("FARM_SIM_DATABASE_URL", "");
-    mysql = !url.isBlank();
-    if (mysql) {
+    String url = env.getProperty("farm.simulation.use-primary", Boolean.class, false) ? "" : env.getProperty("FARM_SIM_DATABASE_URL", "");
+    if (!url.isBlank()) {
       if (
         !url.startsWith("jdbc:mysql://127.0.0.1:") &&
         !url.startsWith("jdbc:mysql://localhost:")
@@ -52,6 +51,7 @@ public class SimulationStore {
       pool = null;
       db = primary;
     }
+    mysql = Boolean.TRUE.equals(db.execute((org.springframework.jdbc.core.ConnectionCallback<Boolean>) connection -> connection.getMetaData().getDatabaseProductName().equals("MySQL")));
     tx = new TransactionTemplate(
       new DataSourceTransactionManager(
         Objects.requireNonNull(db.getDataSource())
@@ -99,7 +99,7 @@ public class SimulationStore {
       "engine",
       mysql ? "MySQL" : "H2",
       "separateDatabase",
-      mysql,
+      pool != null,
       "weatherRows",
       db.queryForObject("SELECT COUNT(*) FROM sim_weather", Integer.class)
     );

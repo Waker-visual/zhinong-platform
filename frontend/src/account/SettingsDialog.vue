@@ -23,6 +23,11 @@ const tab = ref(props.account.mustChangePassword ? "security" : "profile"),
   memberSearch = ref(""),
   settingsSearch = ref("");
 const settingsSearchInput = ref(null);
+const database = ref(null);
+onMounted(async () => {
+  if (props.account.mustChangePassword) return;
+  try { database.value = await api("/system/database"); } catch { database.value = { connected: false }; }
+});
 const profile = reactive({
   displayName: props.account.displayName,
   avatarData: props.account.avatarData || "",
@@ -333,6 +338,10 @@ onBeforeUnmount(() => applyAppearance(props.account));
             <div>
               <dt>角色</dt>
               <dd>{{ labels[account.role] }}</dd>
+            </div>
+            <div v-if="database">
+              <dt>数据存储</dt>
+              <dd>{{ database.connected ? `${database.location === 'REMOTE' ? '远程' : '本机'} ${database.engine} · 已连接` : '连接状态暂不可用' }}</dd>
             </div>
           </dl>
           <p class="muted">昵称与头像可修改，登录账号及所属租户保持不变。</p>

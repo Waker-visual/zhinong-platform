@@ -20,7 +20,7 @@ function normalize(value) {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value).map(([key, item]) => [
-      /^[A-Z_]+$/.test(key)
+      (/^[A-Z_]+$/.test(key) || /^[a-z]+(?:_[a-z]+)+$/.test(key))
         ? key.toLowerCase().replace(/_([a-z])/g, (_, c) => c.toUpperCase())
         : key,
       normalize(item),
@@ -43,9 +43,9 @@ function failure(message, status) {
 }
 
 // keepalive 用于页面关闭时仍需送达的请求（例如撤销期结束的删除）
-export async function api(path, method = "GET", body, { keepalive = false } = {}) {
+export async function api(path, method = "GET", body, { keepalive = false, timeoutMs = 15000 } = {}) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 15000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   connection.inflight++;
   try {
     let response;
@@ -69,7 +69,8 @@ export async function api(path, method = "GET", body, { keepalive = false } = {}
     // 开发代理在后端停止时返回 502/503/504
     if ([502, 503, 504].includes(response.status)) {
       connection.state = "offline";
-      throw failure("本地服务暂时不可用，请稍后重试", response.status);
+      const details = await response.json().catch(() => ({}));
+      throw failure(details.message || "服务暂时不可用，请稍后重试", response.status);
     }
     connection.state = "online";
     connection.lastSync = new Date();

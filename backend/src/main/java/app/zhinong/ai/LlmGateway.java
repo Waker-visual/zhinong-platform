@@ -16,6 +16,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.LinkedHashMap;
+import java.util.concurrent.Semaphore;
+import app.zhinong.api.ApiException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -47,6 +50,10 @@ public class LlmGateway {
   @Value("${farm.llm.fallback-url:}") String fallbackUrl;
   @Value("${farm.llm.fallback-model:}") String fallbackModel;
   @Value("${farm.llm.timeout-seconds:20}") int timeoutSeconds;
+  @Value("${farm.llm.file-enabled:true}") boolean fileEnabled;
+  private final Semaphore capacity = new Semaphore(3);
+  private final ThreadLocal<String> lastIssue = ThreadLocal.withInitial(() -> "NOT_CONFIGURED");
+  public String diagnostic() { return lastIssue.get(); }
 
   /** 持久化配置文件：{user.dir}/config/llm.properties，优先级高于环境变量，一次配置永久生效。 */
   private final Path configPath =
@@ -54,7 +61,7 @@ public class LlmGateway {
 
   @PostConstruct
   void loadFileConfig() {
-    if (!Files.isRegularFile(configPath)) return;
+    if (!fileEnabled || !Files.isRegularFile(configPath)) return;
     try (var in = Files.newInputStream(configPath)) {
       Properties p = new Properties();
       p.load(in);
@@ -77,49 +84,55 @@ public class LlmGateway {
   }
 
   /** 保存配置：立即生效并持久化到本地文件，空值表示保持当前值。 */
-  public void saveConfig(String newUrl, String newApiKey, String newModel) {
-    if (!blank(newUrl)) url = newUrl.trim();
-    if (!blank(newApiKey)) apiKey = newApiKey.trim();
-    if (!blank(newModel)) model = newModel.trim();
+  public synchronized void saveConfig(String newUrl, String newApiKey, String newModel) {
+    if (!blank(newUrl)) validateEndpoint(newUrl.trim());
+    if (!blank(newUrl) && !newUrl.trim().equals(url) && blank(newApiKey))
+      throw new ApiException(400,"更换模型地址时必须重新提供密钥");
+    String nextUrl=blank(newUrl)?url:newUrl.trim(), nextKey=blank(newApiKey)?apiKey:newApiKey.trim(), nextModel=blank(newModel)?model:newModel.trim();
     Properties p = new Properties();
-    p.setProperty("url", url == null ? "" : url);
-    p.setProperty("api-key", apiKey == null ? "" : apiKey);
-    p.setProperty("model", model == null ? "" : model);
+    p.setProperty("url", nextUrl == null ? "" : nextUrl);
+    p.setProperty("api-key", nextKey == null ? "" : nextKey);
+    p.setProperty("model", nextModel == null ? "" : nextModel);
     p.setProperty("fallback-url", fallbackUrl == null ? "" : fallbackUrl);
     p.setProperty("fallback-model", fallbackModel == null ? "" : fallbackModel);
     p.setProperty("timeout-seconds", String.valueOf(timeoutSeconds));
     try {
       Files.createDirectories(configPath.getParent());
-      try (var out = Files.newOutputStream(configPath)) {
+      Path temporary=Files.createTempFile(configPath.getParent(),"llm-", ".private.tmp");
+      try {
+      try (var out = Files.newOutputStream(temporary)) {
         p.store(out, "Zhinong LLM config (managed by platform admin)");
       }
+      Files.move(temporary,configPath,java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+      url=nextUrl;apiKey=nextKey;model=nextModel;
+      } finally {Files.deleteIfExists(temporary);}
     } catch (IOException ignored) {
-      /* 写盘失败不影响本次运行 */
+      throw new ApiException(500,"模型配置未能写入私有配置文件");
     }
   }
 
-  public String url() {
+  public synchronized String url() {
     return url;
   }
 
-  public String model() {
+  public synchronized String model() {
     return model;
   }
 
-  public boolean apiKeySet() {
-    return !apiKey.isBlank();
+  public synchronized boolean apiKeySet() {
+    return !blank(apiKey);
   }
 
   private static boolean blank(String v) {
     return v == null || v.isBlank();
   }
 
-  public boolean cloudEnabled() {
-    return !url.isBlank() && !apiKey.isBlank();
+  public synchronized boolean cloudEnabled() {
+    return !blank(url) && !blank(apiKey);
   }
 
-  public boolean fallbackEnabled() {
-    return !fallbackUrl.isBlank();
+  public synchronized boolean fallbackEnabled() {
+    return !blank(fallbackUrl);
   }
 
   /** 简单问答：无工具，保留给 insights 等调用。 */
@@ -143,21 +156,39 @@ public class LlmGateway {
     List<Map<String, Object>> messages,
     List<Map<String, Object>> tools
   ) {
-    if (cloudEnabled()) {
+    lastIssue.set("NOT_CONFIGURED");
+    long started=System.nanoTime();
+    if (!capacity.tryAcquire()) { lastIssue.set("BUSY"); return Optional.empty(); }
+    try {
+    String endpoint,key,selectedModel,backup,backupModel;
+    synchronized(this) { endpoint=url;key=apiKey;selectedModel=model;backup=fallbackUrl;backupModel=fallbackModel; }
+    if (!blank(endpoint) && !blank(key)) {
       Optional<LlmResponse> r =
-        callCompletions(url, apiKey, model.isBlank() ? "deepseek-chat" : model, messages, tools);
+        callCompletions(endpoint, key, blank(selectedModel) ? "deepseek-flash" : selectedModel, messages, tools,45);
       if (r.isPresent()) return r;
     }
-    if (fallbackEnabled()) {
+    int remainingSeconds=45-(int)Duration.ofNanos(System.nanoTime()-started).toSeconds();
+    if (!blank(backup) && remainingSeconds>=5) {
       return callCompletions(
-        fallbackUrl,
+        backup,
         "",
-        fallbackModel.isBlank() ? "qwen2.5" : fallbackModel,
+        blank(backupModel) ? "qwen2.5" : backupModel,
         messages,
-        tools
+        tools,
+        remainingSeconds
       );
     }
     return Optional.empty();
+    } finally { capacity.release(); }
+  }
+
+  private void validateEndpoint(String base) {
+    try {
+      URI u=URI.create(base);
+      boolean loopback=List.of("localhost","127.0.0.1","[::1]").contains(u.getHost());
+      if (u.getHost()==null || u.getUserInfo()!=null || u.getQuery()!=null || u.getFragment()!=null
+          || !("https".equals(u.getScheme()) || (loopback && "http".equals(u.getScheme())))) throw new IllegalArgumentException();
+    } catch (Exception ex) { throw new ApiException(400,"模型地址必须是 HTTPS，或本机 HTTP 地址"); }
   }
 
   private Optional<LlmResponse> callCompletions(
@@ -165,11 +196,13 @@ public class LlmGateway {
     String key,
     String m,
     List<Map<String, Object>> messages,
-    List<Map<String, Object>> tools
+    List<Map<String, Object>> tools,
+    int secondsBudget
   ) {
     try {
+      validateEndpoint(base);
       Map<String, Object> body =
-        Map.of(
+        new LinkedHashMap<>(Map.of(
           "model",
           m,
           "messages",
@@ -177,22 +210,24 @@ public class LlmGateway {
           "temperature",
           0.3,
           "max_tokens",
-          900,
-          "tool_choice",
-          "auto",
-          "tools",
-          tools
-        );
+          1600
+        ));
+      if (!tools.isEmpty()) { body.put("tools",tools); body.put("tool_choice","auto"); }
+      if ("api.deepseek.com".equals(URI.create(base).getHost())) body.put("thinking",Map.of("type","disabled"));
       HttpRequest.Builder b =
         HttpRequest
           .newBuilder()
-          .uri(URI.create(base + "/chat/completions"))
-          .timeout(Duration.ofSeconds(timeoutSeconds))
+          .uri(URI.create(base.replaceAll("/+$", "") + "/chat/completions"))
+          .timeout(Duration.ofSeconds(Math.max(5,Math.min(secondsBudget,timeoutSeconds))))
           .header("Content-Type", "application/json")
           .POST(HttpRequest.BodyPublishers.ofString(json.writeValueAsString(body)));
       if (!key.isBlank()) b.header("Authorization", "Bearer " + key);
       HttpResponse<String> res = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
-      if (res.statusCode() / 100 != 2) return Optional.empty();
+      if (res.statusCode() / 100 != 2) {
+        lastIssue.set(switch(res.statusCode()) { case 401,403 -> "AUTH_FAILED"; case 402 -> "BALANCE_REQUIRED"; case 429 -> "RATE_LIMITED"; default -> "SERVICE_ERROR"; });
+        return Optional.empty();
+      }
+      lastIssue.set("OK");
       JsonNode root = json.readTree(res.body());
       JsonNode msg = root.path("choices").path(0).path("message");
       String content = msg.path("content").isNull() ? null : msg.path("content").asText();
@@ -210,8 +245,10 @@ public class LlmGateway {
       if (content != null && !content.isBlank()) {
         return Optional.of(new LlmResponse(content.trim(), calls));
       }
-      return Optional.empty();
+      lastIssue.set("EMPTY_RESPONSE"); return Optional.empty();
     } catch (Exception e) {
+      if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+      lastIssue.set(e instanceof java.net.http.HttpTimeoutException ? "TIMEOUT" : "UNAVAILABLE");
       return Optional.empty();
     }
   }
