@@ -468,6 +468,20 @@ test("formatActivityDuration keeps one decimal under 10s and rounds to whole sec
   assert.equal(formatActivityDuration(-5), "");
 });
 
+test("formatActivityDuration collapses sub-100ms durations to a tasteful placeholder instead of fake precision like 0.0s", () => {
+  assert.equal(formatActivityDuration(0), "<0.1s");
+  assert.equal(formatActivityDuration(42), "<0.1s");
+  assert.equal(formatActivityDuration(99), "<0.1s");
+  assert.equal(formatActivityDuration(100), "0.1s");
+});
+
+test("activitySummaryText reports <0.1s rather than 0.0s when the whole run finished in under 100ms", () => {
+  const activities = [
+    { id: "ctx", kind: "context", status: "completed", startedAt: "2026-10-09T00:00:00.000Z", finishedAt: "2026-10-09T00:00:00.050Z" },
+  ];
+  assert.equal(activitySummaryText(activities, "completed"), "读取 1 项资料 · 用时 <0.1s");
+});
+
 test("formatElapsedStatus renders a whole-second running timer", () => {
   assert.equal(formatElapsedStatus(12.4), "已用 12s");
   assert.equal(formatElapsedStatus(0), "已用 0s");

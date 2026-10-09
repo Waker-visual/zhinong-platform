@@ -13,11 +13,13 @@ const props = defineProps({ activity: { type: Object, required: true } });
 const isApproval = computed(() => props.activity.kind === 'approval');
 // 待确认用强调色空心圆区分普通 pending（例如还没轮到的步骤），其余状态直接取 activity.status。
 const iconKind = computed(() => (isApproval.value && props.activity.status === 'pending' ? 'awaiting' : props.activity.status));
+// 单行耗时：低于 100ms 的工作直接不显示耗时列——"0.0s" 这种假精度对单步操作没有意义；
+// 折叠区摘要仍会报告总耗时（哪怕 <0.1s），这里只管每一行自己的数字。
 const durationText = computed(() => {
   const { startedAt, finishedAt } = props.activity;
   if (!startedAt || !finishedAt) return '';
   const ms = Date.parse(finishedAt) - Date.parse(startedAt);
-  return Number.isFinite(ms) && ms >= 0 ? formatActivityDuration(ms) : '';
+  return Number.isFinite(ms) && ms >= 100 ? formatActivityDuration(ms) : '';
 });
 </script>
 <template>

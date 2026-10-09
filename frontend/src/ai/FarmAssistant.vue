@@ -183,6 +183,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
         <button v-if="selected" :disabled="sending" class="text-button" @click="removeChat">删除当前对话</button>
       </aside>
       <div class="ai-chat-main">
+        <div class="ai-messages-wrap">
         <div ref="scroller" class="ai-messages" role="log" aria-label="农事对话记录" :aria-busy="!!run || initialLoading" @scroll="handleScroll">
           <div v-if="initialLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
           <template v-else>
@@ -204,12 +205,13 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);});
                 <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" />
                 <AiApprovalCard v-for="a in approvalActivities(m.activities)" :key="a.activityId" :activity="a" :writer="writer" @view-approval="onViewApproval" />
                 <div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
+                <p v-if="m.diagnostic && m.diagnostic!=='OK'" class="ai-diagnostic-note"><AppIcon name="info" />{{diagnosticLabels[m.diagnostic] || '模型暂不可用'}}</p>
                 <AiMessageActions :id="m.id" :text="m.content" :role="m.role" :time="messageTime(m)" :conversation-id="selected" @branched="onBranched" />
               </template>
-              <small v-if="m.diagnostic && m.diagnostic!=='OK'">{{diagnosticLabels[m.diagnostic] || '模型暂不可用'}}</small>
             </article>
-            <button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button>
           </template>
+        </div>
+        <Transition name="ai-jump"><button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button></Transition>
         </div>
         <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small>Enter 发送 · Shift + Enter 换行 · {{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()"><template v-if="!sending"><AppIcon name="send" /></template>{{sending?'正在回答…':'发送'}}</button></div></form>
         <p class="ai-footnote">发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>

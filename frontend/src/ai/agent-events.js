@@ -138,10 +138,14 @@ function totalElapsedMs(activities) {
   return start != null && end != null && end >= start ? end - start : null;
 }
 
-// 单行/摘要都用的紧凑耗时文案：10秒内保留1位小数（例如“1.8s”），否则取整秒（例如“12s”）。
+// 单行/摘要都用的紧凑耗时文案：100ms 以内不值得报告精确小数（“0.0s”看起来很滑稽），统一显示
+// “<0.1s”；10秒内保留1位小数（例如“1.8s”），否则取整秒（例如“12s”）。
 // 等宽数字在 CSS 里用 font-variant-numeric: tabular-nums 实现，这里只管文案本身。
+// 注意：是否完全隐藏这段文案（而不是显示“<0.1s”）由调用方决定——活动行在 <100ms 时直接不渲染
+// 耗时列（见 AiActivityRow.vue），折叠区摘要则始终显示这句话，哪怕总耗时也低于 100ms。
 export function formatActivityDuration(ms) {
   if (ms == null || !Number.isFinite(ms) || ms < 0) return "";
+  if (ms < 100) return "<0.1s";
   const seconds = ms / 1000;
   if (seconds < 10) return `${seconds.toFixed(1)}s`;
   return `${Math.round(seconds)}s`;

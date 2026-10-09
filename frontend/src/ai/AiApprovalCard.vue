@@ -4,6 +4,7 @@
 // 确认对话框完成——这里从不直接下发任何设备指令，writer 之外的角色看到的是说明文字而不是按钮。
 import { computed } from 'vue';
 import { irrigationApprovalTarget } from './agent-events.js';
+import AppIcon from '../ui/AppIcon.vue';
 const props = defineProps({ activity: { type: Object, required: true }, writer: { type: Boolean, default: false } });
 const emit = defineEmits(['view-approval']);
 const target = computed(() => irrigationApprovalTarget(props.activity));
@@ -24,7 +25,7 @@ function viewApproval() {
       <h4>{{ plotName }}</h4>
     </div>
     <p v-if="activity.resultSummary" class="ai-approval-reason">{{ activity.resultSummary }}</p>
-    <button v-if="writer" type="button" class="primary ai-approval-go" @click="viewApproval">去确认</button>
+    <button v-if="writer" type="button" class="ai-approval-go" @click="viewApproval">去确认<AppIcon name="arrowRight" /></button>
     <p v-else class="ai-approval-hint">需管理员或操作员确认</p>
   </div>
 </template>
