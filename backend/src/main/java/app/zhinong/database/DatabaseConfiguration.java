@@ -18,7 +18,9 @@ public class DatabaseConfiguration {
         if (bean instanceof HikariDataSource source && source.getJdbcUrl()!=null && source.getJdbcUrl().startsWith("jdbc:mysql:")) {
           // Numeric offsets do not require loading MySQL's named-time-zone tables.
           // Align SQL CURRENT_TIMESTAMP with the application's local workflow timestamps.
-          source.addDataSourceProperty("connectionTimeZone", java.time.OffsetDateTime.now().getOffset().getId());
+          // The RDS launcher explicitly selects UTC for its legacy DATETIME schema.
+          if (!source.getJdbcUrl().matches(".*[?&]connectionTimeZone=[^&]+.*"))
+            source.addDataSourceProperty("connectionTimeZone", java.time.OffsetDateTime.now().getOffset().getId());
           source.addDataSourceProperty("forceConnectionTimeZoneToSession", "true");
           source.addDataSourceProperty("preserveInstants", "true");
         }
@@ -42,6 +44,9 @@ public class DatabaseConfiguration {
         }
         @Override protected Object getColumnValue(ResultSet rs, int index) throws SQLException {
           Object value = super.getColumnValue(rs, index);
+          // Connector/J exposes DATETIME expressions without their session zone.
+          // Read via JDBC's offset-aware conversion before services compare instants.
+          if (value instanceof java.time.LocalDateTime) return rs.getObject(index, java.time.OffsetDateTime.class);
           if (value != null && BOOLEANS.contains(rs.getMetaData().getColumnLabel(index).toLowerCase(Locale.ROOT))) return rs.getBoolean(index);
           return value;
         }

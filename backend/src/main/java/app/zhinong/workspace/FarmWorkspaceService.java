@@ -53,6 +53,8 @@ public class FarmWorkspaceService {
     );
     for (var row : rows) {
       row.put("demoLive", demoLive && Boolean.TRUE.equals(row.get("operatingDemo")));
+      Object demo = row.get("demo");
+      row.put("demo", Boolean.TRUE.equals(demo) || demo instanceof Number number && number.intValue() != 0);
       String id = row.get("id").toString();
       var plots = plots(id);
       row.put("plots", plots);

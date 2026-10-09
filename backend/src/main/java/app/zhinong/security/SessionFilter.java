@@ -50,6 +50,8 @@ public class SessionFilter extends OncePerRequestFilter {
         if (!ready) throw new ApiException(503, "项目正在初始化或停止，请稍候重试");
         boolean deviceIngest =
           (path.equals("/api/ingest/telemetry") || path.equals("/api/ingest/commands/poll")
+            || path.equals("/api/ingest/smart-farm") || path.equals("/api/ingest/smart-farm/commands/poll")
+            || path.matches("/api/ingest/smart-farm/commands/[A-Za-z0-9-]+/receipt")
             || path.matches("/api/ingest/commands/[A-Za-z0-9-]+/receipt")) &&
           request.getMethod().equals("POST");
         if (deviceIngest && (request.getHeader("X-Tenant-Id") != null || request.getHeader("tenantId") != null

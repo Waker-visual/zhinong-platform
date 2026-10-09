@@ -39,7 +39,7 @@ function scanFiles(root, files) {
     if (local.startsWith('..') || path.isAbsolute(local)) throw new Error('Paths must stay inside the project');
     if (!fs.existsSync(full)) continue;
     if (forbidden.test(relative.replaceAll('\\', '/'))) findings.push({ type: 'private_file', path: relative });
-    if (/\.private\.txt$/i.test(relative)) findings.push({ type: 'private_file', path: relative });
+    if (/\.private\.(?:txt|json)$/i.test(relative)) findings.push({ type: 'private_file', path: relative });
     if (/(?:^|\/)config\/(?:llm\.properties|database(?:\.(?!example\.)[^/]+)?\.properties)$|(?:^|\/)rds\.txt$/i.test(relative.replaceAll('\\', '/'))) {
       findings.push({ type: 'private_file', path: relative });
     }

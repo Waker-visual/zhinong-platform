@@ -16,14 +16,19 @@ if (-not $SkipBuild) {
     try { mvn -B package; if ($LASTEXITCODE -ne 0) { throw '后端验证或打包失败' } } finally { Pop-Location }
 }
 $savedEnvironment = @{}
-foreach ($name in @('SPRING_PROFILES_ACTIVE','SPRING_CONFIG_ADDITIONAL_LOCATION','FARM_DEMO','FARM_RESEARCH_HISTORY','FARM_DEMO_LIVE','FARM_BOOTSTRAP_PASSWORD')) {
+foreach ($name in @('SPRING_PROFILES_ACTIVE','SPRING_CONFIG_ADDITIONAL_LOCATION','FARM_DEMO','FARM_DEMO_RICH','FARM_RESEARCH_HISTORY','FARM_DEMO_LIVE','FARM_DEMO_STREAM_ENABLED','FARM_BOOTSTRAP_PASSWORD','FARM_DATABASE_URL','FARM_DATABASE_USER','FARM_DATABASE_PASSWORD','FARM_DATABASE_BIND_ADDRESS','FARM_DATABASE_INIT')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
+# This launcher uses the selected private file, not a prior start-rds session's environment.
+Remove-Item Env:FARM_DATABASE_URL,Env:FARM_DATABASE_USER,Env:FARM_DATABASE_PASSWORD,Env:FARM_DATABASE_BIND_ADDRESS -ErrorAction SilentlyContinue
+$env:FARM_DATABASE_INIT = 'always'
 $env:SPRING_PROFILES_ACTIVE = 'mysql'
 $env:SPRING_CONFIG_ADDITIONAL_LOCATION = 'file:' + $ConfigPath.Replace('\','/')
 $env:FARM_DEMO = 'true'
+$env:FARM_DEMO_RICH = 'true'
 $env:FARM_RESEARCH_HISTORY = 'true'
+if (-not $env:FARM_DEMO_STREAM_ENABLED) { $env:FARM_DEMO_STREAM_ENABLED = 'true' }
 if (-not $env:FARM_DEMO_LIVE) { $env:FARM_DEMO_LIVE = 'true' }
 $passwordFile = Join-Path $projectRoot '.cache/demo-password.txt'
 if (-not $env:FARM_BOOTSTRAP_PASSWORD -and (Test-Path -LiteralPath $passwordFile)) { $env:FARM_BOOTSTRAP_PASSWORD = (Get-Content -LiteralPath $passwordFile -Raw).Trim() }

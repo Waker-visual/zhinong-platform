@@ -16,11 +16,13 @@ const geo = ref(null),
 import DataChart from "./DataChart.vue";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
+import FarmMonitoring from "./FarmMonitoring.vue";
 import { important, reportFailure, toast } from "../ui/feedback";
 import {
   typeNames,
   typeIcons,
   sourceNames,
+  preferredMetric,
   stateNames,
   num,
   timeText,
@@ -210,7 +212,7 @@ async function loadHistory() {
   const d = selectedDevice.value;
   if (!d) return;
   if (!d.channels.some((c) => c.metric === metric.value))
-    metric.value = d.channels[0]?.metric || "";
+    metric.value = preferredMetric(d);
   if (!metric.value) return;
   try {
     const data = await api(
@@ -486,9 +488,7 @@ onBeforeUnmount(() => {
           </li>
           <li>
             近
-            {{
-              days
-            }}
+            {{ days }}
             天登记产量：所选范围内实际保存的生产记录合计，不含经营模拟结果。
           </li>
           <li>
@@ -496,6 +496,13 @@ onBeforeUnmount(() => {
           </li>
         </ul>
       </details>
+      <FarmMonitoring
+        :devices="workspace.devices"
+        :plots="workspace.plots"
+        :demo="workspace.farm.demo"
+        :farm-id="workspace.farm.id"
+        @device="detailId = $event"
+      />
       <div class="workspace-main-grid">
         <div>
           <div class="map-filters">
@@ -615,6 +622,13 @@ onBeforeUnmount(() => {
                     >{{ c.latest ? num(c.latest.value, 2) : "—" }}
                     <small>{{ c.unit }}</small></strong
                   >
+                  <small>{{
+                    c.freshness === "FRESH"
+                      ? "数据新鲜"
+                      : c.latest
+                        ? "已过期"
+                        : "等待上报"
+                  }}</small>
                 </button>
               </div>
               <p class="muted">

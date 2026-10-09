@@ -2,6 +2,7 @@ package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
 import app.zhinong.business.Store;
+import app.zhinong.business.DatabaseTime;
 import app.zhinong.security.Identity;
 import java.math.BigDecimal;
 import java.time.*;
@@ -79,10 +80,12 @@ public class AssetService {
       "alerts",
       db.queryForList(
         """
-        SELECT id AS "id",metric AS "metric",message AS "message",status AS "status",
-        measured_value AS "value",opened_at AS "openedAt",updated_at AS "updatedAt",
-        handled_by AS "handledBy",handle_note AS "handleNote"
-        FROM device_alerts WHERE tenant_id=? AND device_id=? ORDER BY opened_at DESC LIMIT 50
+        SELECT a.id AS "id",a.metric AS "metric",a.message AS "message",a.status AS "status",
+        a.measured_value AS "value",a.opened_at AS "openedAt",a.updated_at AS "updatedAt",
+        a.handled_by AS "handledBy",a.handle_note AS "handleNote",i.id AS "issueId",i.status AS "issueStatus"
+        FROM device_alerts a LEFT JOIN alert_field_issues l ON l.tenant_id=a.tenant_id AND l.alert_id=a.id
+        LEFT JOIN field_issues i ON i.tenant_id=l.tenant_id AND i.id=l.issue_id
+        WHERE a.tenant_id=? AND a.device_id=? ORDER BY a.opened_at DESC LIMIT 50
         """,
         tenant,
         id
@@ -92,9 +95,13 @@ public class AssetService {
   }
 
   private void enrich(Map<String, Object> row, String tenant) {
+    Object configured = row.get("credentialConfigured");
+    row.put("credentialConfigured", Boolean.TRUE.equals(configured) || configured instanceof Number n && n.intValue() != 0);
+    row.put("lastReceivedAt", DatabaseTime.utc(row.get("lastReceivedAt")));
     String id = row.get("id").toString();
     var channels = channels(tenant, id);
     Instant sampled = null;
+    int freshChannels = 0, missingChannels = 0;
     long threshold = Math.max(180, ((Number) row.get("intervalSeconds")).longValue() * 3);
     for (var channel : channels) {
       String metric = channel.get("metric").toString();
@@ -107,13 +114,22 @@ public class AssetService {
       channel.put("latest", latest);
       Instant at = latest == null ? null : app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant();
       channel.put("freshness", freshness(at, threshold));
+      if (latest != null && !row.get("protocol").equals(latest.get("source"))) channel.put("freshness", "STALE");
+      if ("FRESH".equals(channel.get("freshness"))) freshChannels++;
+      if (latest == null) missingChannels++;
       if (at != null && (sampled == null || at.isAfter(sampled))) sampled = at;
     }
     row.put("channels", channels);
     row.put("lastSampledAt", sampled);
     String freshness = freshness(sampled, threshold);
+    if (freshChannels == 0 && sampled != null) freshness = "STALE";
     if (!"ACTIVE".equals(row.get("lifecycle"))) freshness = row.get("lifecycle").toString();
     row.put("freshness", freshness);
+    row.put("freshChannelCount", freshChannels);
+    row.put("missingChannelCount", missingChannels);
+    row.put("dataQuality", missingChannels == channels.size() ? "NO_DATA" : freshChannels == channels.size() ? "COMPLETE" : freshChannels == 0 ? "STALE" : "PARTIAL");
+    Instant received = row.get("lastReceivedAt") == null ? null : ((OffsetDateTime) row.get("lastReceivedAt")).toInstant();
+    row.put("connectionState", freshness(received, threshold));
     row.put("positioned", "WGS84".equals(row.get("locationMode")) || row.get("planX") != null);
     row.put(
       "alertCount",
@@ -151,7 +167,11 @@ public class AssetService {
       id,
       metric
     );
-    return rows.isEmpty() ? null : rows.getFirst();
+    if (rows.isEmpty()) return null;
+    var row = rows.getFirst();
+    row.put("time", DatabaseTime.utc(row.get("time")));
+    row.put("receivedAt", DatabaseTime.utc(row.get("receivedAt")));
+    return row;
   }
 
   private String historyUnion() {
@@ -194,6 +214,7 @@ public class AssetService {
       metric,
       start
     );
+    points.forEach(p -> p.put("time", DatabaseTime.utc(p.get("time"))));
     var sources = db.queryForList(
       "SELECT \"source\",COUNT(*) AS \"count\" FROM (" +
         historyUnion() +
@@ -212,7 +233,7 @@ public class AssetService {
       "hours",
       hours,
       "aggregation",
-      bucket,
+      hours <= 24 ? "MINUTE" : "HOUR",
       "points",
       points,
       "sources",

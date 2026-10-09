@@ -269,3 +269,33 @@ CREATE TABLE IF NOT EXISTS demo_research_farms (
  PRIMARY KEY(tenant_id,farm_id),
  FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE
 );
+
+-- Bind a vendor's device identity to one authenticated tenant device.
+CREATE TABLE IF NOT EXISTS device_integrations (
+ tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL,
+ adapter_type VARCHAR(20) NOT NULL, external_id VARCHAR(100) NOT NULL,
+ upstream_topic VARCHAR(240) NOT NULL DEFAULT '', downstream_topic VARCHAR(240) NOT NULL DEFAULT '',
+ bindings_json VARCHAR(12000) NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+ updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ PRIMARY KEY(tenant_id,device_id), UNIQUE(tenant_id,adapter_type,external_id),
+ FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
+ CHECK(adapter_type IN ('PUMP_MQTT','GATE_MQTT','LAN_DTU'))
+);
+CREATE TABLE IF NOT EXISTS device_ingest_events (
+ tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL, message_id VARCHAR(80) NOT NULL,
+ adapter_type VARCHAR(20) NOT NULL, payload_hash VARCHAR(64) NOT NULL, mapping_revision INTEGER NOT NULL,
+ reading_count INTEGER NOT NULL, missing_json VARCHAR(4000) NOT NULL,
+ measured_at TIMESTAMP WITH TIME ZONE NOT NULL, received_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ PRIMARY KEY(tenant_id,device_id,message_id),
+ FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id)
+);
+CREATE INDEX IF NOT EXISTS ix_ingest_events ON device_ingest_events(tenant_id,device_id,received_at);
+
+ALTER TABLE device_alerts ADD CONSTRAINT IF NOT EXISTS uq_alert_tenant UNIQUE(tenant_id,id);
+ALTER TABLE field_issues ADD CONSTRAINT IF NOT EXISTS uq_issue_tenant UNIQUE(tenant_id,id);
+CREATE TABLE IF NOT EXISTS alert_field_issues (
+ tenant_id VARCHAR(36) NOT NULL, alert_id VARCHAR(36) NOT NULL, issue_id VARCHAR(36) NOT NULL,
+ PRIMARY KEY(tenant_id,alert_id), UNIQUE(tenant_id,issue_id),
+ FOREIGN KEY(tenant_id,alert_id) REFERENCES device_alerts(tenant_id,id),
+ FOREIGN KEY(tenant_id,issue_id) REFERENCES field_issues(tenant_id,id)
+);

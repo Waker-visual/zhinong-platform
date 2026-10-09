@@ -155,7 +155,8 @@ CREATE TABLE IF NOT EXISTS device_alerts (
  updated_at TIMESTAMP(6) NOT NULL, handled_by VARCHAR(80), handle_note VARCHAR(300),
  FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
  CHECK(status IN ('OPEN','ACKNOWLEDGED','RESOLVED')),
- INDEX ix_alert_status(tenant_id,status,opened_at)
+ INDEX ix_alert_status(tenant_id,status,opened_at),
+ CONSTRAINT uq_alert_tenant UNIQUE(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS demo_scenarios (
@@ -203,7 +204,8 @@ CREATE TABLE IF NOT EXISTS field_issues (
  FOREIGN KEY(tenant_id,task_id) REFERENCES farm_tasks(tenant_id,id),
  CHECK(status IN ('OPEN','ASSIGNED','RESOLVED')), CHECK(category IN ('PEST','WATER','EQUIPMENT','OTHER')),
  CHECK(severity IN ('NORMAL','HIGH')),
- INDEX ix_field_issues_plot(tenant_id,plot_id,status)
+ INDEX ix_field_issues_plot(tenant_id,plot_id,status),
+ CONSTRAINT uq_issue_tenant UNIQUE(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS field_work_logs (
@@ -291,4 +293,32 @@ CREATE TABLE IF NOT EXISTS demo_research_farms (
  history_start DATE NOT NULL, as_of_date DATE NOT NULL, generated_at DATETIME(6) NOT NULL,
  PRIMARY KEY(tenant_id,farm_id),
  FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS device_integrations (
+ tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL,
+ adapter_type VARCHAR(20) NOT NULL, external_id VARCHAR(100) NOT NULL,
+ upstream_topic VARCHAR(240) NOT NULL DEFAULT '', downstream_topic VARCHAR(240) NOT NULL DEFAULT '',
+ bindings_json VARCHAR(12000) NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
+ updated_at TIMESTAMP(6) NOT NULL,
+ PRIMARY KEY(tenant_id,device_id), UNIQUE(tenant_id,adapter_type,external_id),
+ FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
+ CHECK(adapter_type IN ('PUMP_MQTT','GATE_MQTT','LAN_DTU'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS device_ingest_events (
+ tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL, message_id VARCHAR(80) NOT NULL,
+ adapter_type VARCHAR(20) NOT NULL, payload_hash VARCHAR(64) NOT NULL, mapping_revision INTEGER NOT NULL,
+ reading_count INTEGER NOT NULL, missing_json VARCHAR(4000) NOT NULL,
+ measured_at TIMESTAMP(6) NOT NULL, received_at TIMESTAMP(6) NOT NULL,
+ PRIMARY KEY(tenant_id,device_id,message_id),
+ FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
+ INDEX ix_ingest_events(tenant_id,device_id,received_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS alert_field_issues (
+ tenant_id VARCHAR(36) NOT NULL, alert_id VARCHAR(36) NOT NULL, issue_id VARCHAR(36) NOT NULL,
+ PRIMARY KEY(tenant_id,alert_id), UNIQUE(tenant_id,issue_id),
+ FOREIGN KEY(tenant_id,alert_id) REFERENCES device_alerts(tenant_id,id),
+ FOREIGN KEY(tenant_id,issue_id) REFERENCES field_issues(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

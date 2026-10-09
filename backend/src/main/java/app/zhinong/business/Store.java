@@ -24,10 +24,12 @@ public class Store {
   );
   private final JdbcTemplate db;
   private final app.zhinong.database.DatabaseSql sql;
+  private final SqlDialect dialect;
 
-  public Store(JdbcTemplate db, app.zhinong.database.DatabaseSql sql) {
+  public Store(JdbcTemplate db, app.zhinong.database.DatabaseSql sql, SqlDialect dialect) {
     this.db = db;
     this.sql = sql;
+    this.dialect = dialect;
   }
 
   private String table(String name) {
@@ -107,6 +109,7 @@ public class Store {
   }
 
   public app.zhinong.database.DatabaseSql sql() { return sql; }
+  public SqlDialect dialect() { return dialect; }
 
   public static LinkedHashMap<String, Object> fields(Object... pairs) {
     var result = new LinkedHashMap<String, Object>();

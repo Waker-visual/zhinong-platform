@@ -81,13 +81,26 @@ class OperatingDemoIntegrationTest {
   @Test @Transactional void initializationIsAdditiveAndLeavesManualEditsAndOtherTenantsAlone() {
     String tenant = tenant(), farm = farm();
     long tasks = count("farm_tasks"), production = count("production"), readings = count("telemetry_readings");
+    String otherIssuesSql = "SELECT COUNT(*) FROM field_issues i JOIN tenants t ON t.id=i.tenant_id WHERE t.code='demo-b'";
+    int otherIssues = db.queryForObject(otherIssuesSql, Integer.class);
     String task = db.queryForObject("SELECT MIN(t.id) FROM farm_tasks t JOIN plots p ON p.tenant_id=t.tenant_id AND p.id=t.plot_id WHERE t.tenant_id=? AND p.farm_id=?", String.class, tenant, farm);
     db.update("UPDATE farm_tasks SET note='用户保留的演示备注' WHERE tenant_id=? AND id=?", tenant, task);
     demo.initialize(); demo.initialize();
     assertEquals(tasks, count("farm_tasks")); assertEquals(production, count("production")); assertEquals(readings, count("telemetry_readings"));
     assertEquals("用户保留的演示备注", db.queryForObject("SELECT note FROM farm_tasks WHERE tenant_id=? AND id=?", String.class, tenant, task));
     assertEquals(1, db.queryForObject("SELECT COUNT(*) FROM demo_operating_farms", Integer.class));
-    assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM field_issues i JOIN plots p ON p.tenant_id=i.tenant_id AND p.id=i.plot_id JOIN farms f ON f.tenant_id=p.tenant_id AND f.id=p.farm_id JOIN tenants t ON t.id=f.tenant_id WHERE t.code='demo-b' AND f.name='青禾设备联动演示场'", Integer.class));
+    assertEquals(otherIssues, db.queryForObject(otherIssuesSql, Integer.class));
+  }
+
+  @Test @Transactional void existingBusinessHistoryWithoutAnOperatingRegistryIsNotSeededAgain() {
+    String tenant=tenant(), farm=farm();
+    db.update("DELETE FROM demo_operating_farms WHERE tenant_id=? AND farm_id=?",tenant,farm);
+    long tasks=count("farm_tasks"), production=count("production"), readings=count("telemetry_readings");
+    demo.initialize();
+    assertEquals(tasks,count("farm_tasks"));
+    assertEquals(production,count("production"));
+    assertEquals(readings,count("telemetry_readings"));
+    assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM demo_operating_farms WHERE tenant_id=? AND farm_id=?",Integer.class,tenant,farm));
   }
 
   @Test @Transactional void tickingIsScopedSkipsNonSimulatedOrInactiveDevicesAndPreservesControlFeedback() {

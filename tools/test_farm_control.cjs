@@ -242,7 +242,10 @@ async function freePort() {
     await page
       .getByRole("button", { name: "应用设备指标模板", exact: true })
       .click();
-    assert.equal(await page.locator(".channel-row").count(), 11);
+    assert.equal(await page.locator(".channel-row").count(), 13);
+    const channelText = (await page.locator(".channel-row").allInnerTexts()).join(" ");
+    assert.match(channelText, /急停反馈/);
+    assert.match(channelText, /远程参数设置许可/);
     await page
       .getByRole("button", { name: "关闭设备编辑", exact: true })
       .click();

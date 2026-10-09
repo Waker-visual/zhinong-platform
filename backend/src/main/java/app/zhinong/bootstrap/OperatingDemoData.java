@@ -40,6 +40,13 @@ public class OperatingDemoData {
       db.queryForList("SELECT id FROM farms WHERE tenant_id=? AND id=? FOR UPDATE", tenant, id);
       if (db.queryForObject("SELECT COUNT(*) FROM demo_operating_farms WHERE tenant_id=? AND farm_id=?",
           Integer.class, tenant, id) > 0) continue;
+      // Existing vendor/demo or user records must not receive a second synthetic history.
+      boolean occupied = false;
+      for (String table : List.of("plantings", "farm_tasks", "production", "field_issues")) {
+        if (db.queryForObject("SELECT COUNT(*) FROM " + table + " WHERE tenant_id=? AND plot_id IN (SELECT id FROM plots WHERE tenant_id=? AND farm_id=?)",
+            Integer.class, tenant, tenant, id) > 0) { occupied = true; break; }
+      }
+      if (occupied) continue;
       var plots = plots(tenant, id);
       var crew = crew(tenant);
       if (plots.size() < 3 || crew.isEmpty()) continue;

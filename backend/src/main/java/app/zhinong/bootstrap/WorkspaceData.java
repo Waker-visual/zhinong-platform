@@ -18,14 +18,17 @@ public class WorkspaceData implements ApplicationRunner {
 
   private final JdbcTemplate db;
   private final boolean demo;
+  private final boolean streaming;
 
   public WorkspaceData(
     JdbcTemplate db,
     @Value("${farm.demo:false}") boolean demo,
-    @Value("${farm.demo-rich:true}") boolean rich
+    @Value("${farm.demo-rich:true}") boolean rich,
+    @Value("${farm.demo-stream.enabled:false}") boolean streaming
   ) {
     this.db = db;
     this.demo = demo && rich;
+    this.streaming = streaming;
   }
 
   @Override
@@ -218,7 +221,7 @@ public class WorkspaceData implements ApplicationRunner {
     String[] types = { "WEATHER", "WEATHER", "SOIL", "SOIL", "SOIL", "WATER", "WATER", "GATEWAY" };
     for (int i = 0; i < 8; i++) {
       String device = id(),
-        protocol = i == 7 ? "HTTP_PUSH" : i == 3 ? "MANUAL" : "SIMULATED";
+        protocol = streaming ? "SIMULATED" : i == 7 ? "HTTP_PUSH" : i == 3 ? "MANUAL" : "SIMULATED";
       var first = MetricCatalog.get(metrics[i][0]);
       db.update(
         "INSERT INTO devices(id,tenant_id,farm_id,name,metric,unit,adapter) VALUES(?,?,?,?,?,?,?)",
@@ -243,7 +246,7 @@ public class WorkspaceData implements ApplicationRunner {
         "DEMO-" + farm.substring(0, 6) + "-" + (i + 1),
         types[i],
         protocol,
-        i == 6 ? "MAINTENANCE" : "ACTIVE",
+        !streaming && i == 6 ? "MAINTENANCE" : "ACTIVE",
         plots[plotIndex],
         175 + (plotIndex % 3) * 285 + (i / 6) * 35,
         180 + (plotIndex / 3) * 295 + (i / 6) * 30,
@@ -265,7 +268,7 @@ public class WorkspaceData implements ApplicationRunner {
           lower,
           upper
         );
-        if (i == 7) continue;
+        if (i == 7 || streaming) continue;
         var readings = new ArrayList<Object[]>();
         for (int h = 14 * 24; h >= 0; h--) {
           double amplitude = Math.max(0.3, spec.normal() * 0.17);

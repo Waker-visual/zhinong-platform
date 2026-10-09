@@ -105,6 +105,11 @@ abstract class ResearchScenarioContract {
       for(int hours:List.of(24,720)) {
         var history=call(token,"GET","/assets/"+device+"/history?metric="+asset.path("primaryMetric").asText()+"&hours="+hours,null,200);
         assertFalse(history.path("points").isEmpty());
+        assertEquals(hours <= 24 ? "MINUTE" : "HOUR", history.path("aggregation").asText());
+        var newest = history.path("points").get(history.path("points").size()-1);
+        Instant bucketTime=OffsetDateTime.parse(newest.path("time").asText()).toInstant();
+        assertFalse(bucketTime.isAfter(Instant.now().plusSeconds(5)), "A current sample must not move into the future across SQL time zones");
+        assertTrue(bucketTime.isAfter(Instant.now().minusSeconds(hours<=24?65:3605)), "A current sample must remain in the current aggregation bucket");
       }
     }
     var operations=call(token,"GET","/farms/"+id+"/operations?hours=720",null,200);

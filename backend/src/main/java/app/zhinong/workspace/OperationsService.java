@@ -2,6 +2,7 @@ package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
 import app.zhinong.business.Store;
+import app.zhinong.business.DatabaseTime;
 import app.zhinong.security.Identity;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -67,7 +68,7 @@ public class OperationsService {
       (RowCallbackHandler) rs ->
         reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
-          .add(rs.getObject(2, OffsetDateTime.class).toInstant()),
+          .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
       tenant,
       farmId,
       start
@@ -82,7 +83,7 @@ public class OperationsService {
       (RowCallbackHandler) rs ->
         reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
-          .add(rs.getObject(2, OffsetDateTime.class).toInstant()),
+          .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
       tenant,
       farmId,
       start,
@@ -99,7 +100,7 @@ public class OperationsService {
       """,
       (RowCallbackHandler) rs -> {
         long offset = Duration
-          .between(start.toInstant(), rs.getObject(1, OffsetDateTime.class).toInstant())
+          .between(start.toInstant(), DatabaseTime.instant(rs.getObject(1, java.time.OffsetDateTime.class)))
           .getSeconds();
         int index = (int) Math.min(SLICES - 1, Math.max(0, offset / sliceSeconds));
         moistureSum[index] += rs.getBigDecimal(2).doubleValue();
@@ -281,7 +282,7 @@ public class OperationsService {
       WHERE r.tenant_id=? AND d.farm_id=? AND r.metric=? AND a.plot_id IS NOT NULL AND r.measured_at>=?
       """,
       (RowCallbackHandler) rs -> {
-        LocalDate day = rs.getObject(3, OffsetDateTime.class).atZoneSameInstant(zone).toLocalDate();
+        LocalDate day = DatabaseTime.instant(rs.getObject(3, java.time.OffsetDateTime.class)).atZone(zone).toLocalDate();
         if (day.isAfter(today)) return;
         var lower = rs.getBigDecimal(5);
         var upper = rs.getBigDecimal(6);
@@ -367,7 +368,7 @@ public class OperationsService {
   }
 
   private static String text(Object value) {
-    if (value instanceof java.sql.Timestamp time) return time.toLocalDateTime().toString();
+    if (value instanceof java.sql.Timestamp || value instanceof java.time.LocalDateTime) return DatabaseTime.utc(value).toString();
     return value == null ? null : value.toString();
   }
 

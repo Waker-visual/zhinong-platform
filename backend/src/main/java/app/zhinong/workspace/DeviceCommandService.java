@@ -11,7 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-/** Durable, device-scoped commands. This application never connects to a customer broker. */
+/** Durable, device-scoped commands; actual transport is handled by an explicitly configured gateway. */
 @Service
 @Transactional
 public class DeviceCommandService {
@@ -97,7 +97,7 @@ public class DeviceCommandService {
     boolean stopping = Set.of("PUMP_STOP", "EMERGENCY_STOP").contains(action.code());
     if (!stopping && db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND status='RUNNING'",Long.class,tenant,id)>0)
       throw new ApiException(409,"设备正在执行定时灌溉，请先停止本次灌溉");
-    if (!stopping) interlocks(tenant, id, asset);
+    if (!stopping) interlocks(tenant, id, asset, action.code());
     if (stopping) cancelPending(db, tenant, id, "停止操作取代先前未完成指令");
     else if (db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND status IN ('PENDING','DISPATCHED')",
         Long.class, tenant, id) > 0) throw new ApiException(409, "已有指令等待设备回执，请先处理或等待超时");
@@ -133,18 +133,31 @@ public class DeviceCommandService {
     }
   }
 
-  private void interlocks(String tenant, String id, Map<String, Object> asset) {
+  private void interlocks(String tenant, String id, Map<String, Object> asset, String action) {
     long tolerance = Math.max(180, ((Number) asset.get("intervalSeconds")).longValue() * 3);
     String feedback = "GATE".equals(asset.get("deviceType")) ? "GATE_OPENING" : "PUMP_RUNNING";
-    for (String metric : List.of("REMOTE_ENABLED", "FAULT", feedback)) {
+    var bindings = db.queryForList("SELECT adapter_type,updated_at FROM device_integrations WHERE tenant_id=? AND device_id=?", tenant, id);
+    boolean nativePump = !bindings.isEmpty() && "PUMP_MQTT".equals(bindings.getFirst().get("ADAPTER_TYPE"));
+    String faultMetric = nativePump ? "EMERGENCY_STOP" : "FAULT";
+    var required=new ArrayList<>(List.of("REMOTE_ENABLED", faultMetric, feedback));
+    if (nativePump && action.equals("SET_FREQUENCY")) required.add("PARAMETER_WRITE_ENABLED");
+    for (String metric : required) {
       var latest = assets.latest(tenant, id, metric);
-      if (latest == null || !app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant().isAfter(Instant.now().minusSeconds(tolerance))) {
-        throw new ApiException(409, "缺少新鲜的远程模式、故障或运行反馈，请先采集确认；停止指令仍可提交");
+      if (latest == null || !asset.get("protocol").equals(latest.get("source"))
+          || !app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant().isAfter(Instant.now().minusSeconds(tolerance))
+          || !bindings.isEmpty() && !app.zhinong.database.DatabaseTime.offset(latest.get("receivedAt")).toInstant()
+            .isAfter(app.zhinong.business.DatabaseTime.instant(bindings.getFirst().get("UPDATED_AT")))) {
+        throw new ApiException(409, "缺少新鲜的" + MetricCatalog.get(metric).name() + "，请先采集确认；停止指令仍可提交");
       }
       int value = ((Number) latest.get("value")).intValue();
-      if ((metric.equals("REMOTE_ENABLED") && value != 1) || (metric.equals("FAULT") && value != 0)) {
+      if ((Set.of("REMOTE_ENABLED", "PARAMETER_WRITE_ENABLED").contains(metric) && value != 1) || (metric.equals(faultMetric) && value != 0)) {
         throw new ApiException(409, "设备不处于远程模式或存在故障，不能启动或调整参数");
       }
+    }
+    // A mapped emergency-stop signal is not a claim that all other faults are absent.
+    if (nativePump) {
+      var fault = assets.latest(tenant,id,"FAULT");
+      if (fault != null && ((Number)fault.get("value")).intValue() != 0) throw new ApiException(409,"设备仍存在未解除的故障反馈");
     }
   }
 
@@ -208,7 +221,8 @@ public class DeviceCommandService {
     // A field gateway needs no member names or operator free text.
     var commands = rows.stream().map(row -> {
       var result = new LinkedHashMap<String, Object>();
-      for (String field : List.of("id", "action", "value", "createdAt", "expiresAt")) result.put(field, row.get(field));
+      for (String field : List.of("id", "action", "value")) result.put(field, row.get(field));
+      for (String field : List.of("createdAt", "expiresAt")) result.put(field, app.zhinong.business.DatabaseTime.utc(row.get(field)));
       return result;
     }).toList();
     return Map.of("commands", commands);
@@ -232,7 +246,7 @@ public class DeviceCommandService {
       WHERE tenant_id=? AND device_id=? AND id=?
       """, input.status(), input.note().strip(), hash, tenant, id, commandId);
     db.update("INSERT INTO audit_events(id,tenant_id,actor,action,resource_id,occurred_at) VALUES(?,?,?,?,?,?)",
-      UUID.randomUUID().toString(), tenant, "DEVICE_HTTP", "DEVICE_RECEIPT_" + input.status(), commandId, LocalDateTime.now());
+      UUID.randomUUID().toString(), tenant, "DEVICE_HTTP", "DEVICE_RECEIPT_" + input.status(), commandId, java.sql.Timestamp.from(Instant.now()));
     // A receipt never fabricates a sensor reading. Actual position/running state arrives via telemetry.
     return Map.of("accepted", true, "duplicate", false);
   }

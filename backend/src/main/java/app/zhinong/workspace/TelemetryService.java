@@ -63,30 +63,36 @@ public class TelemetryService {
   }
 
   private List<WorkspaceInputs.Reading> simulatedReadings(String tenant, String id) {
-    double phase = Instant.now().getEpochSecond() / 1800.0 + Math.abs(id.hashCode() % 37);
+    var now = Instant.now();
+    var profile = db.queryForMap("SELECT d.farm_id,p.device_type FROM devices d JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id WHERE d.tenant_id=? AND d.id=?", tenant, id);
+    var channels = assets.channels(tenant, id);
+    var previous = new HashMap<String, BigDecimal>();
+    Instant last = now;
+    for (var channel : channels) {
+      String metric = channel.get("metric").toString();
+      var prior = assets.latest(tenant, id, metric);
+      if (prior != null && "SIMULATED".equals(prior.get("source"))) {
+        previous.put(metric, (BigDecimal) prior.get("value"));
+        Instant at = app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant();
+        if (at.isBefore(last)) last = at;
+      }
+    }
+    var sample = SyntheticTelemetry.sample(profile.get("DEVICE_TYPE").toString(), profile.get("FARM_ID").toString(),
+      now, previous, Duration.between(last, now).getSeconds());
     var research = db.queryForList("""
       SELECT q.name FROM devices d JOIN demo_research_farms r ON r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id
       JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
       LEFT JOIN plots q ON q.tenant_id=p.tenant_id AND q.id=p.plot_id WHERE d.tenant_id=? AND d.id=?
       """, tenant, id);
     var clock = LocalDateTime.now();
-    return assets
-      .channels(tenant, id)
+    return channels
       .stream()
       .map(c -> {
         var m = MetricCatalog.get(c.get("metric").toString());
-        double amplitude = Math.max(0.2, Math.abs(m.normal()) * 0.12);
-        double number = Math.max(
-          m.min(),
-          Math.min(m.max(), m.normal() + Math.sin(phase + (m.code().hashCode() % 9)) * amplitude)
-        );
-        if (!research.isEmpty()) number = app.zhinong.bootstrap.ResearchSignals.reading(m.code(), clock.toLocalDate(),
+        double number = sample.get(m.code()).doubleValue();
+        boolean feedback = Set.of("GATE_OPENING", "PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT", "CURRENT", "FLOW", "ENERGY", "WATER_TOTAL", "EMERGENCY_STOP", "PARAMETER_WRITE_ENABLED", "RAINFALL").contains(m.code());
+        if (!research.isEmpty() && !feedback) number = app.zhinong.bootstrap.ResearchSignals.reading(m.code(), clock.toLocalDate(),
           clock.getHour()+clock.getMinute()/60.0, Objects.toString(research.getFirst().get("NAME"), ""));
-        // Control feedback must not drift when a user samples environmental metrics.
-        if (Set.of("GATE_OPENING", "PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT", "CURRENT", "FLOW", "ENERGY", "WATER_TOTAL").contains(m.code())) {
-          var prior = assets.latest(tenant, id, m.code());
-          number = prior == null ? m.normal() : ((Number) prior.get("value")).doubleValue();
-        }
         if (MetricCatalog.discrete(m.code())) number = Math.round(number);
         return new WorkspaceInputs.Reading(
           m.code(),
@@ -201,6 +207,8 @@ public class TelemetryService {
       MetricCatalog.validate(r.metric(), r.value());
     }
     var now = OffsetDateTime.now(ZoneOffset.UTC);
+    Integer interval = db.queryForObject("SELECT interval_seconds FROM asset_profiles WHERE tenant_id=? AND device_id=?", Integer.class, tenant, id);
+    boolean current = time.isAfter(now.toInstant().minusSeconds(Math.max(180, interval * 3L)));
     for (var r : readings) {
       var prior = assets.latest(tenant, id, r.metric());
       db.update(
@@ -217,7 +225,7 @@ public class TelemetryService {
         now,
         source
       );
-      if (prior == null || !time.isBefore(app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant())) {
+      if (current && (prior == null || !time.isBefore(app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant()))) {
         var channel = channels
           .stream()
           .filter(c -> r.metric().equals(c.get("metric")))
@@ -239,7 +247,7 @@ public class TelemetryService {
       actor,
       "TELEMETRY_" + source,
       id,
-      LocalDateTime.now()
+      java.sql.Timestamp.from(Instant.now())
     );
   }
 

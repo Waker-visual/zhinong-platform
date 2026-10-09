@@ -1,15 +1,22 @@
+# Private properties and existing RDS environment launchers are both supported.
 spring:
   datasource:
-    url: jdbc:mysql://${farm.database.host}:${farm.database.port:3306}/${farm.database.name}?sslMode=${farm.database.ssl-mode:VERIFY_IDENTITY}&characterEncoding=UTF-8&rewriteBatchedStatements=true
-    username: ${farm.database.username}
-    password: ${farm.database.password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: ${FARM_DATABASE_URL:jdbc:mysql://${farm.database.host:localhost}:${farm.database.port:3306}/${farm.database.name:}?sslMode=${farm.database.ssl-mode:VERIFY_IDENTITY}&characterEncoding=UTF-8&rewriteBatchedStatements=true}
+    username: ${FARM_DATABASE_USER:${farm.database.username:}}
+    password: ${FARM_DATABASE_PASSWORD:${farm.database.password:}}
     hikari:
-      connection-init-sql: "SET SESSION sql_mode = CONCAT(@@sql_mode, ',ANSI_QUOTES')"
+      connection-init-sql: "SET SESSION sql_mode=CONCAT_WS(',', NULLIF(@@sql_mode, ''), 'ANSI_QUOTES', 'STRICT_TRANS_TABLES')"
       connection-timeout: 10000
       maximum-pool-size: 8
+      data-source-properties:
+        localSocketAddress: ${FARM_DATABASE_BIND_ADDRESS:}
   sql:
     init:
       schema-locations: classpath:schema-mysql.sql
+      mode: ${FARM_DATABASE_INIT:always}
 farm:
+  demo: ${FARM_DEMO:false}
+  demo-rich: ${FARM_DEMO_RICH:true}
   simulation:
     use-primary: true
