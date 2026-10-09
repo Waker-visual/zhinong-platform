@@ -21,6 +21,7 @@ public class AiConversations {
     this.store=store;this.db=db;this.llm=llm;this.analysis=analysis;this.json=json;
   }
   public record NewChat(@NotBlank String farmId) {}
+  public record BranchRequest(@NotBlank String messageId) {}
   public record Question(@NotBlank @Size(max=2000) String question,@NotBlank @Pattern(regexp="[A-Za-z0-9_.:-]{1,80}") String requestId) {}
   // Safe, already-completed activity summary; never raw prompts, tool arguments or credentials.
   public record ActivitySummary(@NotBlank @Size(max=80) String activityId,int sequenceNo,
@@ -70,6 +71,44 @@ public class AiConversations {
         UUID.randomUUID().toString(),tenantId,conversationId,messageId,a.activityId(),a.sequenceNo(),a.kind(),a.label(),a.status(),a.detail(),a.resultSummary(),a.startedAt(),a.finishedAt());
     }
   }
+  /**
+   * 从某条消息“分支”出一个新对话：复制截至该消息（含）的消息与活动摘要到同租户、同账号、同
+   * 农场的一个新对话，标题加“（分支）”。跨租户、他人对话或 messageId 不属于这个对话都在
+   * {@code owned()}（租户+账号两道过滤）或下面按 conversation_id 限定的查询里自然落到 404，
+   * 不需要额外判断。复制出的消息用全新的 request_id（不是 null——该列是 NOT NULL），不会撞上
+   * ai_messages(tenant_id,conversation_id,request_id,role) 的幂等唯一约束：新对话的
+   * conversation_id 本身就不同，而且就算相同也是全新随机值。平台账号在 {@code owned()} 内部调用
+   * {@code Identity.tenant()} 时就会被拒绝（403），不会走到这里。
+   */
+  @PostMapping("/conversations/{id}/branch") @Transactional
+  public Map<String,Object> branch(@PathVariable String id,@RequestBody @Valid BranchRequest input) {
+    var chat=owned(id,true);String tenant=Identity.tenant();
+    var messages=db.queryForList("SELECT id,role,content,mode,diagnostic,created_at FROM ai_messages WHERE tenant_id=? AND conversation_id=? ORDER BY created_at,id",tenant,id);
+    int cut=-1;
+    for(int i=0;i<messages.size();i++) if(messages.get(i).get("ID").toString().equals(input.messageId())) {cut=i;break;}
+    if(cut==-1) throw ApiException.missing(); // 未知 id，或属于另一个对话——两者都不该泄露存在与否的区别
+    var toCopy=messages.subList(0,cut+1);
+    String newId=UUID.randomUUID().toString();var now=OffsetDateTime.now();
+    String original=chat.get("TITLE").toString();String suffix="（分支）";
+    String newTitle=original.length()+suffix.length()>80?original.substring(0,80-suffix.length())+suffix:original+suffix;
+    db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
+      newId,tenant,Identity.current().memberId(),chat.get("FARM_ID"),newTitle,now,now);
+    var newMessageId=new LinkedHashMap<String,String>();
+    for(var m:toCopy) {
+      String copyId=UUID.randomUUID().toString();
+      newMessageId.put(m.get("ID").toString(),copyId);
+      db.update("INSERT INTO ai_messages(id,tenant_id,conversation_id,request_id,role,content,mode,diagnostic,created_at) VALUES(?,?,?,?,?,?,?,?,?)",
+        copyId,tenant,newId,UUID.randomUUID().toString(),m.get("ROLE"),m.get("CONTENT"),m.get("MODE"),m.get("DIAGNOSTIC"),m.get("CREATED_AT"));
+    }
+    for(var a:db.queryForList("SELECT message_id,activity_id,sequence_no,kind,label,status,detail,result_summary,started_at,finished_at FROM ai_message_activities WHERE tenant_id=? AND conversation_id=?",tenant,id)) {
+      String copiedMessageId=newMessageId.get(a.get("MESSAGE_ID").toString());
+      if(copiedMessageId==null) continue; // 活动属于截断点之后的消息，不随这次分支复制
+      db.update("INSERT INTO ai_message_activities(id,tenant_id,conversation_id,message_id,activity_id,sequence_no,kind,label,status,detail,result_summary,started_at,finished_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        UUID.randomUUID().toString(),tenant,newId,copiedMessageId,a.get("ACTIVITY_ID"),a.get("SEQUENCE_NO"),a.get("KIND"),a.get("LABEL"),a.get("STATUS"),a.get("DETAIL"),a.get("RESULT_SUMMARY"),a.get("STARTED_AT"),a.get("FINISHED_AT"));
+    }
+    return Map.of("id",newId,"title",newTitle);
+  }
+
   @DeleteMapping("/conversations/{id}") @Transactional public Map<String,Boolean> delete(@PathVariable String id) {
     owned(id,true);db.update("DELETE FROM ai_conversations WHERE tenant_id=? AND member_id=? AND id=?",Identity.tenant(),Identity.current().memberId(),id);return Map.of("ok",true);
   }

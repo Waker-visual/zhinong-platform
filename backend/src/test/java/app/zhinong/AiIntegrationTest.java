@@ -131,6 +131,60 @@ class AiIntegrationTest {
     assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM ai_message_activities WHERE tenant_id=? AND message_id=?",Integer.class,tenant(),assistantMessageId));
   }
 
+  // 阶段 E：从消息“分支”出一个新对话——同租户、同账号、同农场，复制截至该消息（含）的消息
+  // 与活动摘要，标题加“（分支）”；跨租户/他人对话/未知消息都是 404；分支出来的消息必须有自己
+  // 全新的 request_id，不会撞上 (tenant_id,conversation_id,request_id,role) 的幂等唯一约束。
+  @Test void branchConversationCopiesMessagesAndActivitiesUpToTheGivenMessage() throws Exception {
+    String id=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    llm.answer=Optional.of(new LlmGateway.LlmResponse("第一轮回答。",List.of()));
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","第一个问题","requestId","branch-turn-1"),200);
+    var afterTurn1=call(admin,"GET","/ai/conversations/"+id+"/messages",null,200);
+    String firstAssistantId=afterTurn1.get(1).path("ID").asText();
+    aiConversations.saveActivities(tenant(),id,firstAssistantId,List.of(
+      new app.zhinong.ai.AiConversations.ActivitySummary("ctx",1,"context","读取农场上下文","completed",null,"已汇总",java.time.OffsetDateTime.now(),java.time.OffsetDateTime.now())
+    ));
+    llm.answer=Optional.of(new LlmGateway.LlmResponse("第二轮回答。",List.of()));
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","第二个问题","requestId","branch-turn-2"),200);
+
+    call(otherAdmin,"POST","/ai/conversations/"+id+"/branch",Map.of("messageId",firstAssistantId),404);
+    call(admin,"POST","/ai/conversations/"+id+"/branch",Map.of("messageId","no-such-message"),404);
+    String otherConvId=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    call(admin,"POST","/ai/conversations/"+otherConvId+"/messages",Map.of("question","另一个对话的问题","requestId","branch-other-1"),200);
+    String otherConvMessageId=call(admin,"GET","/ai/conversations/"+otherConvId+"/messages",null,200).get(0).path("ID").asText();
+    call(admin,"POST","/ai/conversations/"+id+"/branch",Map.of("messageId",otherConvMessageId),404);
+
+    var branched=call(admin,"POST","/ai/conversations/"+id+"/branch",Map.of("messageId",firstAssistantId),200);
+    String branchedId=branched.path("id").asText();
+    assertNotEquals(id,branchedId);
+    assertTrue(branched.path("title").asText().endsWith("（分支）"));
+
+    var branchedMessages=call(admin,"GET","/ai/conversations/"+branchedId+"/messages",null,200);
+    assertEquals(2,branchedMessages.size(),"only the user question and assistant answer up to and including the branch point are copied");
+    assertEquals("第一个问题",branchedMessages.get(0).path("CONTENT").asText());
+    assertEquals("第一轮回答。",branchedMessages.get(1).path("CONTENT").asText());
+    var branchedActivities=branchedMessages.get(1).path("activities");
+    assertEquals(1,branchedActivities.size());
+    assertEquals("ctx",branchedActivities.get(0).path("ACTIVITY_ID").asText());
+
+    assertTrue(call(admin,"GET","/ai/conversations?farmId="+farmId,null,200).size()>=3,"original, the unrelated conversation and the branch must all be listed");
+    call(otherAdmin,"GET","/ai/conversations/"+branchedId+"/messages",null,404);
+
+    // 原对话不受影响，仍是两轮四条消息。
+    assertEquals(4,call(admin,"GET","/ai/conversations/"+id+"/messages",null,200).size());
+
+    // 再用相同 messageId 分支一次：必须成功（又会新建一个对话），不会撞上任何幂等/唯一约束。
+    var branchedAgain=call(admin,"POST","/ai/conversations/"+id+"/branch",Map.of("messageId",firstAssistantId),200);
+    assertNotEquals(branchedId,branchedAgain.path("id").asText());
+  }
+
+  @Test void platformAccountCannotBranchConversations() throws Exception {
+    String id=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    llm.answer=Optional.of(new LlmGateway.LlmResponse("回答。",List.of()));
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","问题","requestId","branch-platform-1"),200);
+    String assistantId=call(admin,"GET","/ai/conversations/"+id+"/messages",null,200).get(1).path("ID").asText();
+    call(platform,"POST","/ai/conversations/"+id+"/branch",Map.of("messageId",assistantId),403);
+  }
+
   @Test void emptyAnalysisStatesMissingEvidenceAndChatFallsBackHonestly() throws Exception {
     var report=call(admin,"GET","/ai/analysis?farmId="+farmId,null,200);
     assertEquals(4,report.path("conditions").size()); assertEquals(0,report.path("freshMeasurements").asInt());
