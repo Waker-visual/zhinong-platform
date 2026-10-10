@@ -604,26 +604,28 @@ onBeforeUnmount(() => {
           >
         </article>
       </div>
-      <details class="stat-notes">
+      <details class="stat-notes disclosure">
         <summary>统计口径</summary>
-        <ul>
-          <li>经营面积：本农场全部地块面积之和。</li>
-          <li>
-            设备与监测：已登记的设备台数；“正常上报”指最近一次读数在设定上报间隔的
-            3 倍以内（至少 3 分钟）。
-          </li>
-          <li>
-            待处理告警：超出已配置监测阈值、尚未恢复的告警，含已确认的告警。
-          </li>
-          <li>
-            近
-            {{ days }}
-            天登记产量：所选范围内实际保存的生产记录合计，不含经营模拟结果。
-          </li>
-          <li>
-            农事完成进度：本农场全部农事中已完成的比例，已取消的任务计入总数。
-          </li>
-        </ul>
+        <div class="disclosure-content">
+          <ul>
+            <li>经营面积：本农场全部地块面积之和。</li>
+            <li>
+              设备与监测：已登记的设备台数；“正常上报”指最近一次读数在设定上报间隔的
+              3 倍以内（至少 3 分钟）。
+            </li>
+            <li>
+              待处理告警：超出已配置监测阈值、尚未恢复的告警，含已确认的告警。
+            </li>
+            <li>
+              近
+              {{ days }}
+              天登记产量：所选范围内实际保存的生产记录合计，不含经营模拟结果。
+            </li>
+            <li>
+              农事完成进度：本农场全部农事中已完成的比例，已取消的任务计入总数。
+            </li>
+          </ul>
+        </div>
       </details>
       <details class="panel farm-monitoring-fold">
         <summary>环境监测与四情数据</summary>

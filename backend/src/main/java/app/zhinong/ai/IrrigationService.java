@@ -92,11 +92,15 @@ public class IrrigationService {
     Map<String,Object> run;
     if(!prior.isEmpty()) run=prior.getFirst();else {
       String id=UUID.randomUUID().toString();var now=OffsetDateTime.now();
+      // 百分比摘要只保留1位小数：数据库里的 NUMERIC 精度（例如阈值存成 80.00）不应该原样
+      // 拼进给人看的文案；moisture 本身也可能带着传感器读数的多位小数（例如 45.266）。
+      BigDecimal moistureDisplay=moisture.setScale(1,java.math.RoundingMode.HALF_UP);
+      BigDecimal thresholdDisplay=new BigDecimal(p.get("THRESHOLD_VALUE").toString()).setScale(1,java.math.RoundingMode.HALF_UP);
       db.update("""
         INSERT INTO ai_irrigation_runs(id,tenant_id,farm_id,plot_id,sensor_id,pump_id,policy_revision,status,reason,duration_seconds,moisture_value,requested_by,created_at,expires_at)
         VALUES(?,?,?,?,?,?,?,'PROPOSED',?,?,?,?,?,?)
         """,id,tenant,p.get("FARM_ID"),plot,p.get("SENSOR_ID"),p.get("PUMP_ID"),p.get("REVISION"),
-        "土壤水分 "+moisture+"%，低于配置阈值 "+p.get("THRESHOLD_VALUE")+"%；仅模拟灌溉，尚未接入未来天气预报。",p.get("DURATION_SECONDS"),moisture,automatic?"AI_AUTOMATION":Identity.current().username(),now,now.plusMinutes(10));
+        "土壤水分 "+moistureDisplay+"%，低于配置阈值 "+thresholdDisplay+"%；仅模拟灌溉，尚未接入未来天气预报。",p.get("DURATION_SECONDS"),moisture,automatic?"AI_AUTOMATION":Identity.current().username(),now,now.plusMinutes(10));
       store.audit("AI_IRRIGATION_PROPOSE",id);run=run(id,false);
     }
     if(automatic && "AUTO".equals(p.get("MODE"))) return approve(run.get("ID").toString(),true);
@@ -144,4 +148,16 @@ public class IrrigationService {
     db.update("UPDATE ai_irrigation_runs SET status='COMPLETED',stop_command_id=?,finished_at=?,result_note=? WHERE tenant_id=? AND id=? AND status='RUNNING'",command,OffsetDateTime.now(),reason+"；模拟停泵已确认",tenant,id);
   }
   public void evaluate(String plot) {propose(plot,true);}
+
+  /** Read-only, tenant+farm scoped: the still-valid PROPOSED runs for a farm, used by the agent
+   * stream (Task 6) to surface an approval activity. Never writes anything; approving or cancelling
+   * still goes exclusively through {@link #approve} / {@link #cancel}. */
+  public List<Map<String,Object>> pendingProposals(String farmId) {
+    store.get("farms",farmId);String tenant=Identity.tenant();
+    return db.queryForList("""
+      SELECT r.id,r.plot_id AS "plotId",p.name AS "plotName",r.reason,r.duration_seconds AS "durationSeconds"
+      FROM ai_irrigation_runs r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
+      WHERE r.tenant_id=? AND r.farm_id=? AND r.status='PROPOSED' AND r.expires_at>? ORDER BY r.created_at DESC
+      """,tenant,farmId,OffsetDateTime.now());
+  }
 }

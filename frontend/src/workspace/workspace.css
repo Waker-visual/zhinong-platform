@@ -775,11 +775,33 @@
 .workspace-overlay {
   z-index: 10000 !important;
 }
+.workspace-overlay > .modal {
+  display: flex;
+  flex-direction: column;
+  height: min(92vh, calc(100vh - 48px));
+  padding: 0;
+  overflow: hidden;
+}
+.workspace-overlay > .modal > .section-title {
+  position: relative;
+  top: auto;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 28px 28px 20px;
+  background: var(--surface);
+}
+.workspace-overlay > .modal > form,
+.workspace-overlay > .modal > .device-detail-body {
+  flex: 1 1 auto;
+  height: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 28px 28px;
+  scrollbar-gutter: stable;
+}
 .asset-editor {
   width: min(880px, 94vw) !important;
   max-height: 92vh !important;
-  overflow: auto;
-  scrollbar-gutter: stable;
 }
 .form-grid {
   display: grid;
@@ -791,6 +813,19 @@
 }
 .asset-editor form {
   display: block;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+.asset-editor .modal-actions {
+  position: static;
+  flex-shrink: 0;
+  margin-top: 16px;
+  padding-top: 14px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
 }
 .channel-settings {
   border-top: 1px solid var(--border);
@@ -801,7 +836,7 @@
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 28px;
   gap: 10px;
-  align-items: end;
+  align-items: start;
   margin-top: 14px;
 }
 .channel-row label {
@@ -814,6 +849,7 @@
   font-size: 12px;
 }
 .channel-row button {
+  align-self: end;
   margin-bottom: 6px;
   font-size: 20px;
 }
@@ -830,8 +866,6 @@
 .device-detail {
   width: min(1020px, 95vw) !important;
   max-height: 93vh !important;
-  overflow: auto;
-  scrollbar-gutter: stable;
 }
 .detail-facts {
   display: grid;
@@ -1244,11 +1278,15 @@
     flex-wrap: wrap;
   }
   .workspace-overlay .modal {
-    padding: 20px;
+    height: 94vh;
     max-height: 94vh !important;
   }
   .workspace-overlay .modal > .section-title {
-    margin-top: -20px;
+    padding: 20px 20px 18px;
+  }
+  .workspace-overlay > .modal > form,
+  .workspace-overlay > .modal > .device-detail-body {
+    padding: 0 20px 20px;
   }
   .alert-item {
     align-items: flex-start;

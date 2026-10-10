@@ -11,6 +11,10 @@ try {
     } finally { Pop-Location }
     Push-Location frontend
     try {
+        node --test src/ai/agent-events.test.js
+        if ($LASTEXITCODE -ne 0) { throw 'Agent 事件模型测试未通过' }
+        node --test src/ai/markdown.test.js
+        if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }
@@ -21,6 +25,10 @@ try {
     node --test tools/tests/mobile.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '手机端会话与指令测试未通过' }
     & (Join-Path $PSScriptRoot 'verify-android.ps1')
+    node --test tools/tests/model-config.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw '模型服务配置表单测试未通过' }
+    node --test tools/tests/ai-diagnostics.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw 'AI 诊断码文案测试未通过' }
     node tools/check_project.cjs scan
     if ($LASTEXITCODE -ne 0) { throw '项目公开范围或敏感信息检查未通过' }
     node tools/generate_mysql_schema.cjs --check

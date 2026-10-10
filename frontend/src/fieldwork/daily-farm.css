@@ -302,8 +302,8 @@
   top: 0;
   z-index: 3;
   align-items: flex-start;
-  margin: -26px 0 18px;
-  padding: 16px 0 12px;
+  margin: 0 0 18px;
+  padding: 0 0 12px;
   background: var(--surface);
 }
 .daily-dialog > .daily-section-title h3 {

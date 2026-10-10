@@ -340,100 +340,104 @@ onMounted(() =>
               required
           /></label>
         </div>
-        <details>
+        <details class="disclosure">
           <summary>调整资源、巡检与人为干预参数</summary>
-          <div class="simulation-fields">
-            <label
-              >可用无人机（架）<input
-                v-model.number="form.drones"
-                type="number"
-                min="0"
-                max="50"
-                required /></label
-            ><label
-              >单机日能力（亩）<input
-                v-model.number="form.droneCapacity"
-                type="number"
-                min="1"
-                max="10000"
-                required /></label
-            ><label
-              >人工补位日能力（亩）<input
-                v-model.number="form.manualCapacity"
-                type="number"
-                min="0"
-                max="10000"
-                required /></label
-            ><label
-              >巡检间隔（天）<input
-                v-model.number="form.inspectionInterval"
-                type="number"
-                min="1"
-                max="30"
-                required /></label
-            ><label
-              >防治响应目标（天）<input
-                v-model.number="form.responseDays"
-                type="number"
-                min="1"
-                max="30"
-                required /></label
-            ><label
-              >虫害发生日（从 0 起）<input
-                v-model.number="form.outbreakDay"
-                type="number"
-                min="0"
-                :max="form.days - 1"
-                required /></label
-            ><label
-              >无人机缺位时长（天）<input
-                v-model.number="form.outageDays"
-                type="number"
-                min="0"
-                max="365"
-                required /></label
-            ><label
-              >初始虫害强度（0—1）<input
-                v-model.number="form.severity"
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                required /></label
-            ><label
-              >日灌溉能力（m³）<input
-                v-model.number="form.irrigationM3"
-                type="number"
-                min="0"
-                max="1000000"
-                required /></label
-            ><label
-              >施肥完成比例（0—1）<input
-                v-model.number="form.fertilizerCoverage"
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                required
-            /></label>
+          <div class="disclosure-content">
+            <div class="simulation-fields">
+              <label
+                >可用无人机（架）<input
+                  v-model.number="form.drones"
+                  type="number"
+                  min="0"
+                  max="50"
+                  required /></label
+              ><label
+                >单机日能力（亩）<input
+                  v-model.number="form.droneCapacity"
+                  type="number"
+                  min="1"
+                  max="10000"
+                  required /></label
+              ><label
+                >人工补位日能力（亩）<input
+                  v-model.number="form.manualCapacity"
+                  type="number"
+                  min="0"
+                  max="10000"
+                  required /></label
+              ><label
+                >巡检间隔（天）<input
+                  v-model.number="form.inspectionInterval"
+                  type="number"
+                  min="1"
+                  max="30"
+                  required /></label
+              ><label
+                >防治响应目标（天）<input
+                  v-model.number="form.responseDays"
+                  type="number"
+                  min="1"
+                  max="30"
+                  required /></label
+              ><label
+                >虫害发生日（从 0 起）<input
+                  v-model.number="form.outbreakDay"
+                  type="number"
+                  min="0"
+                  :max="form.days - 1"
+                  required /></label
+              ><label
+                >无人机缺位时长（天）<input
+                  v-model.number="form.outageDays"
+                  type="number"
+                  min="0"
+                  max="365"
+                  required /></label
+              ><label
+                >初始虫害强度（0—1）<input
+                  v-model.number="form.severity"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  required /></label
+              ><label
+                >日灌溉能力（m³）<input
+                  v-model.number="form.irrigationM3"
+                  type="number"
+                  min="0"
+                  max="1000000"
+                  required /></label
+              ><label
+                >施肥完成比例（0—1）<input
+                  v-model.number="form.fertilizerCoverage"
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  required
+              /></label>
+            </div>
           </div>
         </details>
-        <details>
+        <details class="disclosure">
           <summary>
             地块与作物模型 · {{ plots.length }} 块 /
             {{ num(plots.reduce((s, p) => s + Number(p.areaMu), 0)) }} 亩
           </summary>
-          <p class="muted">
-            读取当前农场地块快照。请确认模型匹配：其他作物默认使用通用蔬菜模型，仅适合流程演练。
-          </p>
-          <div class="simulation-fields">
-            <label v-for="p in plots" :key="p.id"
-              >{{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩<SelectMenu
-                v-model="form.cropModels[p.id]"
-                :options="cropOptions"
-                :aria-label="`${p.name} 作物模型`"
-              /></label
-            >
+          <div class="disclosure-content">
+            <p class="muted">
+              读取当前农场地块快照。请确认模型匹配：其他作物默认使用通用蔬菜模型，仅适合流程演练。
+            </p>
+            <div class="simulation-fields">
+              <label v-for="p in plots" :key="p.id"
+                >{{ p.name }} · {{ p.crop }} · {{ p.areaMu }} 亩<SelectMenu
+                  v-model="form.cropModels[p.id]"
+                  :options="cropOptions"
+                  :aria-label="`${p.name} 作物模型`"
+                /></label
+              >
+            </div>
           </div>
         </details>
         <div class="simulation-run-bar">
@@ -561,67 +565,71 @@ onMounted(() =>
         <ul class="simulation-findings">
           <li v-for="(f, i) in selected.findings" :key="i">{{ f }}</li>
         </ul>
-        <details>
+        <details class="disclosure">
           <summary>逐日事件与处理依据 · {{ events.length }} 条</summary>
-          <label
-            >筛选事件地块<SelectMenu
-              v-model="plotFilter"
-              :options="eventPlotOptions"
-              aria-label="筛选事件地块"
-            /></label
-          >
-          <div class="simulation-events">
-            <div v-for="(e, i) in events" :key="i">
-              <time>{{ e.date }}</time
-              ><b>{{ e.plotName }}</b
-              ><span>{{ e.message }} · {{ e.value }}</span>
+          <div class="disclosure-content">
+            <label
+              >筛选事件地块<SelectMenu
+                v-model="plotFilter"
+                :options="eventPlotOptions"
+                aria-label="筛选事件地块"
+              /></label
+            >
+            <div class="simulation-events">
+              <div v-for="(e, i) in events" :key="i">
+                <time>{{ e.date }}</time
+                ><b>{{ e.plotName }}</b
+                ><span>{{ e.message }} · {{ e.value }}</span>
+              </div>
             </div>
           </div>
         </details>
       </section>
     </template>
     <section v-if="catalog" class="panel simulation-sources">
-      <details>
+      <details class="disclosure">
         <summary>数据来源、模型参数与适用范围</summary>
-        <p>
-          <a :href="catalog.weather.url" target="_blank" rel="noopener"
-            >Open-Meteo Historical Weather API</a
-          >
-          · CC BY 4.0 · {{ catalog.weather.startDate }} 至
-          {{ catalog.weather.endDate }} · 网格 {{ catalog.weather.latitude }},
-          {{ catalog.weather.longitude }}
-        </p>
-        <p>
-          <a :href="catalog.faoSource" target="_blank" rel="noopener"
-            >FAO 作物水分与产量关系</a
-          >
-        </p>
-        <ul>
-          <li v-for="a in catalog.assumptions" :key="a">{{ a }}</li>
-        </ul>
-        <div class="table-scroll">
-          <table>
-            <thead>
-              <tr>
-                <th>模型</th>
-                <th>周期/天</th>
-                <th>参考单产 kg/亩</th>
-                <th>Ky</th>
-                <th>参数依据</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="c in catalog.crops" :key="c.id">
-                <td>{{ c.name }}</td>
-                <td>{{ c.duration }}</td>
-                <td>{{ c.yieldKgMu }}</td>
-                <td>{{ c.ky }}</td>
-                <td>{{ c.basis }}</td>
-              </tr>
-            </tbody>
-          </table>
+        <div class="disclosure-content">
+          <p>
+            <a :href="catalog.weather.url" target="_blank" rel="noopener"
+              >Open-Meteo Historical Weather API</a
+            >
+            · CC BY 4.0 · {{ catalog.weather.startDate }} 至
+            {{ catalog.weather.endDate }} · 网格 {{ catalog.weather.latitude }},
+            {{ catalog.weather.longitude }}
+          </p>
+          <p>
+            <a :href="catalog.faoSource" target="_blank" rel="noopener"
+              >FAO 作物水分与产量关系</a
+            >
+          </p>
+          <ul>
+            <li v-for="a in catalog.assumptions" :key="a">{{ a }}</li>
+          </ul>
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>模型</th>
+                  <th>周期/天</th>
+                  <th>参考单产 kg/亩</th>
+                  <th>Ky</th>
+                  <th>参数依据</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="c in catalog.crops" :key="c.id">
+                  <td>{{ c.name }}</td>
+                  <td>{{ c.duration }}</td>
+                  <td>{{ c.yieldKgMu }}</td>
+                  <td>{{ c.ky }}</td>
+                  <td>{{ c.basis }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <small>天气 SHA-256：{{ catalog.weather.sha256 }}</small>
         </div>
-        <small>天气 SHA-256：{{ catalog.weather.sha256 }}</small>
       </details>
     </section>
   </div>
@@ -670,7 +678,6 @@ onMounted(() =>
   font-weight: 600;
 }
 .simulation-page details {
-  border-top: 1px solid var(--border);
   margin-top: 14px;
 }
 .simulation-run-bar {

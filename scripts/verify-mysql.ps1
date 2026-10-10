@@ -20,6 +20,8 @@ try {
     "CREATE DATABASE $testDb CHARACTER SET utf8mb4 COLLATE utf8mb4_bin; CREATE USER '$testUser'@'127.0.0.1' IDENTIFIED BY '$testPassword'; GRANT ALL ON $testDb.* TO '$testUser'@'127.0.0.1';" | & $mysql "--defaults-extra-file=$client" --batch
     if ($LASTEXITCODE -ne 0) { throw '独立测试数据库准备失败。' }
     $created = $true
+    node tools/test_mysql_ai_upgrade.cjs $mysql $client $testDb
+    if ($LASTEXITCODE -ne 0) { throw 'MySQL AI schema upgrade test failed.' }
     $env:FARM_MYSQL_TEST_URL = "jdbc:mysql://127.0.0.1:$($config.port)/${testDb}?sslMode=DISABLED&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
     $env:FARM_MYSQL_TEST_USER = $testUser
     $env:FARM_MYSQL_TEST_PASSWORD = $testPassword

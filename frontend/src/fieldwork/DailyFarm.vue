@@ -390,12 +390,14 @@ async function history(row) {
       经营演示场景：种植、农事、巡田与收获记录均为虚构，可实际操作并保留处理结果。
       {{ farm.demoLive ? "模拟设备每分钟采集；每日补充巡检待办，刷新可查看最新状态。" : "持续演示已关闭，可在设备详情手动模拟采集。" }}
     </p>
-    <details v-if="research?.available" class="panel">
+    <details v-if="research?.available" class="panel disclosure">
       <summary>两年学术演示 · {{ research.consistent ? "数据关联检查通过" : "有记录需要复核" }}</summary>
-      <p>{{ research.manifest.historyStart }} 至 {{ research.manifest.asOfDate }}，包含 {{ research.counts.farmTasks }} 项农事、{{ research.counts.production }} 条收获和 {{ research.counts.plantings }} 条种植记录。</p>
-      <p>{{ research.note }}</p>
-      <p>水稻按单季安排，冬季保留巡检与休耕；叶菜按设施栽培安排。历史监测为日快照，近 30 天为半小时采样。农场概览可选择“近两年”查看产量。</p>
-      <p v-if="!research.consistent">请核对种植周期重叠、收获与任务关联、未来日期及地块监测配置。</p>
+      <div class="disclosure-content">
+        <p>{{ research.manifest.historyStart }} 至 {{ research.manifest.asOfDate }}，包含 {{ research.counts.farmTasks }} 项农事、{{ research.counts.production }} 条收获和 {{ research.counts.plantings }} 条种植记录。</p>
+        <p>{{ research.note }}</p>
+        <p>水稻按单季安排，冬季保留巡检与休耕；叶菜按设施栽培安排。历史监测为日快照，近 30 天为半小时采样。农场概览可选择“近两年”查看产量。</p>
+        <p v-if="!research.consistent">请核对种植周期重叠、收获与任务关联、未来日期及地块监测配置。</p>
+      </div>
     </details>
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
@@ -469,18 +471,20 @@ async function history(row) {
           <p>处理后仍需农场主复核</p>
         </article>
       </div>
-      <details class="stat-notes">
+      <details class="stat-notes disclosure">
         <summary>统计口径</summary>
-        <ul>
-          <li>
-            待办：本农场待执行与执行中的任务；勾选“只看我负责 /
-            未分配”时，只计自己负责和尚未分配的任务。
-          </li>
-          <li>逾期：计划日期早于服务器当天、仍未结束的任务。</li>
-          <li>受阻：执行人已报告受阻、尚未恢复进展的任务，可能同时逾期。</li>
-          <li>现场问题：巡田上报后尚未由农场主复核关闭的问题。</li>
-          <li>数字来自已保存的任务与上报记录，切换农场或刷新后重新统计。</li>
-        </ul>
+        <div class="disclosure-content">
+          <ul>
+            <li>
+              待办：本农场待执行与执行中的任务；勾选“只看我负责 /
+              未分配”时，只计自己负责和尚未分配的任务。
+            </li>
+            <li>逾期：计划日期早于服务器当天、仍未结束的任务。</li>
+            <li>受阻：执行人已报告受阻、尚未恢复进展的任务，可能同时逾期。</li>
+            <li>现场问题：巡田上报后尚未由农场主复核关闭的问题。</li>
+            <li>数字来自已保存的任务与上报记录，切换农场或刷新后重新统计。</li>
+          </ul>
+        </div>
       </details>
       <div class="daily-columns">
         <section class="panel daily-worklist">
@@ -677,7 +681,7 @@ async function history(row) {
                   : "处理任务已派发，请跟踪农事队列"
               }}</small>
             </article>
-            <details v-if="data.issues.some((i) => i.status === 'RESOLVED')">
+            <details v-if="data.issues.some((i) => i.status === 'RESOLVED')" class="disclosure">
               <summary>
                 已关闭问题
                 {{
@@ -685,15 +689,17 @@ async function history(row) {
                 }}
                 项
               </summary>
-              <article
-                v-for="i in data.issues.filter((i) => i.status === 'RESOLVED')"
-                :key="i.id"
-                class="daily-issue"
-              >
-                <b>{{ i.plotName }} · {{ categories[i.category] }}</b>
-                <p>{{ i.description }}</p>
-                <small>复核：{{ i.reviewNote }}</small>
-              </article>
+              <div class="disclosure-content">
+                <article
+                  v-for="i in data.issues.filter((i) => i.status === 'RESOLVED')"
+                  :key="i.id"
+                  class="daily-issue"
+                >
+                  <b>{{ i.plotName }} · {{ categories[i.category] }}</b>
+                  <p>{{ i.description }}</p>
+                  <small>复核：{{ i.reviewNote }}</small>
+                </article>
+              </div>
             </details>
           </section>
           <section class="panel daily-season">
