@@ -319,9 +319,8 @@ button[aria-busy="true"]::after {
   color: var(--text);
 }
 .sidebar .brand-mark {
-  width: 32px;
+  width: 34px;
   height: 34px;
-  font-size: 18px;
 }
 .sidebar-label {
   transition: opacity 150ms linear 90ms;
@@ -1342,9 +1341,8 @@ label > .select-menu {
     font-weight: 700;
   }
   .topbar-brand .brand-mark {
-    width: 26px;
+    width: 28px;
     height: 28px;
-    font-size: 15px;
   }
   .topbar-trail,
   .topbar-meta {
