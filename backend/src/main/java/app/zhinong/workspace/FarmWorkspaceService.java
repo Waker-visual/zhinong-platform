@@ -38,6 +38,9 @@ public class FarmWorkspaceService {
   }
 
   public List<Map<String, Object>> cards() {
+    return cards(false);
+  }
+  public List<Map<String, Object>> cards(boolean archived) {
     var rows = db.queryForList(
       """
       SELECT f.id AS "id",f.name AS "name",f.description AS "description",
@@ -47,11 +50,13 @@ public class FarmWorkspaceService {
           WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id)) AS "operatingDemo",
         EXISTS(SELECT 1 FROM demo_research_farms r WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id) AS "researchDemo"
       FROM farms f LEFT JOIN farm_profiles p ON p.tenant_id=f.tenant_id AND p.farm_id=f.id
-      WHERE f.tenant_id=? ORDER BY COALESCE(p.demo,FALSE) DESC,f.name
-      """,
+      WHERE f.tenant_id=? AND %sEXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id=f.tenant_id AND a.farm_id=f.id)
+      ORDER BY COALESCE(p.demo,FALSE) DESC,f.name
+      """.formatted(archived?"":"NOT "),
       Identity.tenant()
     );
     for (var row : rows) {
+      row.put("archived",archived);
       row.put("demoLive", demoLive && Boolean.TRUE.equals(row.get("operatingDemo")));
       Object demo = row.get("demo");
       row.put("demo", Boolean.TRUE.equals(demo) || demo instanceof Number number && number.intValue() != 0);
@@ -89,6 +94,12 @@ public class FarmWorkspaceService {
       );
     }
     return rows;
+  }
+
+  public void restore(String farm) {
+    Identity.require("ADMIN");store.lock("farms",farm);
+    db.update("DELETE FROM farm_archives WHERE tenant_id=? AND farm_id=?",Identity.tenant(),farm);
+    store.audit("FARM_RESTORED",farm);
   }
 
   public List<Map<String, Object>> plots(String farmId) {

@@ -46,9 +46,19 @@ public class Store {
         ? "occurred_at DESC,id"
         : "id";
     return db.queryForList(
-      "SELECT * FROM " + table(table) + " WHERE tenant_id=? ORDER BY " + order,
+      "SELECT * FROM " + table(table) + " WHERE tenant_id=? AND " + activeScope(table) + " ORDER BY " + order,
       Identity.tenant()
     );
+  }
+
+  /** Default lists omit retired farms; direct tenant-scoped history remains recoverable. */
+  public static String activeScope(String table) {
+    return switch(table) {
+      case "farms" -> "NOT EXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id=farms.tenant_id AND a.farm_id=farms.id)";
+      case "plots","devices" -> "NOT EXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id="+table+".tenant_id AND a.farm_id="+table+".farm_id)";
+      case "plantings","farm_tasks","production","field_issues" -> "NOT EXISTS(SELECT 1 FROM plots p JOIN farm_archives a ON a.tenant_id=p.tenant_id AND a.farm_id=p.farm_id WHERE p.tenant_id="+table+".tenant_id AND p.id="+table+".plot_id)";
+      default -> "1=1";
+    };
   }
 
   public Map<String, Object> get(String table, String id) {

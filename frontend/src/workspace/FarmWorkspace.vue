@@ -9,6 +9,8 @@ import {
 } from "vue";
 import { api, loadError } from "../api";
 import FarmMap from "./FarmMap.vue";
+import FarmOperationsPanel from "./FarmOperationsPanel.vue";
+import { containsPoint, deviceCoordinates } from "./fieldSpatial";
 import MapSettings from "./MapSettings.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 const geo = ref(null),
@@ -32,6 +34,101 @@ import {
 } from "./presentation";
 const props = defineProps({ farmId: String, role: String, revision: Number });
 const emit = defineEmits(["back"]);
+const spatial = ref({ parcels: [], zones: [], jobs: [], waterTotals: {} }),
+  selectedParcelId = ref(""),
+  selectedZoneId = ref(""),
+  selectedJobId = ref(""),
+  routePreview = ref(null);
+const routeDrawing = ref(false),
+  manualRoutePoints = ref([]);
+let spatialPoll,
+  spatialLoading = false;
+async function loadSpatial() {
+  if (spatialLoading) return;
+  spatialLoading = true;
+  try {
+    const data = await api(`/farms/${props.farmId}/field-map`);
+    if (alive) {
+      const changed = data.jobs.some(
+        (j) =>
+          spatial.value.jobs.find((p) => p.id === j.id)?.status !== j.status,
+      );
+      spatial.value = data;
+      if (changed) load(true);
+    }
+  } catch (e) {
+    if (alive) error.value = e.message;
+  } finally {
+    spatialLoading = false;
+  }
+}
+function selectParcel(id) {
+  if (
+    spatial.value.jobs.find((j) => j.id === selectedJobId.value)?.parcelId !==
+    id
+  )
+    selectedJobId.value = "";
+  selectedParcelId.value = id;
+  const p = spatial.value.parcels.find((p) => p.id === id);
+  selectedPlotId.value = p?.plotId || "";
+  deviceType.value = "";
+  crop.value = "";
+  if (p) {
+    const d = workspace.value.devices.find((d) =>
+      containsPoint(p.boundary, deviceCoordinates(d, geo.value)),
+    );
+    selectedDeviceId.value = d?.id || "";
+  }
+}
+function selectZone(id) {
+  const z = spatial.value.zones.find((z) => z.id === id);
+  if (z) {
+    selectParcel(z.parcelId);
+    selectedDeviceId.value = z.pumpId;
+  }
+  selectedZoneId.value = id;
+  if (id) {
+    routePreview.value = null;
+    if (
+      spatial.value.jobs.find((j) => j.id === selectedJobId.value)?.kind !==
+      "IRRIGATION"
+    )
+      selectedJobId.value = "";
+  }
+}
+function selectJob(id) {
+  const j = spatial.value.jobs.find((j) => j.id === id);
+  if (!j) return;
+  selectParcel(j.parcelId);
+  selectedJobId.value = id;
+  selectedDeviceId.value = j.deviceId;
+  routePreview.value = null;
+  if (j.kind === "IRRIGATION")
+    selectedZoneId.value =
+      spatial.value.zones.find((z) => z.parcelId === j.parcelId)?.id || "";
+}
+function refreshOperations(data) {
+  spatial.value = data;
+  load(true);
+}
+async function saveParcel(input) {
+  busy.value = true;
+  try {
+    const result = await api(
+      `/farms/${props.farmId}/field-map/parcels`,
+      "POST",
+      input,
+    );
+    mapRef.value.finishEditing();
+    await loadSpatial();
+    selectParcel(result.id);
+    toast("小田块已保存为 WGS84 估绘边界");
+  } catch (e) {
+    reportFailure(e, () => saveParcel(input));
+  } finally {
+    busy.value = false;
+  }
+}
 const workspace = ref(null),
   catalog = ref(null),
   error = ref(""),
@@ -180,12 +277,14 @@ async function load(silent = false) {
   const current = ++loadId;
   if (!silent) busy.value = true;
   try {
-    const [data, config] = await Promise.all([
+    const [data, config, fieldMap] = await Promise.all([
       api(`/farms/${props.farmId}/workspace?days=${days.value}`),
       api(`/farms/${props.farmId}/map-config`),
+      api(`/farms/${props.farmId}/field-map`),
     ]);
     if (!alive || current !== loadId) return;
     workspace.value = data;
+    spatial.value = fieldMap;
     if (
       !editingMap.value &&
       JSON.stringify(geo.value) !== JSON.stringify(config)
@@ -224,13 +323,34 @@ async function loadHistory() {
   }
 }
 function selectDevice(id) {
+  if (
+    spatial.value.jobs.find((j) => j.id === selectedJobId.value)?.deviceId !==
+    id
+  )
+    selectedJobId.value = "";
   selectedDeviceId.value = id;
   const d = workspace.value.devices.find((d) => d.id === id);
   selectedPlotId.value = d?.plotId || "";
+  const currentParcel = spatial.value.parcels.find(
+    (p) => p.id === selectedParcelId.value,
+  );
+  const relatedPump = spatial.value.zones.some(
+    (z) => z.parcelId === currentParcel?.id && z.pumpId === id,
+  );
+  if (!relatedPump)
+    selectedParcelId.value =
+      spatial.value.parcels.find((p) =>
+        containsPoint(p.boundary, deviceCoordinates(d, geo.value)),
+      )?.id || "";
+  else selectedPlotId.value = currentParcel.plotId;
+  deviceType.value = "";
+  crop.value = "";
   history.value = null;
   loadHistory();
 }
 function selectPlot(id) {
+  selectedParcelId.value =
+    spatial.value.parcels.find((p) => p.plotId === id)?.id || "";
   selectedPlotId.value = selectedPlotId.value === id ? "" : id;
   const devices = filteredDevices.value;
   if (devices.length && !devices.some((d) => d.id === selectedDeviceId.value))
@@ -363,12 +483,21 @@ onMounted(async () => {
     )
       load(true);
   }, 15000);
+  spatialPoll = setInterval(() => {
+    if (
+      !document.hidden &&
+      !editingMap.value &&
+      spatial.value.jobs.some((j) => j.status === "RUNNING")
+    )
+      loadSpatial();
+  }, 2000);
 });
 onBeforeUnmount(() => {
   alive = false;
   ++loadId;
   ++historyId;
   clearInterval(poll);
+  clearInterval(spatialPoll);
   document.removeEventListener("fullscreenchange", fullscreenChanged);
 });
 </script>
@@ -496,13 +625,16 @@ onBeforeUnmount(() => {
           </li>
         </ul>
       </details>
-      <FarmMonitoring
-        :devices="workspace.devices"
-        :plots="workspace.plots"
-        :demo="workspace.farm.demo"
-        :farm-id="workspace.farm.id"
-        @device="detailId = $event"
-      />
+      <details class="panel farm-monitoring-fold">
+        <summary>环境监测与四情数据</summary>
+        <FarmMonitoring
+          :devices="workspace.devices"
+          :plots="workspace.plots"
+          :demo="workspace.farm.demo"
+          :farm-id="workspace.farm.id"
+          @device="detailId = $event"
+        />
+      </details>
       <div class="workspace-main-grid">
         <div>
           <div class="map-filters">
@@ -534,6 +666,19 @@ onBeforeUnmount(() => {
           </div>
           <FarmMap
             :geo="geo"
+            :parcels="spatial.parcels"
+            :zones="spatial.zones"
+            :jobs="spatial.jobs"
+            :selected-parcel="selectedParcelId"
+            :selected-zone="selectedZoneId"
+            :selected-job="selectedJobId"
+            :route-preview="routePreview"
+            :route-drawing="routeDrawing"
+            :draft-route="manualRoutePoints"
+            @route-point="manualRoutePoints = [...manualRoutePoints, $event]"
+            @parcel="selectParcel"
+            @zone="selectZone"
+            @parcel-save="saveParcel"
             @configure="mapSettings = true"
             ref="mapRef"
             :plots="workspace.plots"
@@ -580,108 +725,42 @@ onBeforeUnmount(() => {
             </button>
           </section>
         </div>
-        <aside class="workspace-side">
-          <section
-            class="panel device-inspector"
-            :style="
-              detailMorphActive && detailMorphSource === 'inspector'
-                ? { viewTransitionName: 'device-morph' }
-                : null
-            "
-          >
-            <div class="section-title">
-              <h3>点位详情</h3>
-              <span class="muted">点击地图设备切换</span>
-            </div>
-            <template v-if="selectedDevice"
-              ><div class="device-title">
-                <i>{{ typeIcons[selectedDevice.deviceType] }}</i>
-                <div>
-                  <h3>{{ selectedDevice.name }}</h3>
-                  <small>{{ selectedDevice.code }}</small>
-                </div>
-              </div>
-              <div class="detail-meta">
-                <span
-                  class="status-chip"
-                  :class="selectedDevice.freshness.toLowerCase()"
-                  >{{ stateNames[selectedDevice.freshness] }}</span
-                ><span class="source-tag">{{
-                  sourceNames[selectedDevice.protocol]
-                }}</span>
-              </div>
-              <div class="inspector-values">
-                <button
-                  v-for="c in selectedDevice.channels"
-                  :key="c.metric"
-                  @click="metric = c.metric"
-                  :class="{ selected: metric === c.metric }"
-                >
-                  <span>{{ c.name }}</span
-                  ><strong
-                    >{{ c.latest ? num(c.latest.value, 2) : "—" }}
-                    <small>{{ c.unit }}</small></strong
-                  >
-                  <small>{{
-                    c.freshness === "FRESH"
-                      ? "数据新鲜"
-                      : c.latest
-                        ? "已过期"
-                        : "等待上报"
-                  }}</small>
-                </button>
-              </div>
-              <p class="muted">
-                最近采样：{{ timeText(selectedDevice.lastSampledAt) }}
-              </p>
-              <div class="inline-controls">
-                <button
-                  class="outline"
-                  @click="openDeviceDetail(selectedDevice.id, 'inspector')"
-                >
-                  完整详情与历史</button
-                ><button
-                  v-if="
-                    writer &&
-                    selectedDevice.protocol === 'SIMULATED' &&
-                    selectedDevice.lifecycle === 'ACTIVE'
-                  "
-                  class="primary"
-                  @click="collect"
-                  :disabled="busy"
-                >
-                  模拟采集
-                </button>
-              </div></template
-            >
-            <p v-else class="empty">在地图或设备列表中选择设备。</p>
-          </section>
-          <section class="panel alert-preview">
-            <div class="section-title">
-              <h3>告警关注</h3>
-              <span class="count">{{ workspace.alerts.length }}</span>
-            </div>
-            <button
-              v-for="alert in workspace.alerts.slice(0, 5)"
-              :key="alert.id"
-              class="alert-preview-item"
-              :style="
-                detailMorphActive && detailMorphSource === `alert:${alert.id}`
-                  ? { viewTransitionName: 'device-morph' }
-                  : null
-              "
-              @click="openDeviceDetail(alert.deviceId, `alert:${alert.id}`)"
-            >
-              <strong>{{ alert.message }}</strong
-              ><span
-                >{{ alert.deviceName }} · {{ stateNames[alert.status] }}</span
-              ><small>{{ timeText(alert.openedAt) }}</small>
-            </button>
-            <p v-if="!workspace.alerts.length" class="empty">
-              当前没有未处理的阈值告警
-            </p>
-          </section>
-        </aside>
+        <FarmOperationsPanel
+          :manual-points="manualRoutePoints"
+          @route-edit="routeDrawing = $event"
+          @route-points="manualRoutePoints = $event"
+          @machine="
+            selectedDeviceId = $event;
+            deviceType = '';
+            crop = '';
+          "
+          :farm-id="farmId"
+          :role="role"
+          :spatial="spatial"
+          :geo="geo"
+          :devices="workspace.devices"
+          :plots="workspace.plots"
+          :tasks="workspace.tasks"
+          :selected-parcel="selectedParcelId"
+          :selected-device="selectedDeviceId"
+          :selected-job="selectedJobId"
+          :selected-zone="selectedZoneId"
+          @parcel="selectParcel"
+          @device="selectDevice"
+          @zone="selectZone"
+          @preview="
+            routePreview = $event;
+            $event && (selectedJobId = '');
+            $event && (selectedDeviceId = $event.deviceId);
+          "
+          @job="selectJob"
+          @refresh="refreshOperations"
+          @detail="openDeviceDetail($event, 'inspector')"
+          @collect="
+            selectDevice($event);
+            collect();
+          "
+        />
       </div>
       <div class="analytics-toolbar">
         <div>
@@ -831,16 +910,25 @@ onBeforeUnmount(() => {
               :options="taskStatusOptions"
             />
           </div>
-          <div
+          <button
             v-for="task in filteredTasks.slice(0, 10)"
             :key="task.id"
             class="device-list-row"
+            @click="
+              spatial.jobs.some((j) => j.taskId === task.id)
+                ? selectJob(spatial.jobs.find((j) => j.taskId === task.id).id)
+                : selectPlot(task.plotId);
+              mapRef?.$el.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center',
+              });
+            "
           >
             <span
               >{{ task.title
               }}<small>{{ task.plotName }} · {{ task.dueDate }}</small></span
             ><span class="status-chip">{{ stateNames[task.status] }}</span>
-          </div>
+          </button>
           <p v-if="!filteredTasks.length" class="empty">
             当前筛选下没有农事任务
           </p>

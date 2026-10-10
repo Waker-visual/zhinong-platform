@@ -10,10 +10,12 @@ import {
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { AuthenticatedTileLayer } from "./AuthenticatedTileLayer";
-import { cropColor, typeIcons, typeNames, stateNames } from "./presentation";
+import { cropColor } from "./presentation";
 import { tokenColor } from "../ui/tokens";
 import SelectMenu from "../ui/SelectMenu.vue";
 import { planToWgs84, wgs84ToPlan, assetPlanPoint } from "./coordinates";
+import { deviceSvg, deviceState } from "./deviceSymbols";
+import { routePrefix } from "./fieldSpatial";
 const props = defineProps({
   geo: Object,
   plots: Array,
@@ -25,8 +27,28 @@ const props = defineProps({
   busy: Boolean,
   typeFilter: String,
   cropFilter: String,
+  parcels: { type: Array, default: () => [] },
+  zones: { type: Array, default: () => [] },
+  jobs: { type: Array, default: () => [] },
+  selectedParcel: String,
+  selectedZone: String,
+  selectedJob: String,
+  routePreview: Object,
+  routeDrawing: Boolean,
+  draftRoute: { type: Array, default: () => [] },
 });
-const emit = defineEmits(["device", "plot", "save", "editing", "configure"]);
+const emit = defineEmits([
+  "device",
+  "plot",
+  "save",
+  "editing",
+  "configure",
+  "parcel",
+  "zone",
+  "parcel-save",
+  "route-point",
+]);
+const parcelName = ref("");
 const host = ref(null),
   // Leaflet 需要实际色值：从地图所在区域（深色地图面板）解析令牌
   paint = (value) => tokenColor(value, host.value || document.documentElement),
@@ -35,12 +57,26 @@ const host = ref(null),
   targetPlot = ref(""),
   targetDevice = ref(""),
   drawPoints = ref([]);
-const layers = ref({ plots: true, devices: true, labels: true }),
+const layers = ref({
+    plots: true,
+    devices: true,
+    labels: true,
+    irrigation: false,
+    routes: true,
+  }),
   shapes = ref([]),
   positions = ref([]);
 const baseRevision = ref(0),
   hint = ref("");
-let map, plotLayer, deviceLayer, sketchLayer, observer, tileLayer, loadingTimer;
+let map,
+  plotLayer,
+  deviceLayer,
+  sketchLayer,
+  waterLayer,
+  routeLayer,
+  observer,
+  tileLayer,
+  loadingTimer;
 let generation = 0;
 const viewMode = ref(props.geo?.mode || "SATELLITE"),
   mapStatus = ref("loading"),
@@ -63,6 +99,8 @@ const xy = (p) => {
   if (!geographic.value) return L.latLng(700 - p[1], p[0]);
   return L.latLng(planToWgs84(p, reference()));
 };
+const world = (p) =>
+  geographic.value ? L.latLng(p) : xy(wgs84ToPlan(p[0], p[1], reference()));
 const fromLatLng = (p) => {
   return (
     geographic.value
@@ -182,8 +220,13 @@ function render() {
   plotLayer.clearLayers();
   deviceLayer.clearLayers();
   sketchLayer.clearLayers();
+  waterLayer.clearLayers();
+  routeLayer.clearLayers();
+  renderSpatial();
   if (layers.value.plots)
     for (const p of shownPlots.value) {
+      if (!editing.value && props.parcels.some((s) => s.plotId === p.id))
+        continue;
       const points = plotPoints(p);
       if (points.length < 3) continue;
       const polygon = L.polygon(points.map(xy), {
@@ -220,39 +263,28 @@ function render() {
     for (const d of shownDevices.value) {
       const point = devicePoint(d);
       if (!point) continue;
-      const mood =
-        d.alertCount > 0
-          ? "alert"
-          : d.freshness === "FRESH"
-            ? "fresh"
-            : d.freshness === "STALE"
-              ? "stale"
-              : "idle";
+      const state = deviceState(d, props.jobs),
+        mood = state.code;
       const marker = L.marker(xy(point), {
+        zIndexOffset: props.selectedDevice === d.id ? 1000 : 0,
         draggable: editing.value,
         // 状态同时写进标题和角标形状，不只靠底色区分
         title:
           d.name +
           "，" +
-          stateNames[d.freshness] +
+          state.label +
           (d.alertCount > 0 ? "，" + d.alertCount + " 条告警" : ""),
         icon: L.divIcon({
           className:
             "asset-marker " +
             mood +
             (props.selectedDevice === d.id ? " chosen" : ""),
-          html:
-            `<span>${typeIcons[d.deviceType] || "◉"}</span>` +
-            (mood === "alert"
-              ? '<i class="marker-badge alert" aria-hidden="true">!</i>'
-              : mood === "stale"
-                ? '<i class="marker-badge stale" aria-hidden="true">…</i>'
-                : ""),
+          html: `<span class="device-symbol">${deviceSvg(d.machinery?.kind || d.deviceType)}</span><i class="marker-badge ${mood}" aria-hidden="true">${state.badge}</i>`,
           iconSize: [36, 36],
           iconAnchor: [18, 18],
         }),
       }).addTo(deviceLayer);
-      marker.bindTooltip(label(`${d.name} · ${stateNames[d.freshness]}`), {
+      marker.bindTooltip(label(`${d.name} · ${state.label}`), {
         direction: "top",
         offset: [0, -16],
       });
@@ -285,12 +317,177 @@ function render() {
     );
   }
 }
-function startDraw() {
+function renderSpatial() {
+  if (layers.value.plots && !editing.value)
+    for (const p of props.parcels) {
+      if (props.cropFilter && p.crop !== props.cropFilter) continue;
+      const selected = p.id === props.selectedParcel;
+      const active = props.jobs.some(
+        (j) => j.parcelId === p.id && j.status === "RUNNING",
+      );
+      const style = {
+        color: paint(selected ? "var(--module-harvest)" : "var(--on-image)"),
+        weight: selected ? 3 : 1.5,
+        fillColor: paint("var(--module-planting)"),
+        fillOpacity: selected ? 0.22 : 0.08,
+        dashArray: active ? "7 4" : null,
+        pane: "field-parcels",
+      };
+      const polygon = L.polygon(p.boundary.map(world), style).addTo(plotLayer);
+      if (layers.value.labels)
+        polygon.bindTooltip(label(`${p.name}${active ? " · 作业中" : ""}`), {
+          permanent: true,
+          direction: "center",
+          offset: [0, -25],
+          className: "plan-plot-label field-parcel-label",
+        });
+      polygon.on("mouseover", () =>
+        polygon.setStyle({ weight: 3, fillOpacity: 0.25 }),
+      );
+      polygon.on("mouseout", () => polygon.setStyle(style));
+      polygon.on("click", () => {
+        if (!props.routeDrawing) emit("parcel", p.id);
+      });
+      const el = polygon.getElement();
+      el?.setAttribute("data-parcel-id", p.id);
+      el?.setAttribute("data-plot-id", p.plotId);
+      el?.setAttribute("aria-label", `估绘田块 ${p.name}`);
+      el?.setAttribute("role", "button");
+      el?.setAttribute("tabindex", "0");
+      if (el)
+        L.DomEvent.on(el, "keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            emit("parcel", p.id);
+          }
+        });
+    }
+  if (layers.value.irrigation && !editing.value)
+    for (const z of props.zones) {
+      if (props.cropFilter && !shownPlots.value.some((p) => p.id === z.plotId))
+        continue;
+      const selected = z.id === props.selectedZone,
+        running = props.jobs.some(
+          (j) =>
+            j.parcelId === z.parcelId &&
+            j.kind === "IRRIGATION" &&
+            j.status === "RUNNING",
+        );
+      const blue = paint("var(--module-irrigation)");
+      const area = L.polygon(z.coverage.map(world), {
+        pane: "field-coverage",
+        color: blue,
+        weight: selected ? 2 : 0,
+        fillColor: blue,
+        fillOpacity: selected || running ? 0.24 : 0.05,
+      }).addTo(waterLayer);
+      area.on("click", () => emit("zone", z.id));
+      area.bindTooltip(label(`${z.name} · 模拟覆盖范围`));
+      area.getElement()?.setAttribute("data-zone-id", z.id);
+      L.polyline(z.pipeline.map(world), {
+        pane: "field-pipes",
+        color: blue,
+        weight: selected || running ? 4 : 2,
+        opacity: selected || running ? 1 : 0.55,
+        interactive: false,
+      }).addTo(waterLayer);
+      for (const n of z.nodes) {
+        const node = L.circleMarker(world(n.point), {
+          pane: "field-pipes",
+          radius: n.kind === "VALVE" ? 5 : 3,
+          weight: 2,
+          color: blue,
+          fillColor: paint("var(--on-image)"),
+          fillOpacity: 1,
+        }).addTo(waterLayer);
+        node.bindTooltip(
+          label(
+            `${n.kind === "VALVE" ? "模拟分区阀" : "模拟出水口"} · ${z.name}`,
+          ),
+        );
+        node.on("click", () => emit("zone", z.id));
+      }
+    }
+  if (layers.value.routes && !editing.value) {
+    const job = props.jobs.find(
+      (j) => j.id === props.selectedJob && j.kind === "MACHINERY",
+    );
+    const points = props.routeDrawing
+      ? props.draftRoute
+      : props.routePreview?.points || job?.route;
+    if (props.routeDrawing)
+      for (let i = 0; i < points.length; i++)
+        L.circleMarker(world(points[i]), {
+          pane: "field-routes",
+          radius: 5,
+          color: paint("var(--brand)"),
+          fillOpacity: 1,
+          interactive: false,
+        })
+          .bindTooltip(String(i + 1), { permanent: true, direction: "top" })
+          .addTo(routeLayer);
+    if (points?.length > 1) {
+      const color = paint("var(--module-harvest)");
+      L.polyline(points.map(world), {
+        pane: "field-routes",
+        color,
+        weight: 3,
+        dashArray: "7 5",
+        interactive: false,
+      }).addTo(routeLayer);
+      if (job && !props.routePreview && !props.routeDrawing)
+        L.polyline(routePrefix(points, job.progress).map(world), {
+          pane: "field-routes",
+          color,
+          weight: 5,
+          opacity: 0.85,
+          interactive: false,
+        }).addTo(routeLayer);
+      for (const [p, text] of [
+        [points[0], "起"],
+        [points.at(-1), "终"],
+      ])
+        L.marker(world(p), {
+          pane: "field-routes",
+          interactive: false,
+          icon: L.divIcon({
+            className: "field-route-end",
+            html: text,
+            iconSize: [23, 23],
+            iconAnchor: [11, 11],
+          }),
+        }).addTo(routeLayer);
+      // Arrow headings are projected through Leaflet, so PLAN and geographic modes agree.
+      for (let i = 1; i < points.length; i += 2) {
+        const a = world(points[i - 1]),
+          b = world(points[i]),
+          pa = map.latLngToLayerPoint(a),
+          pb = map.latLngToLayerPoint(b);
+        const angle = (Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180) / Math.PI;
+        L.marker([(a.lat + b.lat) / 2, (a.lng + b.lng) / 2], {
+          pane: "field-routes",
+          interactive: false,
+          icon: L.divIcon({
+            className: "field-route-arrow",
+            html: `<span style="transform:rotate(${angle}deg)">➤</span>`,
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+          }),
+        }).addTo(routeLayer);
+      }
+    }
+  }
+}
+function startDraw(small = false) {
   if (!targetPlot.value) {
     hint.value = "先选择要绘制的地块";
     return;
   }
-  tool.value = "plot";
+  if (small && !parcelName.value.trim()) {
+    hint.value = "请填写小田块名称";
+    return;
+  }
+  tool.value = small ? "parcel" : "plot";
   drawPoints.value = [];
   hint.value = "在地图依次点击顶点，至少三个点后点击完成边界。";
   render();
@@ -298,6 +495,14 @@ function startDraw() {
 function completeDraw() {
   if (drawPoints.value.length < 3) {
     hint.value = "至少需要三个顶点";
+    return;
+  }
+  if (tool.value === "parcel") {
+    emit("parcel-save", {
+      plotId: targetPlot.value,
+      name: parcelName.value.trim(),
+      boundary: drawPoints.value.map((p) => planToWgs84(p, reference())),
+    });
     return;
   }
   shapes.value.find((s) => s.plotId === targetPlot.value).boundary =
@@ -315,10 +520,17 @@ function clearShape() {
   }
 }
 function clickMap(event) {
+  if (props.routeDrawing && !editing.value) {
+    const point = geographic.value
+      ? [event.latlng.lat, event.latlng.lng]
+      : planToWgs84(fromLatLng(event.latlng), props.geo);
+    if (props.draftRoute.length < 500) emit("route-point", point);
+    return;
+  }
   if (!editing.value) return;
   const p = fromLatLng(event.latlng);
   if (p[0] < 0 || p[0] > 1000 || p[1] < 0 || p[1] > 700) return;
-  if (tool.value === "plot") {
+  if (tool.value === "plot" || tool.value === "parcel") {
     if (drawPoints.value.length >= 80) {
       hint.value = "最多 80 个顶点";
       return;
@@ -335,7 +547,10 @@ function clickMap(event) {
 }
 function resetView() {
   map?.invalidateSize({ pan: false });
-  const all = bounds();
+  const all =
+    props.parcels.length && !editing.value
+      ? L.latLngBounds(props.parcels.flatMap((p) => p.boundary.map(world)))
+      : bounds();
   for (const d of shownDevices.value) {
     const point = devicePoint(d);
     if (point) all.extend(xy(point));
@@ -418,6 +633,15 @@ function initializeMap() {
     ).addTo(map);
   }
   plotLayer = L.layerGroup().addTo(map);
+  for (const [name, z] of [
+    ["field-parcels", 400],
+    ["field-coverage", 410],
+    ["field-pipes", 420],
+    ["field-routes", 450],
+  ])
+    map.createPane(name).style.zIndex = z;
+  waterLayer = L.layerGroup().addTo(map);
+  routeLayer = L.layerGroup().addTo(map);
   deviceLayer = L.layerGroup().addTo(map);
   sketchLayer = L.layerGroup().addTo(map);
   map.on("click", clickMap);
@@ -456,9 +680,34 @@ watch(
     props.typeFilter,
     props.cropFilter,
     layers.value,
+    props.parcels,
+    props.zones,
+    props.jobs,
+    props.selectedParcel,
+    props.selectedZone,
+    props.selectedJob,
+    props.routePreview,
+    props.routeDrawing,
+    props.draftRoute,
   ],
   render,
   { deep: true },
+);
+watch(
+  () => props.selectedZone,
+  (id) => {
+    if (id) layers.value.irrigation = true;
+  },
+);
+watch(
+  () => props.selectedParcel,
+  (id) => {
+    const p = props.parcels.find((p) => p.id === id);
+    if (p && map) {
+      const b = L.latLngBounds(p.boundary.map(world));
+      if (!map.getBounds().contains(b)) map.panTo(b.getCenter());
+    }
+  },
 );
 watch(
   () => props.selectedDevice,
@@ -505,6 +754,8 @@ onBeforeUnmount(() => {
             plots: '地块',
             devices: '设备',
             labels: '标签',
+            irrigation: '灌溉',
+            routes: '路线',
           }"
           :key="key"
           ><input type="checkbox" v-model="layers[key]" />{{ name }}</label
@@ -569,8 +820,18 @@ onBeforeUnmount(() => {
           v-model="targetPlot"
           aria-label="绘制地块"
           :options="plotOptions"
-        /><button @click="startDraw">绘制边界</button
-        ><button @click="completeDraw" :disabled="tool !== 'plot'">
+        /><button @click="startDraw(false)">经营地块边界</button>
+        <input
+          v-model="parcelName"
+          placeholder="新小田块名称"
+          aria-label="新小田块名称"
+          maxlength="80"
+        />
+        <button @click="startDraw(true)">新增估绘小田块</button
+        ><button
+          @click="completeDraw"
+          :disabled="!['plot', 'parcel'].includes(tool) || busy"
+        >
           完成边界</button
         ><button
           @click="
@@ -600,7 +861,7 @@ onBeforeUnmount(() => {
         ><button
           class="primary"
           @click="emit('save', { revision: baseRevision, shapes, positions })"
-          :disabled="busy || tool === 'plot'"
+          :disabled="busy || ['plot', 'parcel'].includes(tool)"
         >
           保存平面图</button
         ><button @click="finishEditing" :disabled="busy">取消编辑</button>
@@ -622,6 +883,17 @@ onBeforeUnmount(() => {
           ? "WGS84 位置映射 · 卫星影像非实时视频"
           : "本地平面坐标 1000 × 700"
       }}</span>
+    </div>
+    <div v-if="parcels.length" class="map-data-provenance">
+      <span>田块：影像/人工估绘 · WGS84 · 未实测</span
+      ><span
+        >模拟设备
+        {{ devices.filter((d) => d.protocol === "SIMULATED").length }} 台 ·
+        灌溉管网为虚构示意</span
+      >
+      <span v-if="routePreview || selectedJob"
+        >虚线：规划路线 · 实线：模拟进度 · 未接入实际轨迹</span
+      >
     </div>
     <p v-if="!plots.some((p) => p.boundary?.length)" class="map-empty-tip">
       <span class="toast-info-mark" aria-hidden="true">i</span>

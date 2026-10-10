@@ -21,6 +21,18 @@ const props = defineProps({
   initialFarmId: String,
 });
 const emit = defineEmits(["farm", "changed"]);
+const archived = ref(false);
+watch(archived, () => load());
+async function restoreFarm(farm) {
+  try {
+    await api(`/farms/${farm.id}/restore`, "POST", {});
+    await load();
+    emit("changed");
+    important("农场已恢复，历史记录完整保留");
+  } catch (e) {
+    error.value = e.message;
+  }
+}
 const farms = ref([]),
   selected = ref(props.initialFarmId || ""),
   search = ref(""),
@@ -67,7 +79,7 @@ async function load() {
   const run = ++sequence;
   busy.value = true;
   try {
-    const data = await api("/farm-workspaces");
+    const data = await api("/farm-workspaces?archived=" + archived.value);
     if (alive && run === sequence) farms.value = data;
   } catch (e) {
     if (alive) error.value = loadError(e);
@@ -186,7 +198,9 @@ onBeforeUnmount(() => {
         <h2>从一张农场图，进入生产现场。</h2>
         <p>查看地块布局、设备点位与经营数据，让每条记录都能找到所属的田地。</p>
       </div>
-      <div :class="['hub-totals', { 'numbers-loading': busy && !farms.length }]">
+      <div
+        :class="['hub-totals', { 'numbers-loading': busy && !farms.length }]"
+      >
         <span
           ><b>{{ farms.length }}</b
           >农场</span
@@ -201,10 +215,13 @@ onBeforeUnmount(() => {
     </div>
     <div class="hub-toolbar">
       <div>
-        <h3>我的农场</h3>
+        <h3>{{ archived ? "已归档农场" : "我的农场" }}</h3>
         <small>点击农场图片，进入地图与数据工作台。</small>
       </div>
       <div class="inline-controls">
+        <button @click="archived = !archived">
+          {{ archived ? "返回在用农场" : "查看归档" }}
+        </button>
         <input
           v-model="search"
           type="search"
@@ -245,17 +262,23 @@ onBeforeUnmount(() => {
           :style="
             morphId === farm.id ? { viewTransitionName: 'farm-morph' } : null
           "
-          @click="openFarm(farm.id)"
+          @click="!archived && openFarm(farm.id)"
           :aria-label="'打开农场 ' + farm.name"
         >
           <FarmThumbnail :plots="farm.plots" :name="farm.name" /><span
             class="cover-caption"
-            >查看平面图与设备 →</span
+            >{{
+              archived
+                ? "经营与设备记录已保留，可恢复后查看"
+                : "查看地图与设备 →"
+            }}</span
           ><span v-if="farm.demo" class="cover-demo">虚构演示</span>
         </button>
         <div class="farm-card-body">
           <h3>
-            <button @click="openFarm(farm.id)">{{ farm.name }}</button>
+            <button @click="!archived && openFarm(farm.id)">
+              {{ farm.name }}
+            </button>
           </h3>
           <p class="farm-region">{{ farm.region || "尚未填写区域说明" }}</p>
           <p class="farm-description">
@@ -277,11 +300,25 @@ onBeforeUnmount(() => {
             >
           </div>
           <div class="farm-card-footer">
-            <button class="primary" @click="openFarm(farm.id)">进入农场</button
-            ><button v-if="role === 'ADMIN'" @click="openForm(farm)">
+            <button
+              v-if="archived && role === 'ADMIN'"
+              class="primary"
+              @click="restoreFarm(farm)"
+            >
+              恢复农场</button
+            ><button
+              v-else-if="!archived"
+              class="primary"
+              @click="openFarm(farm.id)"
+            >
+              进入农场</button
+            ><button
+              v-if="role === 'ADMIN' && !archived"
+              @click="openForm(farm)"
+            >
               编辑资料</button
             ><button
-              v-if="role === 'ADMIN'"
+              v-if="role === 'ADMIN' && !archived"
               class="danger-text"
               @click="remove(farm)"
             >
@@ -323,7 +360,13 @@ onBeforeUnmount(() => {
       >
         <div class="section-title">
           <h2>{{ editing ? "编辑农场资料" : "新增农场" }}</h2>
-          <button class="close-button" aria-label="关闭农场表单" @click="dialog = false">×</button>
+          <button
+            class="close-button"
+            aria-label="关闭农场表单"
+            @click="dialog = false"
+          >
+            ×
+          </button>
         </div>
         <form v-validate @submit.prevent="save">
           <label
@@ -340,8 +383,7 @@ onBeforeUnmount(() => {
             >经营类型<SelectMenu
               v-model="model.farmType"
               :options="farmTypeOptions"
-              aria-label="经营类型"
-            /></label
+              aria-label="经营类型" /></label
           ><label
             >经营说明<textarea
               v-model="model.description"

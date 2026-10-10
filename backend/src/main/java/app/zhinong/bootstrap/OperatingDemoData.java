@@ -69,7 +69,7 @@ public class OperatingDemoData {
       SELECT r.tenant_id,r.farm_id FROM demo_operating_farms r
       JOIN tenants t ON t.id=r.tenant_id AND t.enabled=TRUE
       JOIN farm_profiles p ON p.tenant_id=r.tenant_id AND p.farm_id=r.farm_id AND p.demo=TRUE
-      WHERE t.code='demo-a'
+      WHERE t.code='demo-a' AND NOT EXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id=r.tenant_id AND a.farm_id=r.farm_id)
       """)) {
       String tenant = farm.get("TENANT_ID").toString(), id = farm.get("FARM_ID").toString();
       var registry = db.queryForMap("SELECT last_daily_date FROM demo_operating_farms WHERE tenant_id=? AND farm_id=? FOR UPDATE", tenant, id);

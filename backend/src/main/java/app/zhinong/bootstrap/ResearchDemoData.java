@@ -27,7 +27,8 @@ public class ResearchDemoData {
     var farms=db.queryForList("""
       SELECT f.id,f.tenant_id FROM farms f JOIN tenants t ON t.id=f.tenant_id
       JOIN farm_profiles p ON p.tenant_id=f.tenant_id AND p.farm_id=f.id
-      WHERE t.code='demo-a' AND t.enabled=TRUE AND p.demo=TRUE AND f.name='青禾设备联动演示场'
+      WHERE t.code='demo-a' AND t.enabled=TRUE AND p.demo=TRUE AND (f.name='青禾设备联动演示场'
+        OR EXISTS(SELECT 1 FROM demo_portfolio_farms x WHERE x.tenant_id=f.tenant_id AND x.farm_id=f.id))
       """);
     for(var farm:farms) {
       String tenant=farm.get("TENANT_ID").toString(), id=farm.get("ID").toString();

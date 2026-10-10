@@ -16,7 +16,7 @@ if (-not $SkipBuild) {
     try { mvn -B package; if ($LASTEXITCODE -ne 0) { throw '后端验证或打包失败' } } finally { Pop-Location }
 }
 $savedEnvironment = @{}
-foreach ($name in @('SPRING_PROFILES_ACTIVE','SPRING_CONFIG_ADDITIONAL_LOCATION','FARM_DEMO','FARM_DEMO_RICH','FARM_RESEARCH_HISTORY','FARM_DEMO_LIVE','FARM_DEMO_STREAM_ENABLED','FARM_BOOTSTRAP_PASSWORD','FARM_DATABASE_URL','FARM_DATABASE_USER','FARM_DATABASE_PASSWORD','FARM_DATABASE_BIND_ADDRESS','FARM_DATABASE_INIT')) {
+foreach ($name in @('SPRING_PROFILES_ACTIVE','SPRING_CONFIG_ADDITIONAL_LOCATION','FARM_DEMO','FARM_DEMO_RICH','FARM_RESEARCH_HISTORY','FARM_DEMO_PORTFOLIO','FARM_DEMO_LIVE','FARM_DEMO_STREAM_ENABLED','FARM_BOOTSTRAP_PASSWORD','FARM_DATABASE_URL','FARM_DATABASE_USER','FARM_DATABASE_PASSWORD','FARM_DATABASE_BIND_ADDRESS','FARM_DATABASE_INIT')) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 try {
@@ -28,6 +28,7 @@ $env:SPRING_CONFIG_ADDITIONAL_LOCATION = 'file:' + $ConfigPath.Replace('\','/')
 $env:FARM_DEMO = 'true'
 $env:FARM_DEMO_RICH = 'true'
 $env:FARM_RESEARCH_HISTORY = 'true'
+if (-not $env:FARM_DEMO_PORTFOLIO) { $env:FARM_DEMO_PORTFOLIO = 'true' }
 if (-not $env:FARM_DEMO_STREAM_ENABLED) { $env:FARM_DEMO_STREAM_ENABLED = 'true' }
 if (-not $env:FARM_DEMO_LIVE) { $env:FARM_DEMO_LIVE = 'true' }
 $passwordFile = Join-Path $projectRoot '.cache/demo-password.txt'

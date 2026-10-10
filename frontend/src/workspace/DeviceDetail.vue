@@ -313,6 +313,30 @@ onBeforeUnmount(() => {
               {{ device.model || "未填写" }} · {{ device.notes || "未填写" }}
             </dd>
           </div>
+          <template v-if="device.machinery">
+            <div>
+              <dt>品牌 / 额定马力</dt>
+              <dd>
+                {{ device.machinery.brand }} ·
+                {{
+                  device.machinery.horsepower == null
+                    ? "马力未提供"
+                    : device.machinery.horsepower + " 马力（用户提供）"
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>设备编号 / 内部编号</dt>
+              <dd>
+                {{ device.machinery.serialNumber || "设备编号待补充" }} ·
+                {{ device.machinery.internalId }}
+              </dd>
+            </div>
+            <div>
+              <dt>机型数据说明</dt>
+              <dd>{{ device.machinery.specSource }}</dd>
+            </div>
+          </template>
         </dl>
         <div class="metric-cards">
           <button

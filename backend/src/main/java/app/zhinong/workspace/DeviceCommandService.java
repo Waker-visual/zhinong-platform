@@ -97,6 +97,8 @@ public class DeviceCommandService {
     boolean stopping = Set.of("PUMP_STOP", "EMERGENCY_STOP").contains(action.code());
     if (!stopping && db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND status='RUNNING'",Long.class,tenant,id)>0)
       throw new ApiException(409,"设备正在执行定时灌溉，请先停止本次灌溉");
+    if (!stopping && db.queryForObject("SELECT COUNT(*) FROM farm_map_jobs WHERE tenant_id=? AND device_id=? AND kind='IRRIGATION' AND status='RUNNING'",Long.class,tenant,id)>0)
+      throw new ApiException(409,"设备正在执行地图分区灌溉，请先停止本次灌溉");
     if (!stopping) interlocks(tenant, id, asset, action.code());
     if (stopping) cancelPending(db, tenant, id, "停止操作取代先前未完成指令");
     else if (db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND status IN ('PENDING','DISPATCHED')",
@@ -203,6 +205,22 @@ public class DeviceCommandService {
       """,commandId,tenant,id,"ai-stop-"+runId,now,now,now);
     db.update("INSERT INTO audit_events(id,tenant_id,actor,action,resource_id,occurred_at) VALUES(?,?,?,'AI_IRRIGATION_STOP',?,?)",UUID.randomUUID().toString(),tenant,"AI_AUTOMATION",runId,java.sql.Timestamp.from(Instant.now()));
     return commandId;
+  }
+
+  /** Stop only a verified, already-started simulated map run; never acts on real hardware. */
+  public String stopMapSimulation(String tenant,String runId) {
+    var rows=db.queryForList("SELECT * FROM farm_map_jobs WHERE tenant_id=? AND id=? AND kind='IRRIGATION' AND status='RUNNING' FOR UPDATE",tenant,runId);
+    if(rows.isEmpty())return "";var run=rows.getFirst();String device=run.get("DEVICE_ID").toString();
+    db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE",tenant,device);
+    if(db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND id=? AND protocol='SIMULATED' AND action='PUMP_START'",Integer.class,tenant,device,run.get("START_COMMAND_ID"))!=1)
+      throw new ApiException(409,"缺少可核验的模拟灌溉启动记录");
+    // A reconfigured physical asset must never receive fabricated feedback from an old simulated job.
+    if (db.queryForObject("SELECT COUNT(*) FROM asset_profiles WHERE tenant_id=? AND device_id=? AND protocol='SIMULATED'",Integer.class,tenant,device)==1)
+      simulate(tenant,device,"PUMP_STOP",null,"MAP_SIMULATOR");
+    String id=UUID.randomUUID().toString();var now=OffsetDateTime.now(ZoneOffset.UTC);
+    db.update("INSERT INTO device_commands(id,tenant_id,device_id,request_id,action,protocol,status,actor,note,result_note,created_at,expires_at,finished_at) VALUES(?,?,?,?,'PUMP_STOP','SIMULATED','SUCCEEDED','MAP_SIMULATOR','地图定时灌溉停止','模拟任务已收尾；未操作实体设备',?,?,?)",id,tenant,device,"map-stop-"+runId,now,now,now);
+    db.update("INSERT INTO audit_events(id,tenant_id,actor,action,resource_id,occurred_at) VALUES(?,?,'MAP_SIMULATOR','MAP_IRRIGATION_STOP',?,?)",UUID.randomUUID().toString(),tenant,runId,java.sql.Timestamp.from(Instant.now()));
+    return id;
   }
 
   public Map<String, Object> poll(String key) {

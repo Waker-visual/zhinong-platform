@@ -222,6 +222,8 @@ public class FieldWorkService {
   public Object progress(String id, ProgressInput input) {
     Identity.require("ADMIN", "OPERATOR");
     var task = store.lock("farm_tasks", id);
+    if (store.db().queryForObject("SELECT COUNT(*) FROM farm_map_jobs WHERE tenant_id=? AND task_id=? AND status IN ('RUNNING','PAUSED')",Integer.class,Identity.tenant(),id)>0)
+      throw new ApiException(409,"该任务正在由地图农机调度管理，请到农场地图暂停、继续或停止，执行结果会自动同步");
     var details = details(id);
     checkWorker(details);
     String old = task.get("STATUS").toString(),

@@ -28,8 +28,13 @@ public class WorkspaceController {
   }
 
   @GetMapping("/farm-workspaces")
-  Object cards() {
-    return farms.cards();
+  Object cards(@RequestParam(defaultValue="false") boolean archived) {
+    return farms.cards(archived);
+  }
+
+  @PostMapping("/farms/{id}/restore")
+  Object restore(@PathVariable String id) {
+    farms.restore(id);return Map.of("ok",true);
   }
 
   @PostMapping("/farm-workspaces")

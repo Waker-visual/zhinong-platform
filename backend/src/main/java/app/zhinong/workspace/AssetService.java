@@ -64,7 +64,7 @@ public class AssetService {
     String tenant = Identity.tenant();
     if (farmId != null && !farmId.isBlank()) store.get("farms", farmId);
     var rows = farmId == null || farmId.isBlank()
-      ? db.queryForList(SELECT + " ORDER BY f.name,p.code", tenant)
+      ? db.queryForList(SELECT + " AND NOT EXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id=d.tenant_id AND a.farm_id=d.farm_id) ORDER BY f.name,p.code", tenant)
       : db.queryForList(SELECT + " AND d.farm_id=? ORDER BY p.code", tenant, farmId);
     for (var row : rows) enrich(row, tenant);
     return rows;
@@ -99,6 +99,11 @@ public class AssetService {
     row.put("credentialConfigured", Boolean.TRUE.equals(configured) || configured instanceof Number n && n.intValue() != 0);
     row.put("lastReceivedAt", DatabaseTime.utc(row.get("lastReceivedAt")));
     String id = row.get("id").toString();
+    if("MACHINERY".equals(row.get("deviceType"))) {
+      var profiles=db.queryForList("SELECT profile_json FROM machinery_profiles WHERE tenant_id=? AND device_id=?",String.class,tenant,id);
+      if(!profiles.isEmpty())try {row.put("machinery",new com.fasterxml.jackson.databind.ObjectMapper().readValue(profiles.getFirst(),Map.class));}
+      catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalStateException("Invalid machinery profile",e);}
+    }
     var channels = channels(tenant, id);
     Instant sampled = null;
     int freshChannels = 0, missingChannels = 0;

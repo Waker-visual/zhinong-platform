@@ -17,6 +17,7 @@ spring:
 farm:
   demo: ${FARM_DEMO:false}
   demo-rich: ${FARM_DEMO_RICH:true}
+  demo-portfolio: ${FARM_DEMO_PORTFOLIO:false}
   demo-live: ${FARM_DEMO_LIVE:${FARM_DEMO_STREAM_ENABLED:false}}
   research-history: ${FARM_RESEARCH_HISTORY:false}
   demo-stream:

@@ -23,7 +23,7 @@ abstract class ResearchScenarioContract {
   @LocalServerPort int port;
   final HttpClient http=HttpClient.newHttpClient();
   String tenant(){return db.queryForObject("SELECT id FROM tenants WHERE code='demo-a'",String.class);}
-  String farm(){return db.queryForObject("SELECT farm_id FROM demo_research_farms WHERE tenant_id=?",String.class,tenant());}
+  String farm(){return db.queryForObject("SELECT id FROM farms WHERE tenant_id=? AND name='青禾设备联动演示场'",String.class,tenant());}
   JsonNode call(String token,String method,String route,Object body,int status)throws Exception{
     var request=HttpRequest.newBuilder(URI.create("http://127.0.0.1:"+port+"/api"+route)).header("Content-Type","application/json").timeout(Duration.ofSeconds(30));
     if(token!=null)request.header("Authorization","Bearer "+token);
@@ -32,6 +32,117 @@ abstract class ResearchScenarioContract {
     assertEquals(status,response.statusCode(),response.body());return json.readTree(response.body());
   }
   String login(String tenant,String username)throws Exception{return call(null,"POST","/auth/login",Map.of("tenantCode",tenant,"username",username,"password","Test-Only-Password-429!"),200).path("token").asText();}
+
+  @Test void portfolioFarmsHaveIndependentMapsModelsHistoryAndReversibleArchives() throws Exception {
+    String token=login("demo-a","admin");
+    var cards=call(token,"GET","/farm-workspaces",null,200);assertEquals(5,cards.size());
+    assertEquals(5,call(token,"GET","/farms",null,200).size());
+    assertEquals(15,call(token,"GET","/plots",null,200).size());
+    var totals=call(token,"GET","/dashboard",null,200);assertEquals(5,totals.path("farms").asInt());assertEquals(70,totals.path("devices").asInt());
+    Set<String> boundaries=new HashSet<>();int models=0;
+    for(var card:cards) {
+      String f=card.path("id").asText();var map=call(token,"GET","/farms/"+f+"/field-map",null,200);
+      assertTrue(map.path("parcels").size()>=9);assertEquals(9,map.path("zones").size());
+      assertTrue(boundaries.add(map.path("parcels").get(0).path("boundary").toString()));
+      var report=call(token,"GET","/farms/"+f+"/research-data",null,200);assertTrue(report.path("consistent").asBoolean(),report.toString());
+      assertTrue(report.at("/counts/farm_tasks").asInt()>350);
+      for(var a:call(token,"GET","/assets?farmId="+f,null,200)) if(a.has("machinery")) {
+        models++;var profile=a.path("machinery");assertFalse(profile.path("model").asText().isBlank());
+        if(!f.equals(farm()))assertEquals("",profile.path("serialNumber").asText());
+        if(profile.path("kind").asText().equals("DRONE"))assertTrue(profile.path("horsepower").isNull());
+      }
+    }
+    assertEquals(20,models);
+    var archives=call(token,"GET","/farm-workspaces?archived=true",null,200);assertTrue(archives.size()>=3);
+    String retired=archives.get(0).path("id").asText();
+    call(login("demo-b","admin"),"POST","/farms/"+retired+"/restore",Map.of(),404);
+    call(login("demo-a","viewer"),"POST","/farms/"+retired+"/restore",Map.of(),403);
+    long tasks=db.queryForObject("SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=?",Long.class,tenant());
+    var record=db.queryForMap("SELECT reason,archived_at FROM farm_archives WHERE tenant_id=? AND farm_id=?",tenant(),retired);
+    try {
+      call(token,"POST","/farms/"+retired+"/restore",Map.of(),200);
+      assertEquals(6,call(token,"GET","/farms",null,200).size());
+      context.getBean(app.zhinong.bootstrap.FarmPortfolioDemoData.class).run(null);
+      assertEquals(6,call(token,"GET","/farms",null,200).size(),"Restart must preserve a restored farm");
+      assertEquals(tasks,db.queryForObject("SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=?",Long.class,tenant()));
+    } finally {db.update("INSERT INTO farm_archives(tenant_id,farm_id,reason,archived_at) VALUES(?,?,?,?)",tenant(),retired,record.get("REASON"),record.get("ARCHIVED_AT"));}
+  }
+
+  @Test void modelSpecificPlansPersistReceiptsAndRejectWrongCapabilities() throws Exception {
+    String token=login("demo-a","admin"),f=farm(),path="/farms/"+f+"/field-map";
+    var p=call(token,"GET",path,null,200).path("parcels").get(0);
+    for(var a:call(token,"GET","/assets?farmId="+f,null,200)) if(a.has("machinery")) {
+      String device=a.path("id").asText(),kind=a.at("/machinery/kind").asText();
+      call(token,"POST","/assets/"+device+"/collect",Map.of(),200);
+      var in=new LinkedHashMap<String,Object>();in.put("parcelId",p.path("id").asText());in.put("deviceId",device);in.put("title","型号调度验收");in.put("taskType",a.at("/machinery/taskTypes/0").asText());
+      in.put("widthMeters",a.at("/machinery/widthMeters").asDouble());in.put("headlandMeters",a.at("/machinery/headlandMeters").asDouble());in.put("speedKmh",a.at("/machinery/speedKmh").asDouble());in.put("bearing",90);in.put("durationSeconds",0);in.put("planningMode","AUTO");in.put("recommendBearing",true);in.put("simulationRate",1);in.put("altitudeMeters",kind.equals("DRONE")?4:null);in.put("requestId",UUID.randomUUID().toString());
+      var preview=call(token,"POST",path+"/routes/preview",in,200);
+      assertEquals(Math.ceil(preview.path("estimatedMinutes").asDouble()*60),preview.path("simulationSeconds").asDouble(),0.01);
+      in.put("reverse",true);var reversed=call(token,"POST",path+"/routes/preview",in,200);
+      assertEquals(preview.path("points").get(0),reversed.path("points").get(reversed.path("points").size()-1));
+      var invalid=new LinkedHashMap<>(in);invalid.put("taskType",kind.equals("HARVESTER")?"PROTECTION":"HARVEST");call(token,"POST",path+"/routes/preview",invalid,400);
+      var j=call(token,"POST",path+"/jobs",in,200);String job=j.path("id").asText();
+      call(token,"PATCH","/field-work/tasks/"+j.path("taskId").asText()+"/progress",Map.of("status","CANCELLED","method","SERVICE","note","验证调度状态不可从另一入口覆盖","actualAreaMu",0),409);
+      assertEquals(a.at("/machinery/model"),j.at("/plan/machine/model"));assertEquals("ACCEPTED",j.at("/events/0/action").asText());
+      assertEquals(job,call(token,"POST",path+"/jobs",in,200).path("id").asText());
+      var duplicate=new LinkedHashMap<>(in);duplicate.put("requestId",UUID.randomUUID().toString());call(token,"POST",path+"/jobs",duplicate,409);
+      call(token,"POST",path+"/jobs/"+job+"/actions",Map.of("action","PAUSE"),200);
+      call(token,"POST",path+"/jobs/"+job+"/actions",Map.of("action","RESUME"),200);
+      var stopped=call(token,"POST",path+"/jobs/"+job+"/actions",Map.of("action","STOP"),200);assertTrue(stopped.path("events").size()>=4);
+      // Reuse an automatically validated centreline as a hand-drawn path; coverage remains explicitly unknown.
+      in.put("planningMode","MANUAL");in.put("manualPoints",preview.path("points"));in.put("requestId",UUID.randomUUID().toString());
+      var manual=call(token,"POST",path+"/routes/preview",in,200);assertTrue(manual.path("workAreaMu").isNull());
+    }
+  }
+
+  @Test void mapRoutesTasksAndEstimatedWaterPersistWithTenantIsolation() throws Exception {
+    String token=login("demo-a","admin"),f=farm(),path="/farms/"+f+"/field-map";
+    var map=call(token,"GET",path,null,200);assertEquals(9,map.path("parcels").size());assertEquals(9,map.path("zones").size());
+    assertEquals("WGS84",map.path("coordinateSystem").asText());
+    assertTrue(db.queryForObject("SELECT layout_revision FROM farm_profiles WHERE tenant_id=? AND farm_id=?",Integer.class,tenant(),f)>0,"Seeding new locations must invalidate pre-upgrade map editors");
+    var p=map.path("parcels").get(0);assertEquals("IMAGERY_ESTIMATE",p.path("source").asText());
+    call(login("demo-b","admin"),"GET",path,null,404);call(login("platform","platform"),"GET",path,null,403);
+    String machine=db.queryForObject("SELECT a.device_id FROM asset_profiles a JOIN devices d ON d.tenant_id=a.tenant_id AND d.id=a.device_id WHERE a.tenant_id=? AND d.farm_id=? AND a.code='DEMO-CTRL-MACHINERY'",String.class,tenant(),f);
+    call(token,"POST","/assets/"+machine+"/collect",Map.of(),200);
+    var input=new LinkedHashMap<String,Object>();input.put("parcelId",p.path("id").asText());input.put("deviceId",machine);input.put("title","边界内巡检验收");input.put("taskType","INSPECTION");input.put("widthMeters",5);input.put("bearing",90);input.put("headlandMeters",4);input.put("speedKmh",4);input.put("durationSeconds",120);input.put("requestId",UUID.randomUUID().toString());
+    var preview=call(token,"POST",path+"/routes/preview",input,200);assertTrue(preview.path("points").size()>4);
+    call(login("demo-a","viewer"),"POST",path+"/jobs",input,403);
+    var j=call(token,"POST",path+"/jobs",input,200);String id=j.path("id").asText();
+    assertEquals(id,call(token,"POST",path+"/jobs",input,200).path("id").asText());assertTrue(j.path("actualTrack").isEmpty());assertFalse(j.path("taskId").asText().isBlank());
+    var conflicting=new LinkedHashMap<>(input);conflicting.put("title","同编号不同参数");call(token,"POST",path+"/jobs",conflicting,409);
+    call(login("demo-b","admin"),"POST",path+"/jobs/"+id+"/actions",Map.of("action","STOP"),404);
+    assertEquals("PAUSED",call(token,"POST",path+"/jobs/"+id+"/actions",Map.of("action","PAUSE"),200).path("status").asText());
+    assertEquals("RUNNING",call(token,"POST",path+"/jobs/"+id+"/actions",Map.of("action","RESUME"),200).path("status").asText());
+    db.update("UPDATE farm_map_jobs SET last_tick_at=? WHERE tenant_id=? AND id=?",OffsetDateTime.now().minusMinutes(3),tenant(),id);
+    context.getBean(app.zhinong.workspace.FieldMapService.class).tick(tenant(),f,id);
+    assertEquals("COMPLETED",db.queryForObject("SELECT status FROM farm_tasks WHERE tenant_id=? AND id=?",String.class,tenant(),j.path("taskId").asText()));
+    var zone=map.path("zones").get(0);String pump=zone.path("pumpId").asText();
+    call(token,"POST","/assets/"+pump+"/collect",Map.of(),200);
+    var water=Map.of("zoneId",zone.path("id").asText(),"durationSeconds",120,"requestId",UUID.randomUUID().toString());
+    var run=call(token,"POST",path+"/irrigation",water,200);String runId=run.path("id").asText();
+    assertEquals(runId,call(token,"POST",path+"/irrigation",water,200).path("id").asText());
+    call(token,"POST",path+"/irrigation",Map.of("zoneId",zone.path("id").asText(),"durationSeconds",60,"requestId",UUID.randomUUID().toString()),409);
+    call(token,"POST",path+"/jobs/"+runId+"/actions",Map.of("action","PAUSE"),409);
+    call(token,"POST","/assets/"+pump+"/commands",Map.of("action","SET_FREQUENCY","value",30,"requestId",UUID.randomUUID().toString(),"note","互斥验证"),409);
+    db.update("UPDATE farm_map_jobs SET last_tick_at=? WHERE tenant_id=? AND id=?",OffsetDateTime.now().minusSeconds(10),tenant(),runId);
+    var stopped=call(token,"POST",path+"/jobs/"+runId+"/actions",Map.of("action","STOP"),200);
+    assertEquals("STOPPED",stopped.path("status").asText());assertTrue(stopped.path("estimatedM3").asDouble()>0);assertTrue(stopped.path("measuredM3").isNull());
+    var asset=call(token,"GET","/assets/"+pump,null,200);for(var c:asset.path("channels"))if(c.path("metric").asText().equals("PUMP_RUNNING"))assertEquals(0,c.at("/latest/value").asInt());
+    assertTrue(call(token,"GET",path,null,200).at("/waterTotals/estimatedM3").asDouble()>0);
+    var restart=call(token,"POST",path+"/irrigation",Map.of("zoneId",zone.path("id").asText(),"durationSeconds",10,"requestId",UUID.randomUUID().toString()),200);
+    String restartId=restart.path("id").asText();
+    db.update("UPDATE farm_map_jobs SET last_tick_at=? WHERE tenant_id=? AND id=?",OffsetDateTime.now().minusMinutes(1),tenant(),restartId);
+    context.getBean(app.zhinong.workspace.FieldMapService.class).tick(tenant(),f,restartId);
+    assertEquals("COMPLETED",db.queryForObject("SELECT status FROM farm_map_jobs WHERE tenant_id=? AND id=?",String.class,tenant(),restartId));
+    var disabled=call(token,"POST",path+"/irrigation",Map.of("zoneId",zone.path("id").asText(),"durationSeconds",120,"requestId",UUID.randomUUID().toString()),200);
+    db.update("UPDATE tenants SET enabled=FALSE WHERE id=?",tenant());
+    try {context.getBean(app.zhinong.workspace.FieldMapService.class).tick(tenant(),f,disabled.path("id").asText());
+      assertEquals("STOPPED",db.queryForObject("SELECT status FROM farm_map_jobs WHERE tenant_id=? AND id=?",String.class,tenant(),disabled.path("id").asText()));
+    } finally { db.update("UPDATE tenants SET enabled=TRUE WHERE id=?",tenant()); }
+    call(login("demo-a","viewer"),"POST",path+"/parcels",Map.of("plotId",p.path("plotId").asText(),"name","未授权估绘","boundary",p.path("boundary")),403);
+    var saved=call(token,"POST",path+"/parcels",Map.of("plotId",p.path("plotId").asText(),"name","人工估绘验收","boundary",p.path("boundary")),200);
+    var updated=call(token,"GET",path,null,200);boolean found=false;for(var row:updated.path("parcels"))if(row.path("id").equals(saved.path("id"))){found=true;assertEquals(p.path("boundary"),row.path("boundary"));assertEquals("USER_ESTIMATE",row.path("source").asText());}assertTrue(found);
+  }
 
   @Test void aiAnalysisAndPersistentStateArePortableAndScoped() throws Exception {
     String token=login("demo-a","admin"),id=farm();
@@ -71,7 +182,7 @@ abstract class ResearchScenarioContract {
     assertEquals(LocalDate.now().minusYears(2).toString(),report.at("/manifest/historyStart").asText());
     assertTrue(report.at("/counts/farm_tasks").asInt()>350);
     assertTrue(report.at("/counts/production").asInt()>30);
-    assertEquals(11,call(token,"GET","/assets?farmId="+id,null,200).size());
+    assertEquals(14,call(token,"GET","/assets?farmId="+id,null,200).size());
     var work=call(token,"GET","/field-work?farmId="+id,null,200);
     assertTrue(work.path("tasks").get(0).has("ASSIGNEE_ID"));
     assertTrue(work.path("issues").size()>30);
@@ -113,7 +224,7 @@ abstract class ResearchScenarioContract {
       }
     }
     var operations=call(token,"GET","/farms/"+id+"/operations?hours=720",null,200);
-    assertEquals(11,operations.at("/summary/freshDevices").asInt());
+    assertEquals(14,operations.at("/summary/freshDevices").asInt());
   }
 
   @Test @Transactional void upsertsKeepCompositeTenantKeysAndBooleanTypes() {

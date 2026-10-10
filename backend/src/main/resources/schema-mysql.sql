@@ -322,3 +322,67 @@ CREATE TABLE IF NOT EXISTS alert_field_issues (
  FOREIGN KEY(tenant_id,alert_id) REFERENCES device_alerts(tenant_id,id),
  FOREIGN KEY(tenant_id,issue_id) REFERENCES field_issues(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS farm_map_parcels (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
+ name VARCHAR(80) NOT NULL,boundary_json LONGTEXT NOT NULL,source VARCHAR(24) NOT NULL,source_note VARCHAR(500) NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 0,created_at TIMESTAMP(6) NOT NULL,
+ UNIQUE(tenant_id,id),FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),
+ FOREIGN KEY(tenant_id,plot_id) REFERENCES plots(tenant_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS farm_map_zones (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,parcel_id VARCHAR(36) NOT NULL,
+ pump_id VARCHAR(36) NOT NULL,name VARCHAR(80) NOT NULL,pipeline_json LONGTEXT NOT NULL,nodes_json LONGTEXT NOT NULL,
+ source VARCHAR(24) NOT NULL,UNIQUE(tenant_id,id),UNIQUE(tenant_id,parcel_id),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),FOREIGN KEY(tenant_id,parcel_id) REFERENCES farm_map_parcels(tenant_id,id),
+ FOREIGN KEY(tenant_id,pump_id) REFERENCES devices(tenant_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS farm_map_jobs (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
+ parcel_id VARCHAR(36) NOT NULL,device_id VARCHAR(36) NOT NULL,task_id VARCHAR(36),owner_id VARCHAR(36) NOT NULL,
+ request_id VARCHAR(80) NOT NULL,kind VARCHAR(20) NOT NULL,title VARCHAR(120) NOT NULL,status VARCHAR(20) NOT NULL,
+ parameters_json LONGTEXT NOT NULL,route_json LONGTEXT NOT NULL,boundary_json LONGTEXT NOT NULL,
+ duration_seconds INTEGER NOT NULL,elapsed_seconds DECIMAL(12,3) NOT NULL DEFAULT 0,
+ estimated_m3 DECIMAL(14,6) NOT NULL DEFAULT 0,flow_m3h DECIMAL(12,3),measured_m3 DECIMAL(14,6),
+ start_command_id VARCHAR(36),stop_command_id VARCHAR(36),result_note VARCHAR(500) NOT NULL DEFAULT '',
+ created_at TIMESTAMP(6) NOT NULL,started_at TIMESTAMP(6),last_tick_at TIMESTAMP(6),finished_at TIMESTAMP(6),
+ UNIQUE(tenant_id,id),UNIQUE(tenant_id,request_id),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),FOREIGN KEY(tenant_id,plot_id) REFERENCES plots(tenant_id,id),
+ FOREIGN KEY(tenant_id,parcel_id) REFERENCES farm_map_parcels(tenant_id,id),FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
+ FOREIGN KEY(tenant_id,task_id) REFERENCES farm_tasks(tenant_id,id),FOREIGN KEY(tenant_id,owner_id) REFERENCES members(tenant_id,id),
+ CHECK(kind IN ('MACHINERY','IRRIGATION')),CHECK(status IN ('RUNNING','PAUSED','COMPLETED','STOPPED','FAILED')),
+ CHECK(duration_seconds BETWEEN 10 AND 300),CHECK(estimated_m3>=0),
+ INDEX ix_farm_map_jobs(tenant_id,farm_id,created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS farm_archives (
+ tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,reason VARCHAR(300) NOT NULL,
+ archived_at TIMESTAMP(6) NOT NULL,
+ PRIMARY KEY(tenant_id,farm_id),FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS demo_portfolio_farms (
+ tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,fixture_key VARCHAR(30) NOT NULL,
+ PRIMARY KEY(tenant_id,farm_id),UNIQUE(tenant_id,fixture_key),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS machinery_profiles (
+ tenant_id VARCHAR(36) NOT NULL,device_id VARCHAR(36) NOT NULL,profile_json LONGTEXT NOT NULL,
+ PRIMARY KEY(tenant_id,device_id),FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS machinery_job_plans (
+ tenant_id VARCHAR(36) NOT NULL,job_id VARCHAR(36) NOT NULL,snapshot_json LONGTEXT NOT NULL,
+ simulation_seconds INTEGER NOT NULL,PRIMARY KEY(tenant_id,job_id),
+ FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id),CHECK(simulation_seconds BETWEEN 1 AND 86400)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS farm_map_job_events (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,job_id VARCHAR(36) NOT NULL,
+ action VARCHAR(30) NOT NULL,note VARCHAR(500) NOT NULL,occurred_at TIMESTAMP(6) NOT NULL,
+ FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id),
+ INDEX ix_map_job_events(tenant_id,job_id,occurred_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

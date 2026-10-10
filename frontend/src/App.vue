@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
@@ -37,8 +37,14 @@ import "./ui/shell.css";
 const identity = ref(null);
 const account = ref(null),
   settingsOpen = ref(false),
-  farmScope = ref(""),
+  farmScope = ref(readFarmScope()),
   formFarm = ref("");
+function readFarmScope() {
+  try { return sessionStorage.getItem("zhinong-farm-scope") || ""; } catch { return ""; }
+}
+watch(farmScope, id => {
+  try { if(id) sessionStorage.setItem("zhinong-farm-scope",id); else sessionStorage.removeItem("zhinong-farm-scope"); } catch { /* Session storage is optional. */ }
+});
 const scopedPage = computed(() =>
   ["plots", "plantings", "tasks", "production"].includes(page.value),
 );
@@ -319,7 +325,7 @@ async function load() {
     (farmScope.value && !farms.some((f) => f.id === farmScope.value)) ||
     (["daily", "operations", "ai"].includes(target) && !farmScope.value)
   )
-    farmScope.value = (farms.find((farm) => farm.operatingDemo) || farms[0])?.id || "";
+    farmScope.value = (farms.find((farm) => farm.operatingDemo && farm.name === "青禾设备联动演示场") || farms.find((farm) => farm.operatingDemo) || farms[0])?.id || "";
   plotRows.value = plots;
   dashboard.value = summary;
   tasks.value = taskList;

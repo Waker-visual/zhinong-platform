@@ -1,6 +1,29 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
+test("image-traced WGS84 parcels and legacy device points retain their map positions", async () => {
+  const { readFileSync } = require("node:fs");
+  const { planToWgs84, wgs84ToPlan } = await import("../../frontend/src/workspace/coordinates.js");
+  const { containsPoint, deviceCoordinates, routePrefix } = await import("../../frontend/src/workspace/fieldSpatial.js");
+  const fixture = JSON.parse(readFileSync(require("node:path").join(__dirname, "../../backend/src/main/resources/farm-map-estimates.json"), "utf8"));
+  for (const latitude of [47.26, 47.265]) {
+    const geo = { latitude, longitude: 132.73, widthMeters: 1600, heightMeters: 1120 };
+    for (const parcel of fixture.parcels) for (const point of parcel.boundary) {
+      const restored = planToWgs84(wgs84ToPlan(...point, geo), geo);
+      assert.ok(Math.abs(restored[0] - point[0]) < 1e-10);
+      assert.ok(Math.abs(restored[1] - point[1]) < 1e-10);
+    }
+    const ring = fixture.parcels[0].boundary;
+    const center = [0, 1].map(i => ring.reduce((sum, p) => sum + p[i], 0) / ring.length);
+    const plan = wgs84ToPlan(...center, geo);
+    assert.ok(containsPoint(ring, deviceCoordinates({ locationMode: "LOCAL_PLAN", planX: plan[0], planY: plan[1] }, geo)));
+    assert.equal(containsPoint(ring, null), false);
+  }
+  const points = [[0, 0], [0, 2], [1, 2]];
+  assert.deepEqual(routePrefix(points, 50), [[0, 0], [0, 1.5]]);
+  assert.deepEqual(routePrefix(points, 100), points);
+});
+
 test("map projection round-trips all layout corners and center", async () => {
   const { planToWgs84, wgs84ToPlan } = await import(
     "../../frontend/src/workspace/coordinates.js"

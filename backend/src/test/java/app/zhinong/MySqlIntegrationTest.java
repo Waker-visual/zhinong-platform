@@ -8,7 +8,7 @@ import org.springframework.test.context.*;
 @SpringBootTest(webEnvironment=SpringBootTest.WebEnvironment.RANDOM_PORT,properties={
   "spring.sql.init.schema-locations=classpath:schema-mysql.sql",
   "spring.datasource.hikari.connection-init-sql=SET SESSION sql_mode = CONCAT(@@sql_mode, ',ANSI_QUOTES')",
-  "farm.demo=true","farm.demo-rich=true","farm.research-history=true","farm.demo-live=false",
+  "farm.demo=true","farm.demo-rich=true","farm.research-history=true","farm.demo-live=false","farm.demo-portfolio=true",
   "farm.simulation.use-primary=true","farm.bootstrap-password=Test-Only-Password-429!"
 })
 class MySqlIntegrationTest extends ResearchScenarioContract {

@@ -69,44 +69,44 @@ public class FarmService {
     return Map.of(
       "farms",
       db.queryForObject(
-        "SELECT COUNT(*) FROM farms WHERE tenant_id=?",
+        "SELECT COUNT(*) FROM farms WHERE tenant_id=? AND " + Store.activeScope("farms"),
         Long.class,
         tenant
       ),
       "plots",
       db.queryForObject(
-        "SELECT COUNT(*) FROM plots WHERE tenant_id=?",
+        "SELECT COUNT(*) FROM plots WHERE tenant_id=? AND " + Store.activeScope("plots"),
         Long.class,
         tenant
       ),
       "areaMu",
       db.queryForObject(
-        "SELECT COALESCE(SUM(area_mu),0) FROM plots WHERE tenant_id=?",
+        "SELECT COALESCE(SUM(area_mu),0) FROM plots WHERE tenant_id=? AND " + Store.activeScope("plots"),
         BigDecimal.class,
         tenant
       ),
       "yieldKg",
       db.queryForObject(
-        "SELECT COALESCE(SUM(yield_kg),0) FROM production WHERE tenant_id=?",
+        "SELECT COALESCE(SUM(yield_kg),0) FROM production WHERE tenant_id=? AND " + Store.activeScope("production"),
         BigDecimal.class,
         tenant
       ),
       "pendingTasks",
       db.queryForObject(
-        "SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND status IN ('PENDING','RUNNING')",
+        "SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND status IN ('PENDING','RUNNING') AND " + Store.activeScope("farm_tasks"),
         Long.class,
         tenant
       ),
       "devices",
       db.queryForObject(
-        "SELECT COUNT(*) FROM devices WHERE tenant_id=?",
+        "SELECT COUNT(*) FROM devices WHERE tenant_id=? AND " + Store.activeScope("devices"),
         Long.class,
         tenant
       ),
       // 导航计数与今日农场同一口径：按服务器日期判断逾期，逾期优先于受阻，二者不重复计数。
       "overdueTasks",
       db.queryForObject(
-        "SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND status IN ('PENDING','RUNNING') AND due_date<?",
+        "SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND status IN ('PENDING','RUNNING') AND due_date<? AND " + Store.activeScope("farm_tasks"),
         Long.class,
         tenant,
         LocalDate.now()
@@ -116,7 +116,7 @@ public class FarmService {
         """
         SELECT COUNT(*) FROM farm_tasks t
         JOIN task_fieldwork d ON d.tenant_id=t.tenant_id AND d.task_id=t.id
-        WHERE t.tenant_id=? AND t.status IN ('PENDING','RUNNING') AND t.due_date>=? AND d.blocked_reason<>''
+        WHERE t.tenant_id=? AND t.status IN ('PENDING','RUNNING') AND t.due_date>=? AND d.blocked_reason<>'' AND NOT EXISTS(SELECT 1 FROM plots p JOIN farm_archives a ON a.tenant_id=p.tenant_id AND a.farm_id=p.farm_id WHERE p.tenant_id=t.tenant_id AND p.id=t.plot_id)
         """,
         Long.class,
         tenant,
@@ -124,7 +124,7 @@ public class FarmService {
       ),
       "openIssues",
       db.queryForObject(
-        "SELECT COUNT(*) FROM field_issues WHERE tenant_id=? AND status<>'RESOLVED'",
+        "SELECT COUNT(*) FROM field_issues WHERE tenant_id=? AND status<>'RESOLVED' AND " + Store.activeScope("field_issues"),
         Long.class,
         tenant
       )
