@@ -1,7 +1,9 @@
 <script setup>
 import { computed, onBeforeUnmount, reactive, ref, watch } from "vue";
-import { number, requestId, statuses, taskNames, time } from "./client.mjs";
+import { jobBlockReason, number, requestId, statuses, taskNames, time } from "./client.mjs";
 import RoutePreview from "./RoutePreview.vue";
+import FieldPicker from "./FieldPicker.vue";
+import FieldIcon from "./FieldIcon.vue";
 const props = defineProps({
   farmId: String,
   client: Object,
@@ -9,13 +11,15 @@ const props = defineProps({
   role: String,
   revision: Number,
   locked: Boolean,
+  initialMode: { type: String, default: "records" },
 });
-const emit = defineEmits(["confirm", "device"]);
+const emit = defineEmits(["confirm", "device", "mode"]);
 const spatial = ref(null),
   error = ref(""),
   busy = ref(false),
   preview = ref(null),
   selectedJob = ref("");
+const ready = ref(false);
 const mode = ref("records"),
   zoneId = ref(""),
   duration = ref(60);
@@ -49,19 +53,30 @@ const job = computed(() =>
   spatial.value?.jobs.find((j) => j.id === selectedJob.value),
 );
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
+const pump = computed(() => props.devices.find(d => d.id === zone.value?.pumpId));
+const machineBlocked = computed(() => jobBlockReason(machine.value, spatial.value?.jobs, props.role));
+const waterBlocked = computed(() => jobBlockReason(pump.value, spatial.value?.jobs, props.role));
+const parcelOptions = computed(() => (spatial.value?.parcels || []).map(p => ({ id: p.id, name: p.name, caption: p.plotName || "估绘小田块", meta: "按已登记边界规划路线" })));
+const machineOptions = computed(() => machines.value.map(d => ({ id: d.id, name: d.name, caption: d.machinery?.model || d.model, meta: `${d.protocol === 'SIMULATED' ? '模拟设备' : '实体接口'} · ${d.freshness === 'FRESH' ? '反馈正常' : '需要核对反馈'}` })));
+const zoneOptions = computed(() => (spatial.value?.zones || []).map(z => ({ id: z.id, name: z.name, caption: spatial.value.parcels.find(p => p.id === z.parcelId)?.name || "灌溉覆盖区", meta: props.devices.find(d => d.id === z.pumpId)?.name || "尚未关联水泵" })));
+const visibleJobs = computed(() => [...(spatial.value?.jobs || [])].filter(j => mode.value !== "water" || j.kind === "IRRIGATION").sort((a, b) => Number(["RUNNING", "PAUSED"].includes(b.status)) - Number(["RUNNING", "PAUSED"].includes(a.status))));
+watch(() => props.initialMode, value => { mode.value = value; }, { immediate: true });
+watch(mode, value => emit("mode", value));
 let generation = 0,
   previewVersion = 0;
 const path = (suffix) => `/farms/${props.farmId}/field-map${suffix}`;
 async function load() {
   const v = ++generation;
+  ready.value = false;
   try {
     const result = await props.client.request(path(""));
     if (v !== generation) return;
     spatial.value = result;
+    ready.value = true;
     error.value = "";
-    if (!input.parcelId) input.parcelId = result.parcels[0]?.id || "";
-    if (!input.deviceId) input.deviceId = machines.value[0]?.id || "";
-    if (!zoneId.value) zoneId.value = result.zones[0]?.id || "";
+    if (!result.parcels.some(p => p.id === input.parcelId)) input.parcelId = "";
+    if (!machines.value.some(d => d.id === input.deviceId)) input.deviceId = "";
+    if (!result.zones.some(z => z.id === zoneId.value)) zoneId.value = "";
   } catch (e) {
     if (v === generation && !e.stale) error.value = e.message;
   }
@@ -117,7 +132,7 @@ async function plan() {
   }
 }
 function dispatch() {
-  if (!preview.value || props.role !== "ADMIN") return;
+  if (!preview.value || !ready.value || props.locked || machineBlocked.value) return;
   emit("confirm", {
     title: "下发农机任务",
     description: `${parcel.value.name} · ${machine.value.name} · ${input.title}`,
@@ -127,13 +142,14 @@ function dispatch() {
     lookup: path(""),
     collection: "jobs",
     kind: "job",
+    facts: [["作业类型", taskNames[input.taskType]], ["预计时长", `${number(preview.value.data.estimatedMinutes)} 分钟`], ["路线长度", `${number(preview.value.data.lengthMeters)} 米`], ["执行方式", "服务器模拟执行，退出页面后继续"]],
   });
 }
 function water() {
-  const pump = props.devices.find((d) => d.id === zone.value?.pumpId);
+  if (!ready.value || props.locked || !zone.value || waterBlocked.value) return;
   emit("confirm", {
     title: "启动分区灌溉",
-    description: `${zone.value.name} · ${pump?.name || "未关联水泵"} · ${duration.value} 秒`,
+    description: `${zone.value.name} · ${pump.value?.name || "未关联水泵"} · ${duration.value} 秒`,
     source: "模拟灌溉：用水量由模拟流量估算，不是实测水表读数。",
     path: path("/irrigation"),
     body: {
@@ -144,6 +160,7 @@ function water() {
     lookup: path(""),
     collection: "jobs",
     kind: "job",
+    facts: [["自动停止", `服务器计时 ${duration.value} 秒后结束`], ["异常处理", "在任务记录中手动停止并核对回执"]],
   });
 }
 function act(j, action) {
@@ -183,8 +200,9 @@ function act(j, action) {
         :key="t[0]"
         :class="{ active: mode === t[0] }"
         @click="mode = t[0]"
+        :aria-pressed="mode === t[0]"
       >
-        {{ t[1] }}
+        <FieldIcon :name="t[0] === 'water' ? 'irrigation' : t[0] === 'machine' ? 'machinery' : 'history'" />{{ t[1] }}
       </button>
     </div>
     <p v-if="error" class="error" role="alert">
@@ -195,29 +213,9 @@ function act(j, action) {
       <template v-if="mode === 'machine'">
         <form class="card" @submit.prevent="plan">
           <h3>选择田块与农机</h3>
-          <label
-            >小田块<select
-              v-model="input.parcelId"
-              required
-              :disabled="locked"
-              aria-label="小田块"
-            >
-              <option v-for="p in spatial.parcels" :key="p.id" :value="p.id">
-                {{ p.name }} · {{ p.plotName }}
-              </option>
-            </select></label
-          ><label
-            >农机型号<select
-              v-model="input.deviceId"
-              aria-label="农机型号"
-              required
-              :disabled="locked"
-            >
-              <option v-for="m in machines" :key="m.id" :value="m.id">
-                {{ m.name }} · {{ m.machinery?.model || m.model }}
-              </option>
-            </select></label
-          >
+          <p class="workflow-hint">选田块与设备 <span>→</span> 预览路线 <span>→</span> 确认下发</p>
+          <FieldPicker label="小田块" v-model="input.parcelId" :options="parcelOptions" :disabled="locked" />
+          <FieldPicker label="农机型号" v-model="input.deviceId" :options="machineOptions" icon="machinery" :disabled="locked" />
           <p class="muted" v-if="machine">
             {{ machine.machinery?.brand }} ·
             {{
@@ -248,7 +246,7 @@ function act(j, action) {
               </option>
             </select></label
           >
-          <div class="form-grid">
+          <details class="planning-options"><summary>调整作业参数 <small>已按设备型号填入默认值</small></summary><div class="form-grid">
             <label
               >作业幅宽 / m<input
                 type="number"
@@ -319,9 +317,10 @@ function act(j, action) {
               required
               :disabled="locked"
           /></label>
+          </details>
           <button
             class="primary full"
-            :disabled="locked || busy || !parcel || !machine"
+            :disabled="locked || busy || !ready || !parcel || !machine"
           >
             {{ busy ? "规划中…" : "预览往复式路线" }}
           </button>
@@ -340,31 +339,19 @@ function act(j, action) {
           <p class="muted">{{ preview.data.note }}</p>
           <button
             class="primary full"
-            :disabled="locked || role !== 'ADMIN'"
+            :disabled="locked || !ready || !!machineBlocked"
             @click="dispatch"
           >
             确认下发方案
           </button>
-          <p class="muted" v-if="role !== 'ADMIN'">
-            只有农场管理员可以下发农机任务。
-          </p>
+          <p class="muted" v-if="machineBlocked">{{ machineBlocked }}</p>
         </article>
       </template>
       <template v-if="mode === 'water'"
         ><form class="card" @submit.prevent="water">
           <h3>分区灌溉</h3>
-          <label
-            >灌溉分区<select
-              v-model="zoneId"
-              required
-              :disabled="locked"
-              aria-label="灌溉分区"
-            >
-              <option v-for="z in spatial.zones" :key="z.id" :value="z.id">
-                {{ z.name }}
-              </option>
-            </select></label
-          >
+          <p class="workflow-hint">选覆盖区 <span>→</span> 设定时长 <span>→</span> 确认开泵</p>
+          <FieldPicker label="灌溉分区" v-model="zoneId" :options="zoneOptions" icon="irrigation" :disabled="locked" />
           <p v-if="zone">
             {{
               props.devices.find((d) => d.id === zone.pumpId)?.name ||
@@ -381,13 +368,16 @@ function act(j, action) {
               required
               :disabled="locked"
           /></label>
+          <div class="duration-presets" aria-label="常用灌溉时长"><button v-for="seconds in [30, 60, 180]" :key="seconds" type="button" :aria-pressed="Number(duration) === seconds" :disabled="locked" @click="duration = seconds">{{ seconds }} 秒</button></div>
           <p class="muted">
             现有接口支持 10–300
             秒的模拟限时灌溉；实体泵闸请在设备中下发受支持的指令。
           </p>
-          <button class="primary full" :disabled="locked || !zone || !writer">
+          <p v-if="zone && waterBlocked" class="notice">{{ waterBlocked }}</p>
+          <button class="primary full" :disabled="locked || !ready || !zone || !!waterBlocked">
             确认灌溉方案
           </button>
+          <button v-if="pump" type="button" class="full" @click="emit('device', pump.id)">查看水泵状态与现场控制</button>
         </form>
         <article class="card">
           <h3>用水记录</h3>
@@ -400,14 +390,13 @@ function act(j, action) {
         </article></template
       >
       <div v-if="mode === 'records' || mode === 'water'">
-        <p v-if="!spatial.jobs.length" class="empty">
+        <p class="work-continuity"><FieldIcon name="history" />任务由服务器执行，离开页面后继续。返回时刷新核对结果。</p>
+        <p v-if="!visibleJobs.length" class="empty">
           当前农场暂无作业记录，可先规划一项模拟任务。
         </p>
         <article
           class="card job-card"
-          v-for="j in spatial.jobs.filter(
-            (j) => mode !== 'water' || j.kind === 'IRRIGATION',
-          )"
+          v-for="j in visibleJobs"
           :key="j.id"
           :data-job-id="j.id"
         >

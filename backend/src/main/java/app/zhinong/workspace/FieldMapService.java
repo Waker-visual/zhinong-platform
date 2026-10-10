@@ -123,11 +123,11 @@ public class FieldMapService {
     if(db.queryForObject("SELECT COUNT(*) FROM farm_map_jobs WHERE tenant_id=? AND device_id=? AND status IN ('RUNNING','PAUSED')",Integer.class,Identity.tenant(),asset.get("id"))>0)throw new ApiException(409,"设备已有未结束的地图任务，请先停止或完成");
   }
   public Map<String,Object> dispatch(String farm,WorkInput input) {
-    Identity.require("ADMIN");activeFarm(farm);lockTenant();String params=encode(input);var old=prior(farm,input.requestId(),params,"MACHINERY");if(old!=null)return old;
+    Identity.require("ADMIN","OPERATOR");activeFarm(farm);lockTenant();String params=encode(input);var old=prior(farm,input.requestId(),params,"MACHINERY");if(old!=null)return old;
     store.lock("devices",input.deviceId());var d=assets.detail(input.deviceId());available(d,farm,"MACHINERY");var p=parcel(Identity.tenant(),farm,input.parcelId());
     var route=preview(farm,input);String id=UUID.randomUUID().toString();
     if(input.taskType()==null)throw new ApiException(400,"请选择作业类型");
-    @SuppressWarnings("unchecked") var task=(Map<String,Object>)fieldwork.create(new FieldWorkService.PlanInput(p.get("PLOT_ID").toString(),"[模拟农机] "+input.title().strip(),input.taskType(),LocalDate.now(),Identity.current().memberId(),"SERVICE","地图模拟任务；按估绘边界规划，不代表真实生产作业。"),null);
+    @SuppressWarnings("unchecked") var task=(Map<String,Object>)fieldwork.createMachinerySimulation(p.get("PLOT_ID").toString(),input.title(),input.taskType());
     insert(id,farm,p,input.deviceId(),task.get("id").toString(),input.requestId(),"MACHINERY",input.title().strip(),params,encode(route.get("points")),Math.max(10,Math.min(300,((Number)route.get("simulationSeconds")).intValue())),null,null);
     db.update("INSERT INTO machinery_job_plans(tenant_id,job_id,snapshot_json,simulation_seconds) VALUES(?,?,?,?)",Identity.tenant(),id,encode(route),route.get("simulationSeconds"));
     event(Identity.tenant(),id,"ACCEPTED","模拟调度已接收；型号、路线与参数快照已保存，未发送至实体设备");
@@ -157,12 +157,18 @@ public class FieldMapService {
     if(rows.isEmpty())throw ApiException.missing();return rows.getFirst();
   }
   public Map<String,Object> job(String farm,String id) {store.get("farms",farm);return publicJob(storedJob(Identity.tenant(),farm,id,false));}
+  public List<Map<String,Object>> irrigationJobs(String farm) {
+    store.get("farms",farm);
+    return db.queryForList("SELECT * FROM farm_map_jobs WHERE tenant_id=? AND farm_id=? AND kind='IRRIGATION' ORDER BY created_at DESC,id DESC LIMIT 100",Identity.tenant(),farm).stream().map(this::publicJob).toList();
+  }
   private Map<String,Object> publicJob(Map<String,Object> row) {
     var result=new LinkedHashMap<String,Object>();
     String[][] keys={{"id","ID"},{"parcelId","PARCEL_ID"},{"plotId","PLOT_ID"},{"deviceId","DEVICE_ID"},{"taskId","TASK_ID"},{"kind","KIND"},{"title","TITLE"},{"status","STATUS"},{"durationSeconds","DURATION_SECONDS"},{"elapsedSeconds","ELAPSED_SECONDS"},{"estimatedM3","ESTIMATED_M3"},{"measuredM3","MEASURED_M3"},{"resultNote","RESULT_NOTE"},{"startedAt","STARTED_AT"},{"finishedAt","FINISHED_AT"},{"flowM3h","FLOW_M3H"}};
     for(var k:keys)result.put(k[0],row.get(k[1]));
     result.put("route",decode(row.get("ROUTE_JSON")));result.put("boundary",decode(row.get("BOUNDARY_JSON")));
     result.put("parameters",decode(row.get("PARAMETERS_JSON")));
+    var aiRuns=db.queryForList("SELECT run_id FROM ai_irrigation_map_runs WHERE tenant_id=? AND job_id=?",String.class,row.get("TENANT_ID"),row.get("ID"));
+    result.put("aiRunId",aiRuns.isEmpty()?null:aiRuns.getFirst());
     var plans=db.queryForList("SELECT snapshot_json,simulation_seconds FROM machinery_job_plans WHERE tenant_id=? AND job_id=?",row.get("TENANT_ID"),row.get("ID"));
     double duration=duration(row);result.put("durationSeconds",duration);
     if(!plans.isEmpty())result.put("plan",decode(plans.getFirst().get("SNAPSHOT_JSON")));
@@ -211,11 +217,30 @@ public class FieldMapService {
     }
     if(elapsed>=duration)finish(r,"COMPLETED","模拟任务已完成");
   }
+  /** Stop recovery for a persisted AI run; also works after its owner or tenant is disabled. */
+  public void stopAiIrrigation(String tenant,String runId,String reason) {
+    var links=db.queryForList("SELECT j.* FROM farm_map_jobs j JOIN ai_irrigation_map_runs a ON a.tenant_id=j.tenant_id AND a.job_id=j.id WHERE a.tenant_id=? AND a.run_id=? AND j.kind='IRRIGATION'",tenant,runId);
+    if(links.isEmpty())throw new IllegalStateException("AI irrigation map job missing");
+    var initial=links.getFirst();String id=initial.get("ID").toString(),farm=initial.get("FARM_ID").toString();
+    db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE",tenant,initial.get("DEVICE_ID"));
+    var r=storedJob(tenant,farm,id,true);advance(r,Instant.now());r=storedJob(tenant,farm,id,true);
+    if("RUNNING".equals(r.get("STATUS")))finish(r,"STOPPED",reason);
+    else syncAiRun(r);
+  }
+  private void syncAiRun(Map<String,Object> job) {
+    if(!Set.of("COMPLETED","STOPPED").contains(job.get("STATUS")))return;
+    db.update("""
+      UPDATE ai_irrigation_runs SET status='COMPLETED',finished_at=?,stop_command_id=?,result_note=?
+      WHERE tenant_id=? AND status='RUNNING' AND id IN
+        (SELECT run_id FROM ai_irrigation_map_runs WHERE tenant_id=? AND job_id=?)
+      """,job.get("FINISHED_AT"),job.get("STOP_COMMAND_ID"),job.get("RESULT_NOTE"),job.get("TENANT_ID"),job.get("TENANT_ID"),job.get("ID"));
+  }
   private void finish(Map<String,Object> r,String status,String note) {
     String tenant=r.get("TENANT_ID").toString(),id=r.get("ID").toString();String stop=null;
     if("IRRIGATION".equals(r.get("KIND")))stop=commands.stopMapSimulation(tenant,id);
     db.update("UPDATE farm_map_jobs SET status=?,finished_at=?,stop_command_id=?,result_note=? WHERE tenant_id=? AND id=?",status,OffsetDateTime.now(),stop,note+("IRRIGATION".equals(r.get("KIND"))?"；用水为模拟流量积分估算，未实测":"；未接入真实农机执行与轨迹"),tenant,id);
     event(tenant,id,status,note);
+    syncAiRun(storedJob(tenant,r.get("FARM_ID").toString(),id,false));
     syncTask(tenant,id,status.equals("COMPLETED")?"COMPLETED":"CANCELLED",note+"；非真实生产作业");
   }
   private void syncTask(String tenant,String id,String status,String note) {

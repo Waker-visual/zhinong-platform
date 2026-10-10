@@ -129,6 +129,18 @@ public class FieldWorkService {
 
   public Object create(PlanInput input, String issueId) {
     Identity.require("ADMIN");
+    return createTask(input, issueId);
+  }
+
+  /** Internal simulation workflow: an operator may create only their own simulated machinery task. */
+  public Object createMachinerySimulation(String plotId, String title, String taskType) {
+    Identity.require("ADMIN", "OPERATOR");
+    return createTask(new PlanInput(plotId, "[模拟农机] " + title.strip(), taskType,
+      LocalDate.now(), Identity.current().memberId(), "SERVICE",
+      "地图模拟任务；按估绘边界规划，不代表真实生产作业。"), null);
+  }
+
+  private Object createTask(PlanInput input, String issueId) {
     store.get("plots", input.plotId());
     if (issueId != null) {
       var issue = issue(issueId, true);

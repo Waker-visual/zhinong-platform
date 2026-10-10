@@ -16,6 +16,7 @@ import android.webkit.WebViewClient;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -39,7 +40,7 @@ public final class MainActivity extends Activity {
         TextView t = new TextView(this); t.setText(value); t.setTextSize(size); t.setTextColor(getColor(R.color.text));
         t.setPadding(0, dp(8), 0, dp(8)); return t;
     }
-    private Button button(String title) { Button b = new Button(this); b.setText(title); b.setAllCaps(false); b.setMinHeight(dp(48)); return b; }
+    private Button button(String title) { Button b = new Button(this); b.setText(title); b.setAllCaps(false); b.setMinHeight(dp(48)); b.setBackgroundResource(R.drawable.primary_button); b.setTextColor(getColor(R.color.cream)); return b; }
     private LinearLayout layout() {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setFitsSystemWindows(true);
         root.setBackgroundColor(getColor(R.color.page)); return root;
@@ -55,7 +56,11 @@ public final class MainActivity extends Activity {
     private void showConnection() {
         generation++; destroyWeb();
         LinearLayout root = layout(); root.setPadding(dp(24), dp(28), dp(24), dp(24));
-        root.addView(text("智禾随行", 32)); root.addView(text("连接农场，随时查看与安排作业。", 16));
+        ImageView mark = new ImageView(this); mark.setImageResource(R.drawable.app_icon); mark.setContentDescription("智禾农场标志");
+        root.addView(mark, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        root.addView(text("智禾随行", 30)); root.addView(text("田间有你，农场在手边。", 17));
+        ImageView scene = new ImageView(this); scene.setImageResource(R.drawable.field_scene); scene.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); scene.setAdjustViewBounds(true);
+        root.addView(scene, new LinearLayout.LayoutParams(-1, dp(135)));
         root.addView(text("服务器地址", 14));
         EditText address = new EditText(this); address.setSingleLine(true); address.setInputType(17);
         address.setHint("https://farm.example.com");
@@ -63,7 +68,7 @@ public final class MainActivity extends Activity {
         root.addView(text("手机和电脑需能访问同一个后端。局域网使用电脑的网络地址和端口；不要填写手机自身的 127.0.0.1。", 13));
         TextView result = text("仅保存服务器地址，登录后按农场账号权限查看数据。", 13); root.addView(result);
         Button connect = button("检查连接并进入"); root.addView(connect);
-        root.addView(text("本应用需联网。HTTP 仅适合可信局域网调试，正式服务器请配置 HTTPS。", 12));
+        root.addView(text("只需保持农场服务器在线，无须打开电脑网页监督。田间跨网络使用时，请连接已部署的 HTTPS 服务。", 12));
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.addView(root); setContentView(scroll);
         connect.setOnClickListener(v -> {
             final String selected;
@@ -110,7 +115,7 @@ public final class MainActivity extends Activity {
         WebSettings cfg = web.getSettings(); cfg.setJavaScriptEnabled(true); cfg.setDomStorageEnabled(false); cfg.setAllowFileAccess(false); cfg.setAllowContentAccess(false);
         cfg.setAllowFileAccessFromFileURLs(false); cfg.setAllowUniversalAccessFromFileURLs(false); cfg.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         cfg.setCacheMode(WebSettings.LOAD_NO_CACHE); cfg.setSaveFormData(false); cfg.setMediaPlaybackRequiresUserGesture(true); cfg.setSafeBrowsingEnabled(true);
-        cfg.setUserAgentString(cfg.getUserAgentString() + " ZhiheMobile/1.0");
+        cfg.setUserAgentString(cfg.getUserAgentString() + " ZhiheMobile/1.1");
         CookieManager.getInstance().setAcceptCookie(false); CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {

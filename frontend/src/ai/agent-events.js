@@ -224,9 +224,10 @@ export function irrigationApproveConfirm(run) {
   const plot = (run && run.plotName) || "该地块";
   const pump = run && run.pumpName ? `水泵“${run.pumpName}”，` : "";
   const seconds = run && run.durationSeconds ? `运行 ${run.durationSeconds} 秒` : "按建议时长运行";
+  const scope = run?.zoneName ? `作用范围：${run.zoneName}。` : "";
   return {
     title: `确认启动 ${plot} 的模拟灌溉？`,
-    message: `${pump}${seconds}。当前仅模拟设备，不会驱动实体水泵；启动前系统会重新读取墒情与设备状态，条件不符会拒绝。`,
+    message: `${scope}${pump}${seconds}。当前仅模拟设备，不会驱动实体水泵；启动前系统会重新读取墒情与设备状态，条件不符会拒绝。`,
     confirmLabel: "确认启动",
   };
 }

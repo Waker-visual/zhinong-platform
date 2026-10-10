@@ -1,8 +1,8 @@
 <script setup>
-import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, formatMessageTime, irrigationApprovalTarget, irrigationApproveConfirm, groupConversationsByDate } from './agent-events.js';
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, formatMessageTime, irrigationApprovalTarget, groupConversationsByDate } from './agent-events.js';
 import { defaultConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
@@ -13,10 +13,15 @@ import AiStreamingStatus from './AiStreamingStatus.vue';
 import AiMessageActions from './AiMessageActions.vue';
 import AiHistoryMenu from './AiHistoryMenu.vue';
 import AppIcon from '../ui/AppIcon.vue';
+import IrrigationWorkspace from './IrrigationWorkspace.vue';
 import { diagnosticLabels } from './diagnostics';
-const props = defineProps({ farmId: String, role: String, revision: Number });
+const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean });
+const emit = defineEmits(['farm']);
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
+const refreshing = ref(false);
+const refreshBlocked = computed(() => busy.value || sending.value || refreshing.value);
+const interactionLocked = computed(() => refreshBlocked.value || props.pageRefreshing);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
 const run = ref(null);
 const highlightedRunId = ref(''); // 从聊天里的灌溉审批活动点击“去确认”后，高亮对应建议
@@ -24,7 +29,6 @@ const initialLoading = ref(true); // 首次读取完成前，历史栏/消息区
 const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
 let activeCancel = null;
-const editing = ref(false);
 // 输入框默认单行，随内容增高到上限后内部滚动；停止后把问题还原回输入框时同样要重新量高。
 const composerInput = ref(null);
 function resizeComposer() {
@@ -38,11 +42,7 @@ const renamingId = ref(''), renameValue = ref('');
 const freshlyTitledId = ref(''); // 刚收到 conversation.titled 事件的会话 id：短暂淡入新标题，不打扰其余历史项
 let freshTitleTimer = null;
 const openMenuId = ref(''); // 当前展开着操作菜单的会话 id：用于让该项的 ⋮ 按钮常显（而不仅是 hover/focus-within）
-const policy = reactive({ plotId: '', sensorId: '', pumpId: '', mode: 'MANUAL', thresholdValue: 30, durationSeconds: 60, cooldownMinutes: 120, dailyLimit: 3, revision: 0 });
 const writer = computed(() => ['ADMIN','OPERATOR'].includes(props.role));
-const sensors = computed(() => irrigation.value.devices.filter(d => d.deviceType !== 'PUMP' && d.plotId === policy.plotId));
-const pumps = computed(() => irrigation.value.devices.filter(d => d.deviceType === 'PUMP'));
-const states = { PROPOSED:'等待人工确认', RUNNING:'模拟灌溉中', COMPLETED:'已停止', CANCELLED:'已取消', EXPIRED:'已过期' };
 const prompts = ['结合当前作物和四情数据，今天优先做什么？','分析近7天的天气变化及对作物的影响','当前地块是否需要灌溉？请说明依据和缺失信息。','对比历史生产记录，给出下季管理建议。'];
 let generation=0, timer, pendingRequest=null, alive=true;
 // 相对时间（“刚刚”“N 天前”）只有在页面打开时经过的时间推进才会变化：formatMessageTime() 本身是
@@ -52,20 +52,22 @@ const nowTick = ref(Date.now());
 let clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 60000);
 const time = value => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '暂无';
 async function refresh() {
-  if (!props.farmId) return;
-  // 切换农场（或被外部 revision 触发的刷新）时，任何还挂在界面上的运行状态——包括一次
-  // 已经停止但还显示着“已停止”条的运行——都不再属于当前上下文，必须清空，否则会出现
-  // “切换到另一个对话/农场后，还显示着上一次已停止的问题和空回答”的串场问题。
-  activeCancel?.();
-  run.value = null; pendingRequest = null;
+  if (!props.farmId || sending.value || refreshing.value) return false;
+  // 数据刷新不取消回答，也不清空可重试的运行；切换农场由组件卸载隔离上下文。
+  refreshing.value = true; error.value = ''; notice.value = '';
   const g=++generation;
   try {
-    const [r,c,i,s]=await Promise.all([api('/ai/analysis?farmId='+props.farmId),api('/ai/conversations?farmId='+props.farmId),api('/ai/irrigation?farmId='+props.farmId),api('/ai/status')]);
-    if(!alive || g!==generation) return;
+    // 等所有请求结束后再解除刷新状态，即使其中一项提前失败也不误报完成。
+    const results=await Promise.allSettled([api('/ai/analysis?farmId='+props.farmId),api('/ai/conversations?farmId='+props.farmId),api('/ai/irrigation?farmId='+props.farmId),api('/ai/status')]);
+    if(!alive || g!==generation) return false;
+    const failed=results.find(result=>result.status==='rejected');
+    if(failed) throw failed.reason;
+    const [r,c,i,s]=results.map(result=>result.value);
     report.value=r; conversations.value=c; irrigation.value=i; status.value=s;
     if (!selected.value && c.length) await select(c[0].id);
-  } catch(e) { if(alive && g===generation) error.value=e.message; }
-  finally { if(alive && g===generation) initialLoading.value=false; }
+    return alive && g===generation;
+  } catch(e) { if(alive && g===generation) error.value=e.message; return false; }
+  finally { if(alive && g===generation) {initialLoading.value=false;refreshing.value=false;} }
 }
 async function select(id) {
   if(sending.value) return;
@@ -143,7 +145,7 @@ function onHistoryMenuAction(c,action) {
   else if(action==='delete') deleteConversation(c.id);
 }
 async function send(text=question.value) {
-  text=text.trim(); if(!text || sending.value || text.length>2000) return;
+  text=text.trim(); if(!text || interactionLocked.value || text.length>2000) return;
   sending.value=true; error.value=''; question.value='';
   const controller=new AbortController();
   let cancelled=false;
@@ -218,26 +220,10 @@ async function onBranched(newId) {
   });
 }
 async function perform(work) {if(busy.value) return;busy.value=true;error.value='';notice.value='';try{await work();}catch(e){error.value=e.message;}finally{busy.value=false;}}
-function editPolicy(plotId) {
-  const p=irrigation.value.policies.find(p=>p.plotId===plotId);
-  Object.assign(policy,{plotId,sensorId:'',pumpId:'',mode:'MANUAL',thresholdValue:30,durationSeconds:60,cooldownMinutes:120,dailyLimit:3,revision:0},p?{sensorId:p.sensorId,pumpId:p.pumpId,mode:p.mode,thresholdValue:p.thresholdValue,durationSeconds:p.durationSeconds,cooldownMinutes:p.cooldownMinutes,dailyLimit:p.dailyLimit,revision:p.revision}:{});
-  if(!policy.sensorId) policy.sensorId=sensors.value[0]?.id||'';
-  if(!policy.pumpId) policy.pumpId=pumps.value.find(p=>p.plotId===plotId)?.id||pumps.value[0]?.id||'';
-  editing.value=true;
+async function refreshIrrigation() {
+  const farm=props.farmId;const data=await api('/ai/irrigation?farmId='+farm);
+  if(alive&&farm===props.farmId)irrigation.value=data;
 }
-async function savePolicy() {
-  if(policy.mode==='AUTO' && !await confirm({title:'启用此地块的自动模拟灌溉？',message:`土壤水分低于 ${policy.thresholdValue}% 时将自动检查并启动，每次 ${policy.durationSeconds} 秒，每天最多 ${policy.dailyLimit} 次。阈值是教学参数，需要按作物校准。`,confirmLabel:'启用自动模式'})) return;
-  await perform(async()=>{irrigation.value=await api('/ai/irrigation/policy','PUT',{...policy,farmId:props.farmId});editing.value=false;notice.value='策略已保存';});
-}
-// 灌溉动作之后只重新读取灌溉工作区：完整 refresh() 还会重算耗时的天气分析并清空聊天运行状态，
-// 导致取消/批准后按钮长时间禁用、聊天里的审批卡片迟迟不更新。
-async function refreshIrrigation() {irrigation.value=await api('/ai/irrigation?farmId='+props.farmId);}
-async function propose(id) {await perform(async()=>{await api(`/ai/irrigation/plots/${id}/propose`,'POST');await refreshIrrigation();notice.value='建议已生成，请核对原因、设备和时长后确认。';});}
-async function act(run,action) {
-  if(action==='approve' && !await confirm(irrigationApproveConfirm(run))) return;
-  await perform(async()=>{const result=await api(`/ai/irrigation/runs/${run.id}/${action}`,'POST');await refreshIrrigation();notice.value=result.status==='RUNNING'?'模拟灌溉已启动，到时自动停泵。':`当前状态：${states[result.status]||result.status}。`;});
-}
-function plotName(id){return irrigation.value.plots.find(p=>p.id===id)?.name||id;}
 const weatherCharts=computed(()=>[
   ['TEMPERATURE','空气温度','℃'],['HUMIDITY','空气湿度','%'],['WIND_SPEED','风速','m/s']
 ].map(([metric,label,unit])=>{
@@ -246,26 +232,26 @@ const weatherCharts=computed(()=>[
   return {metric,label,unit,rows,latest:values.at(-1),delta:values.length>1?(values.at(-1)-values[0]).toFixed(1):null,
     points:values.map((v,i)=>`${10+i*260/Math.max(1,values.length-1)},${72-(v-lo)*50/range}`).join(' ')};
 }));
-watch(()=>[props.farmId,props.revision],refresh,{immediate:true});
+defineExpose({refresh, refreshing, refreshBlocked, sending});
+watch(()=>props.farmId,refresh,{immediate:true});
 watch([question,panel],resizeComposer,{flush:'post'});
-timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{irrigation.value=await api('/ai/irrigation?farmId='+props.farmId);}catch{/* next refresh shows errors */}}},10000);
-onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
+timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{await refreshIrrigation();}catch{/* next refresh shows errors */}}},10000);
+onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
 </script>
 
 <template>
   <section class="farm-assistant" v-if="farmId">
-    <header class="ai-hero">
-      <div><small>智禾 · 农场 AI 助手</small><h2>让每一次农事，都有数据依据。</h2><p>{{report?.farmName || '正在读取农场'}} · 虚构学术演示数据</p></div>
+    <div class="ai-context">
+      <p><strong>{{report?.farmName || '正在读取农场'}}</strong><span>虚构学术演示数据</span></p>
       <span v-if="status===null" class="ai-model-state ai-model-state-skeleton skeleton" aria-hidden="true"></span>
       <span v-else class="ai-model-state">{{status.llm?`云端模型 · ${status.model}`:'规则分析模式'}}</span>
-    </header>
+    </div>
     <nav class="ai-tabs" aria-label="助手功能">
       <button v-for="t in [['chat','农事对话'],['analysis','天气与四情'],['irrigation','灌溉管理']]" :key="t[0]" :aria-pressed="panel===t[0]" @click="panel=t[0]">{{t[1]}}</button>
-      <button class="ai-refresh" :disabled="busy || sending" @click="perform(refresh)">刷新数据</button>
     </nav>
     <p v-if="error" class="error" role="alert">{{error}}</p><p v-if="notice" role="status" class="ai-notice">{{notice}}</p>
     <div v-if="panel==='chat'" class="ai-chat-layout">
-      <aside class="ai-history"><button class="primary" :disabled="sending" @click="newChat">＋ 新建对话</button>
+      <aside class="ai-history"><button class="primary" :disabled="interactionLocked" @click="newChat">＋ 新建对话</button>
         <p class="muted">我的农事对话</p>
         <div v-if="initialLoading" class="ai-history-skeleton" aria-hidden="true"><span class="skeleton skeleton-block" v-for="n in 4" :key="n"></span></div>
         <template v-else>
@@ -275,7 +261,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
               <input v-if="renamingId===c.id" :ref="el=>{if(el) renameInput=el;}" class="ai-history-rename" :value="renameValue" maxlength="40"
                 @input="e=>renameValue=e.target.value" @keydown.enter="commitRename(c.id)" @keydown.esc="cancelRename"
                 @blur="commitRename(c.id)" @click.stop />
-              <button v-else :disabled="sending" :aria-current="selected===c.id?'true':undefined" :title="`创建于 ${time(c.createdAt)}`"
+              <button v-else :disabled="interactionLocked" :aria-current="selected===c.id?'true':undefined" :title="`创建于 ${time(c.createdAt)}`"
                 @click="perform(()=>select(c.id))">
                 <span class="ai-history-title" :class="{fresh:freshlyTitledId===c.id}">{{c.title}}</span>
               </button>
@@ -293,7 +279,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
           <div v-if="initialLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
           <template v-else>
             <div v-if="!displayedMessages.length" class="ai-welcome"><span class="ai-monogram">禾</span><h3>今天想了解农场的什么？</h3><p>我会结合当前农场的种植、气象、监测和生产记录，为你梳理依据与行动建议；发送问题后会先读取当前农场资料。</p>
-              <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="sending" @click="send(p)"><AppIcon name="send" />{{p}}</button></div>
+              <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="interactionLocked" @click="send(p)"><AppIcon name="send" />{{p}}</button></div>
             </div>
             <article v-for="(m,index) in displayedMessages" :key="m.id||('tmp-'+index)" class="ai-message" :class="m.role">
               <small>{{m.role==='user'?'你':'农场 AI 助手'}}<span v-if="m.mode==='rule'" class="ai-mode-badge">规则回退</span></small>
@@ -321,7 +307,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
         <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" ref="composerInput" v-model="question" rows="1" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea>
           <small v-if="question.length>=1800" class="ai-composer-count">{{question.length}}/2000</small>
           <button v-if="sending" type="button" class="ai-composer-send" aria-label="停止生成" @click="cancel"><AppIcon name="stop" /></button>
-          <button v-else class="ai-composer-send" :disabled="!question.trim()" aria-label="发送"><AppIcon name="arrowUp" /></button>
+          <button v-else class="ai-composer-send" :disabled="interactionLocked || !question.trim()" aria-label="发送"><AppIcon name="arrowUp" /></button>
         </form>
         <p class="ai-footnote"><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行。</span>发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
@@ -332,7 +318,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
       <div class="ai-weather-grid"><article v-for="n in 3" :key="n"><span class="skeleton skeleton-block" style="height:120px"></span></article></div>
     </div>
     <div v-else-if="panel==='analysis' && report" class="ai-analysis">
-      <div class="ai-section-head"><div><h3>农情四情诊断</h3><p>更新于 {{time(report.generatedAt)}} · {{report.freshMeasurements}} 条新鲜指标读数</p></div><button @click="panel='chat';send(prompts[0])" :disabled="sending">请助手解读 →</button></div>
+      <div class="ai-section-head"><div><h3>农情四情诊断</h3><p>更新于 {{time(report.generatedAt)}} · {{report.freshMeasurements}} 条新鲜指标读数</p></div><button @click="panel='chat';send(prompts[0])" :disabled="interactionLocked">请助手解读 →</button></div>
       <div class="ai-condition-grid"><article v-for="c in report.conditions" :key="c.code"><div><h3>{{c.name}}</h3><span>{{c.state}}</span></div><p>{{c.advice}}</p></article></div>
       <div v-if="report.cautions?.length" class="ai-notice"><p v-for="item in report.cautions" :key="item">{{item}}</p><small>{{report.thresholdNotice}}</small></div>
       <p class="ai-footnote">当前待执行/进行中任务 {{report.tasks?.pending}} 项，其中逾期 {{report.tasks?.overdue}} 项。虫情近7天有 {{report.pestHistory?.length}} 天记录，可在对话中要求进一步解读。</p>
@@ -349,22 +335,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
       <div class="ai-section-head"><span class="skeleton" style="width:220px"></span></div>
       <div class="ai-policy-grid"><article v-for="n in 3" :key="n"><span class="skeleton skeleton-block" style="height:140px"></span></article></div>
     </div>
-    <div v-else-if="panel==='irrigation'" class="ai-irrigation">
-      <div class="ai-section-head"><div><h3>先审阅，再灌溉</h3><p>默认人工确认。管理员可按地块启用自动模式，所有启动与停止均有记录。</p></div></div>
-      <p class="ai-notice">当前仅执行模拟设备。每次 10–300 秒，冷却至少30分钟，每天最多6次；数据过期、有故障或没有有效在种作物时不启动。实体网关尚未接入限时停泵协议。</p>
-      <div class="ai-policy-grid"><article v-for="p in irrigation.plots" :key="p.id"><h4>{{p.name}}</h4><template v-if="irrigation.policies.find(s=>s.plotId===p.id)"><p>{{irrigation.policies.find(s=>s.plotId===p.id).mode==='AUTO'?'自动模拟模式':'人工确认模式'}}</p><p>启灌阈值 {{irrigation.policies.find(s=>s.plotId===p.id).thresholdValue}}% · {{irrigation.policies.find(s=>s.plotId===p.id).durationSeconds}} 秒</p><small>{{irrigation.policies.find(s=>s.plotId===p.id).lastResult}}</small><button v-if="writer" :disabled="busy" @click="propose(p.id)">检查并生成建议</button></template><p v-else>尚未配置测点与水泵</p><button v-if="role==='ADMIN'" class="text-button" @click="editPolicy(p.id)">配置策略</button></article></div>
-      <form v-if="editing && role==='ADMIN'" class="ai-policy-form" @submit.prevent="savePolicy"><h3>{{plotName(policy.plotId)}} · 灌溉策略</h3><div class="ai-form-grid">
-        <label>土壤测点<select v-model="policy.sensorId" required><option value="">请选择</option><option v-for="d in sensors" :key="d.id" :value="d.id">{{d.name}}</option></select></label>
-        <label>受控水泵<select v-model="policy.pumpId" required><option value="">请选择</option><option v-for="d in pumps" :key="d.id" :value="d.id">{{d.name}} · {{d.protocol==='SIMULATED'?'模拟':'实体'}}</option></select></label>
-        <label>执行模式<select v-model="policy.mode"><option value="MANUAL">人工确认（默认）</option><option value="AUTO">全自动模拟</option></select></label>
-        <label>低于此水分启灌（%）<input v-model.number="policy.thresholdValue" type="number" min="5" max="80" step="0.1" required /></label>
-        <label>运行时长（秒）<input v-model.number="policy.durationSeconds" type="number" min="10" max="300" required /></label>
-        <label>冷却间隔（分钟）<input v-model.number="policy.cooldownMinutes" type="number" min="30" max="1440" required /></label>
-        <label>每天最多启动次数<input v-model.number="policy.dailyLimit" type="number" min="1" max="6" required /></label>
-      </div><p>演示阈值需按作物与传感器校准；本规则不适用于水稻水位管理。保存新策略会停止原运行并使待确认建议失效。</p><div><button type="button" @click="editing=false">取消</button><button class="primary" :disabled="busy">保存策略</button></div></form>
-      <h3>建议与执行记录</h3><p v-if="!irrigation.runs.length" class="muted">尚无灌溉建议。配置策略后，点击“检查并生成建议”。</p>
-      <article v-for="r in irrigation.runs" :key="r.id" class="ai-run" :class="{'ai-run-highlight': r.id===highlightedRunId}"><div class="ai-section-head"><h4>{{r.plotName}} · {{states[r.status]}}</h4><small>{{time(r.createdAt)}}</small></div><p>{{r.reason}}</p><p>水泵：{{r.pumpName}} · 时长：{{r.durationSeconds}} 秒 · {{r.approvedBy?'确认人：'+r.approvedBy:'尚未下发'}}</p><small v-if="r.status==='RUNNING'">预计停泵 {{time(r.stopAt)}}</small><small v-else>{{r.resultNote}}</small><div class="ai-run-actions" v-if="writer"><button v-if="r.status==='PROPOSED'" class="primary" :disabled="busy" @click="act(r,'approve')">确认并启动模拟灌溉</button><button v-if="['PROPOSED','RUNNING'].includes(r.status)" :disabled="busy" @click="act(r,'cancel')">{{r.status==='RUNNING'?'立即停止':'取消建议'}}</button></div></article>
-    </div>
+    <IrrigationWorkspace v-else-if="panel==='irrigation'" :key="farmId" :farm-id="farmId" :role="role" :data="irrigation" :highlighted-run-id="highlightedRunId" @updated="irrigation=$event" @farm="emit('farm',$event)" />
   </section>
   <section v-else class="panel"><p>请选择一座农场，开始使用 AI 助手。</p></section>
 </template>

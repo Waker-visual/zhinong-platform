@@ -702,3 +702,83 @@ small {
     scroll-behavior: auto;
   }
 }
+
+/* 禾生品牌与田间入口：静态矢量插画，不影响低性能手机上的操作。 */
+.field-scene { width: 100%; display: block; }
+.scene-sun { fill: var(--field-gold); }
+.scene-land { fill: var(--module-simulation); }
+.scene-lines { stroke: var(--field-cream); }
+.scene-ink { stroke: var(--field-brand); }
+.scene-water { stroke: var(--module-irrigation); }
+.scene-seed { stroke: var(--field-brand); fill: none; stroke-width: 2; stroke-linecap: round; }
+.login-page { padding: 0 22px 24px; max-width: 500px; }
+.login-welcome { position: relative; padding: 30px 6px 0; }
+.login-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; font-size: 18px; font-weight: 650; }
+.login-brand img, .brand img { display: block; flex-shrink: 0; }
+.login-brand small { display: block; font-size: 10px; letter-spacing: 2px; margin-top: 3px; }
+.login-welcome h1 { font-size: 32px; line-height: 1.45; letter-spacing: 1px; }
+.login-welcome .eyebrow { font-size: 9px; letter-spacing: 1.5px; }
+.login-welcome .login-intro { font-size: 12px; margin: 12px 0 0; }
+.login-welcome .field-scene { margin: -2px 0 0; }
+.login-form { position: relative; padding: 22px; border-radius: 22px; margin-top: -5px; }
+.mobile-app .primary { background: var(--field-brand); border-color: var(--field-brand); color: var(--field-cream); }
+.mobile-header { padding: 12px 18px; }
+.brand { gap: 9px; }
+.brand strong { font-size: 16px; }
+.brand span { font-size: 10px; }
+.mobile-nav button.active { background: var(--field-soft); color: var(--field-brand); }
+.mobile-nav button { border-radius: 12px; font-size: 11px; min-height: 54px; }
+.mobile-nav .app-icon { width: 23px; height: 23px; }
+.mobile-hero { padding: 22px; min-height: 178px; background: var(--field-soft); color: var(--field-brand); }
+.mobile-hero h1 { font-size: 23px; max-width: 78%; line-height: 1.5; position: relative; z-index: 1; }
+.mobile-hero p, .mobile-hero .tag { position: relative; z-index: 1; }
+.mobile-hero > .field-scene { position: absolute; width: 230px; right: -60px; bottom: 8px; opacity: .6; }
+.field-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 20px 0; }
+.field-actions button { display: flex; align-items: center; flex-direction: column; gap: 7px; padding: 0 2px; border: 0; background: transparent; }
+.field-actions strong { font-size: 14px; }
+.field-actions small { font-size: 10px; }
+.symbol-tile { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; flex: 0 0 44px; background: var(--field-soft); color: var(--field-brand); border-radius: 14px; }
+.symbol-tile.water { background: var(--info-bg); color: var(--info); }
+.symbol-tile.harvest { background: var(--caution-bg); color: var(--amber); }
+.symbol-tile .app-icon { width: 24px; height: 24px; }
+.running-strip { width: 100%; display: flex; align-items: center; gap: 12px; padding: 13px; text-align: left; background: var(--surface); }
+.running-strip > span:nth-child(2) { flex: 1; min-width: 0; }
+.running-strip strong, .running-strip small { display: block; }
+.running-strip strong { font-size: 13px; }
+.running-strip small { font-size: 11px; margin-top: 3px; }
+.running-strip > .app-icon { width: 17px; }
+.device-symbol { color: var(--field-brand); background: var(--field-soft); }
+.field-picker { margin: 14px 0; }
+.farm-switch .field-picker { margin: 0; }
+.picker-label { display: block; font-size: 12px; font-weight: 500; color: var(--label-fg); margin-bottom: 7px; }
+.picker-trigger, .picker-option { width: 100%; display: flex; align-items: center; gap: 12px; text-align: left; padding: 13px; background: var(--surface); min-height: 76px; border-radius: 15px; }
+.picker-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 4px; }
+.picker-copy strong { font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.picker-copy small, .picker-meta { font-size: 11px; color: var(--label-fg); overflow-wrap: anywhere; }
+.picker-thumbnail { width: 68px; height: 58px; flex: 0 0 68px; border-radius: 10px; overflow: hidden; }
+.picker-trigger > .app-icon, .picker-option > .app-icon { width: 18px; color: var(--field-brand); }
+.picker-sheet { border: 0; border-radius: 26px 26px 0 0; padding: 22px 20px max(20px, env(safe-area-inset-bottom)); width: min(100%, 640px); max-width: 100%; max-height: 86dvh; margin: auto auto 0; background: var(--bg); color: var(--text); box-shadow: var(--toast-shadow); }
+.picker-sheet::backdrop { background: var(--image-scrim); }
+.picker-sheet header { display: flex; justify-content: space-between; align-items: center; }
+.picker-sheet h2 { font-size: 22px; }
+.picker-sheet .icon-button { font-size: 27px; }
+.picker-options { display: grid; gap: 10px; max-height: 52dvh; overflow-y: auto; overscroll-behavior: contain; padding: 4px; margin: 0 -4px; }
+.picker-option[aria-pressed="true"] { border-color: var(--field-brand); background: var(--field-soft); color: var(--field-brand); }
+.picker-option[aria-pressed="true"] .picker-copy small, .picker-option[aria-pressed="true"] .picker-meta { color: var(--field-brand); }
+.picker-footer { margin: 18px 0 0; font-size: 11px; color: var(--label-fg); }
+.segmented .app-icon { width: 17px; height: 17px; margin-right: 5px; vertical-align: -4px; }
+.segmented .active { color: var(--field-brand); }
+.workflow-hint { font-size: 11px; color: var(--label-fg); margin: 12px 0 20px; }
+.workflow-hint span { margin: 0 4px; color: var(--field-brand); }
+.planning-options { padding: 14px 0; border-top: 1px solid var(--border); margin-top: 18px; }
+.planning-options summary { min-height: 44px; cursor: pointer; font-size: 13px; }
+.planning-options summary small { display: block; margin: 5px 0 0 17px; }
+.duration-presets { display: flex; gap: 8px; }
+.duration-presets button { flex: 1; font-size: 13px; }
+.duration-presets button[aria-pressed="true"] { background: var(--field-soft); color: var(--field-brand); border-color: var(--field-brand); }
+.work-continuity { display: flex; align-items: flex-start; gap: 9px; color: var(--label-fg); font-size: 11px; margin: 18px 0; }
+.work-continuity .app-icon { width: 17px; height: 17px; }
+.confirm-facts { border-top: 1px solid var(--border); padding-top: 15px; margin: 16px 0; }
+.device-shortcuts { display: flex; gap: 10px; margin: 0 0 16px; }
+.device-shortcuts button { flex: 1; }
+@media (max-width: 370px) { .mobile-main { padding-left: 14px; padding-right: 14px; } .brand span { display: none; } .picker-thumbnail { width: 55px; flex-basis: 55px; } .login-page { padding-left: 16px; padding-right: 16px; } .segmented button { font-size: 11px; } }

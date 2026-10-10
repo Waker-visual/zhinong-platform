@@ -3,6 +3,8 @@
   <color name="text">#18181B</color>
   <color name="muted">#52514E</color>
   <color name="seed">#BCD1CA</color>
+  <color name="brand">#234D3C</color>
+  <color name="cream">#F5F2E6</color>
   <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
     <item name="android:fontFamily">sans</item>
     <item name="android:colorAccent">@color/text</item>

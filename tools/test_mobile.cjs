@@ -20,7 +20,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const log = fs.openSync(path.join(output, 'mobile-browser-server.log'), 'w');
   const settings = spawnSync('java', ['-XshowSettings:properties', '-version'], { windowsHide: true, encoding: 'utf8' }).stderr;
   const java = path.join(settings.match(/java.home = ([^\r\n]+)/)[1].trim(), 'bin', 'java.exe');
-  const server = spawn(java, ['-Dfarm.llm.file-enabled=false', '-jar', 'target/zhinong-platform-0.3.0.jar',
+  const server = spawn(java, ['-Dfarm.llm.file-enabled=false', '-jar', process.env.FARM_MOBILE_TEST_JAR || 'target/zhinong-platform-0.3.0.jar',
     `--server.port=${port}`, '--spring.web.resources.static-locations=file:../frontend/dist/', '--spring.datasource.url=jdbc:h2:mem:mobile-browser;DB_CLOSE_DELAY=-1',
     '--spring.datasource.username=sa', '--spring.datasource.password=', '--farm.demo=true', '--farm.demo-rich=true',
     '--farm.demo-portfolio=true', '--farm.demo-live=true', '--farm.simulation.use-primary=true'],
@@ -34,7 +34,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     return normalize(await response.json());
   }
   async function loginToken(tenantCode, username) { const result = await api('/auth/login', 'POST', { tenantCode, username, password }, ''); tokens.push(result.token); return result.token; }
-  async function loginUi(username = 'admin', tenantCode = 'demo-a') {
+  async function loginUi(username = 'operator', tenantCode = 'demo-a') {
     await page.getByLabel('租户代码', { exact: true }).fill(tenantCode);
     await page.getByLabel('账号', { exact: true }).fill(username);
     await page.getByLabel('密码', { exact: true }).fill(password);
@@ -42,6 +42,12 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.locator('.sync-line').getByText('已连接', { exact: false }).waitFor();
   }
   const nav = name => page.getByRole('navigation', { name: '手机主导航' }).getByRole('button', { name, exact: true }).click();
+  async function choose(label, id) {
+    await page.getByRole('button', { name: label, exact: true }).click();
+    const picker = page.getByRole('dialog', { name: '选择' + label, exact: true });
+    await picker.locator(`[data-option-id="${id}"]`).click();
+    await picker.waitFor({ state: 'hidden' });
+  }
   async function showDevice(id) { await nav('设备'); const back = page.getByRole('button', { name: '← 返回设备列表' }); if (await back.count()) await back.click(); await page.locator(`[data-device-id="${id}"]`).click(); await page.getByRole('heading', { name: '指令记录', exact: false }).waitFor(); }
   async function noOverflow() { assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, 'Mobile page must fit the viewport'); }
   try {
@@ -54,11 +60,18 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.goto(base + '/mobile/index.html'); await noOverflow();
     await page.screenshot({ path: path.join(output, 'mobile-login.png'), fullPage: true });
     await loginUi(); await noOverflow();
-    await page.screenshot({ path: path.join(output, 'mobile-home.png'), fullPage: true });
+    await page.screenshot({ path: path.join(output, 'mobile-home.png'), fullPage: false });
+    await page.getByRole('button', { name: '当前农场', exact: true }).click();
+    const farmPicker = page.getByRole('dialog', { name: '选择当前农场', exact: true });
+    assert.equal(await farmPicker.locator('.picker-thumbnail').count(), 5);
+    await page.screenshot({ path: path.join(output, 'mobile-farm-picker.png'), fullPage: false });
+    await farmPicker.getByLabel('搜索当前农场').fill(farms[0].name);
+    assert.equal(await farmPicker.locator('[data-option-id]').count(), 1);
+    await farmPicker.getByRole('button', { name: '关闭选择' }).click();
     checks.push('手机账号登录、首页与 390px 布局');
     const sources = new Set();
     for (const farm of farms) {
-      await page.getByLabel('当前农场', { exact: true }).selectOption(farm.id);
+      await choose('当前农场', farm.id);
       await nav('设备');
       const devices = await api(`/assets?farmId=${farm.id}`);
       await page.locator(`[data-device-id="${devices[0].id}"]`).waitFor();
@@ -80,7 +93,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.equal(sources.size, 5); checks.push('五个农场的设备和摄像头隔离，画面各不相同');
     await page.screenshot({ path: path.join(output, 'mobile-camera.png'), fullPage: true });
     const farm = farms.find(f => f.name === '青禾设备联动演示场');
-    await page.getByLabel('当前农场', { exact: true }).selectOption(farm.id);
+    await choose('当前农场', farm.id);
     await nav('设备');
     const devices = await api(`/assets?farmId=${farm.id}`), pump = devices.find(d => d.deviceType === 'PUMP'), soil = devices.find(d => d.deviceType === 'SOIL');
     await page.locator(`[data-device-id="${soil.id}"]`).click();
@@ -115,7 +128,10 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.getByRole('dialog').waitFor({ state: 'hidden' });
     assert.equal((await api(`/assets/${pump.id}/commands`)).commands.filter(c => c.requestId === droppedId).length, 1);
     checks.push('回执丢失后主动查询，未重复下发');
-    await nav('作业'); await page.getByRole('button', { name: '农机规划', exact: true }).click();
+    await nav('概览'); await page.getByRole('button', { name: '农机作业', exact: false }).click();
+    const spatial = await api(`/farms/${farm.id}/field-map`);
+    await choose('小田块', spatial.parcels[0].id);
+    await choose('农机型号', devices.find(d => d.deviceType === 'MACHINERY').id);
     await page.getByLabel('任务名称', { exact: true }).fill('手机联动验证任务');
     await page.getByRole('button', { name: '预览往复式路线' }).click();
     await page.getByRole('heading', { name: '路线预览', exact: true }).waitFor();
@@ -129,20 +145,49 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await row.getByRole('button', { name: '继续任务', exact: true }).click(); await page.getByRole('button', { name: '确认下发', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
     await row.getByRole('button', { name: '停止任务', exact: true }).click(); await page.getByRole('button', { name: '确认下发', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
     assert.equal((await api(`/farms/${farm.id}/field-map`)).jobs.find(j => j.id === job.id).status, 'STOPPED');
-    checks.push('农机型号、田块路线预览、模拟下发、暂停、继续和停止共享记录');
-    await page.getByRole('button', { name: '分区灌溉', exact: true }).click(); await page.getByRole('button', { name: '确认灌溉方案' }).click(); await page.getByRole('button', { name: '确认下发', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
+    checks.push('操作员从首页选择农机与田块，预览、模拟下发、暂停、继续和停止共享记录');
+    await nav('概览'); await page.getByRole('button', { name: '去灌溉', exact: false }).click();
+    await page.getByRole('button', { name: '灌溉分区', exact: true }).click();
+    await page.getByRole('dialog', { name: '选择灌溉分区' }).waitFor();
+    await page.screenshot({ path: path.join(output, 'mobile-zone-picker.png'), fullPage: false });
+    await page.getByRole('dialog', { name: '选择灌溉分区' }).locator(`[data-option-id="${spatial.zones[0].id}"]`).click();
+    await page.screenshot({ path: path.join(output, 'mobile-irrigation.png'), fullPage: true });
+    await context.setOffline(true);
+    await page.getByRole('button', { name: '确认灌溉方案' }).isDisabled().then(disabled => assert.equal(disabled, true));
+    await context.setOffline(false);
+    await page.locator('.sync-line').getByText('已连接', { exact: false }).waitFor();
+    await page.getByRole('button', { name: '确认灌溉方案' }).click();
+    await page.screenshot({ path: path.join(output, 'mobile-confirmation.png'), fullPage: false });
+    await page.getByRole('button', { name: '确认下发', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const water = (await api(`/farms/${farm.id}/field-map`)).jobs.find(j => j.kind === 'IRRIGATION'); assert.ok(water);
     await sleep(1200);
     await page.locator(`[data-job-id="${water.id}"]`).getByRole('button', { name: '停止任务', exact: true }).click(); await page.getByRole('button', { name: '确认下发', exact: true }).click(); await page.getByRole('dialog').waitFor({ state: 'hidden' });
     const waterResult = (await api(`/farms/${farm.id}/field-map`)).jobs.find(j => j.id === water.id); assert.equal(waterResult.status, 'STOPPED'); assert.equal(waterResult.measuredM3, null);
     checks.push('分区灌溉启停与估算/实测用水记录分离');
+    // The server must finish timed work without either UI supervising it.
+    await page.getByRole('button', { name: '分区灌溉', exact: true }).click();
+    await page.getByLabel('演示灌溉时长 / 秒', { exact: true }).fill('10');
+    await page.getByRole('button', { name: '确认灌溉方案' }).click();
+    const unattendedRequest = await page.getByRole('dialog', { name: '启动分区灌溉' }).locator('.request-id').innerText();
+    await page.getByRole('button', { name: '确认下发', exact: true }).click();
+    await page.getByRole('dialog', { name: '启动分区灌溉' }).waitFor({ state: 'hidden' });
+    assert.equal(await page.getByRole('button', { name: '任务记录', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.goto('about:blank');
+    await sleep(12000);
+    const unattended = (await api(`/farms/${farm.id}/field-map`)).jobs.find(j => j.parameters.requestId === unattendedRequest);
+    assert.equal(unattended.status, 'COMPLETED');
+    assert.ok(unattended.estimatedM3 > 0);
+    const returnedPump = await api(`/assets/${spatial.zones[0].pumpId}`);
+    assert.equal(returnedPump.channels.find(c => c.metric === 'PUMP_RUNNING').latest.value, 0);
+    await page.goto(base + '/mobile/index.html'); await loginUi(); await choose('当前农场', farm.id);
+    checks.push('关闭手机页面后服务器自动结束定时灌溉并停泵，再登录可核对记录');
     const viewer = await loginToken('demo-a', 'viewer'), other = await loginToken('demo-b', 'admin'), platform = await loginToken('platform', 'platform');
     await api(`/assets/${pump.id}/commands`, 'POST', { requestId: crypto.randomUUID(), action: 'PUMP_STOP', value: null, note: 'role test' }, viewer, 403);
     await api(`/assets/${pump.id}`, 'GET', undefined, other, 404);
     await api(`/farms/${farm.id}/field-map`, 'GET', undefined, other, 404);
     await api('/farm-workspaces', 'GET', undefined, platform, 403);
     await page.getByRole('button', { name: '账号与连接' }).click(); await page.getByRole('button', { name: '退出登录', exact: true }).click();
-    await loginUi('viewer'); await page.getByLabel('当前农场', { exact: true }).selectOption(farm.id); await showDevice(pump.id);
+    await loginUi('viewer'); await choose('当前农场', farm.id); await showDevice(pump.id);
     assert.equal(await page.getByRole('button', { name: '确认操作信息' }).isDisabled(), true);
     checks.push('只读账号不可下发，跨租户和平台经营数据访问被后端拒绝');
     // A delayed old-farm response must not replace the new farm after a switch.
@@ -153,7 +198,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.route(oldFarmRoute, async route => { markStarted(); await gate; await route.continue(); });
     await page.getByRole('button', { name: '刷新农场数据' }).click(); await started;
     const nextFarm = farms.find(f => f.id !== farm.id), nextDevices = await api(`/assets?farmId=${nextFarm.id}`);
-    await page.getByLabel('当前农场', { exact: true }).selectOption(nextFarm.id);
+    await choose('当前农场', nextFarm.id);
     await page.locator(`[data-device-id="${nextDevices[0].id}"]`).waitFor();
     const oldFinished = page.waitForResponse(r => r.url().includes(`/api/assets?farmId=${farm.id}`));
     releaseOld(); await oldFinished; await page.unroute(oldFarmRoute); await sleep(100);

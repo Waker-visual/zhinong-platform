@@ -8,6 +8,10 @@ import {
   watch,
 } from "vue";
 import AppIcon from "../ui/AppIcon.vue";
+import brandLogo from "../assets/zhihe-logo.svg";
+import FieldScene from "./FieldScene.vue";
+import FieldIcon from "./FieldIcon.vue";
+import FieldPicker from "./FieldPicker.vue";
 import CameraPlayer from "../workspace/CameraPlayer.vue";
 import MobileDevice from "./MobileDevice.vue";
 import MobileJobs from "./MobileJobs.vue";
@@ -25,6 +29,7 @@ const identity = ref(null),
   farmId = ref(""),
   devices = ref([]),
   alerts = ref([]);
+const fieldJobs = ref([]), jobMode = ref("records");
 const tab = ref("home"),
   search = ref(""),
   filter = ref(""),
@@ -58,6 +63,8 @@ const tabs = [
   ["cameras", "实景", "camera"],
 ];
 const farm = computed(() => farms.value.find((f) => f.id === farmId.value));
+const farmOptions = computed(() => farms.value.map(f => ({ ...f, caption: `${f.region || '农场工作空间'} · ${f.demo ? '演示农场' : '经营农场'}`, meta: `${number(f.areaMu)} 亩 · ${f.plotCount} 个地块 · ${f.deviceCount} 台设备` })));
+const activeJobs = computed(() => fieldJobs.value.filter(j => ["RUNNING", "PAUSED"].includes(j.status)));
 const selected = computed(() =>
   devices.value.find((d) => d.id === selectedId.value),
 );
@@ -95,6 +102,9 @@ function clearFarm() {
   generation++;
   refreshVersion++;
   devices.value = [];
+  fieldJobs.value = [];
+  jobMode.value = "records";
+  refreshing.value = false;
   alerts.value = [];
   selectedId.value = "";
   search.value = "";
@@ -156,13 +166,15 @@ async function refresh() {
     id = farmId.value;
   refreshing.value = true;
   try {
-    const [assets, warnings] = await Promise.all([
+    const [assets, warnings, spatial] = await Promise.all([
       client.request(`/assets?farmId=${encodeURIComponent(id)}`),
       client.request(`/alerts?farmId=${encodeURIComponent(id)}&status=OPEN`),
+      client.request(`/farms/${encodeURIComponent(id)}/field-map`),
     ]);
     if (own !== generation || version !== refreshVersion) return;
     devices.value = assets;
     alerts.value = warnings;
+    fieldJobs.value = spatial.jobs;
     connected.value = true;
     lastSync.value = new Date().toISOString();
     revision.value++;
@@ -190,6 +202,10 @@ watch(
 function openDevice(id) {
   tab.value = "devices";
   selectedId.value = id;
+}
+function openJobs(mode = "records") {
+  jobMode.value = mode;
+  tab.value = "jobs";
 }
 async function logout() {
   const request = client.request("/auth/logout", "POST").catch(() => {});
@@ -223,13 +239,16 @@ function confirm(payload) {
 }
 async function accepted(result, own) {
   if (own !== generation) return;
+  const kind = confirmation.value?.kind;
   confirmation.value = null;
   uncertain.value = false;
   message.value = `${statuses[result.status] || "服务已接收"}：${result.resultNote || "请在记录中核对后续状态。"}`;
+  if (kind === "job") openJobs("records");
   await refresh();
 }
 async function send() {
   if (!confirmation.value || sending.value) return;
+  if (!connected.value) { confirmationError.value = "请先恢复连接并刷新农场，再确认本次操作。"; return; }
   const own = generation,
     payload = confirmation.value;
   sending.value = true;
@@ -281,13 +300,23 @@ async function reconcile() {
 function visibleRefresh() {
   if (!document.hidden) refresh();
 }
+function offline() {
+  refreshVersion++;
+  refreshing.value = false;
+  connected.value = false;
+  error.value = "网络已断开。已接收的任务由服务器继续处理，恢复连接后请核对记录。";
+}
 onMounted(() => {
   timer = setInterval(visibleRefresh, 30000);
   document.addEventListener("visibilitychange", visibleRefresh);
+  window.addEventListener("offline", offline);
+  window.addEventListener("online", visibleRefresh);
 });
 onBeforeUnmount(() => {
   clearInterval(timer);
   document.removeEventListener("visibilitychange", visibleRefresh);
+  window.removeEventListener("offline", offline);
+  window.removeEventListener("online", visibleRefresh);
   clearSession();
 });
 </script>
@@ -295,15 +324,16 @@ onBeforeUnmount(() => {
   <div class="mobile-app">
     <template v-if="!identity">
       <main class="login-page">
-        <div class="brand-mark"><AppIcon name="plantings" /></div>
-        <p class="eyebrow">ZHIHE · FIELD COMPANION</p>
-        <h1>智禾随行</h1>
-        <p class="login-intro">
-          农场就在手边。<br />查看田间数据，随时安排作业。
-        </p>
+        <section class="login-welcome">
+          <div class="login-brand"><img :src="brandLogo" alt="智禾农场标志" width="48" height="48" /><span>智禾农场<small>ZHIHE FARM</small></span></div>
+          <p class="eyebrow">YOUR FIELD, AT YOUR FINGERTIPS</p>
+          <h1>田间有你，<br />农场在手边。</h1>
+          <p class="login-intro">智禾随行 · 从一株禾苗，到每一次安心作业。</p>
+          <FieldScene />
+        </section>
         <form class="card login-form" @submit.prevent="login">
           <h2>连接你的农场</h2>
-          <p class="muted">使用电脑端的同一租户和账号</p>
+          <p class="muted">使用农场分配的账号，继续今天的田间工作</p>
           <label
             >租户代码<input
               v-model="credentials.tenantCode"
@@ -341,8 +371,7 @@ onBeforeUnmount(() => {
     <template v-else>
       <header class="mobile-header">
         <div class="brand">
-          <AppIcon name="plantings" /><strong>智禾随行</strong
-          ><span>便携管理</span>
+          <img :src="brandLogo" width="32" height="32" alt="智禾农场标志" /><strong>智禾随行</strong><span>田间工作伙伴</span>
         </div>
         <button
           class="icon-button"
@@ -355,12 +384,7 @@ onBeforeUnmount(() => {
       </header>
       <main class="mobile-main">
         <section v-if="!mustChange" class="farm-switch">
-          <label for="mobile-farm">当前农场</label
-          ><select id="mobile-farm" v-model="farmId" :disabled="!!confirmation">
-            <option v-for="f in farms" :key="f.id" :value="f.id">
-              {{ f.name }}
-            </option>
-          </select>
+          <FieldPicker label="当前农场" v-model="farmId" :options="farmOptions" :disabled="!!confirmation" />
           <div class="sync-line">
             <span :class="{ stale: !connected }"
               >{{ connected ? "已连接" : "未同步" }} ·
@@ -431,12 +455,20 @@ onBeforeUnmount(() => {
         >
         <template v-else-if="tab === 'home'">
           <section class="mobile-hero">
-            <p class="eyebrow">田间管理 · 随时掌握</p>
-            <h1>{{ farm.name.replace("演示场", "") }}</h1>
-            <p>每一块田，每一次作业。</p>
-            <span class="tag">虚构农场 · 学术演示</span
-            ><AppIcon name="plantings" />
+            <p class="eyebrow">{{ roleName }} · {{ identity.displayName }}</p>
+            <h1>今天，也照顾好<br />每一块田。</h1>
+            <p>先看现场，再安排作业。</p>
+            <span v-if="farm.demo" class="tag">虚构农场 · 学术演示</span>
+            <FieldScene />
           </section>
+          <div class="field-actions" aria-label="田间快捷操作">
+            <button @click="openJobs('water')"><span class="symbol-tile water"><FieldIcon name="irrigation" /></span><strong>去灌溉</strong><small>选分区 · 定时开泵</small></button>
+            <button @click="openJobs('machine')"><span class="symbol-tile harvest"><FieldIcon name="machinery" /></span><strong>农机作业</strong><small>选设备 · 预览路线</small></button>
+            <button @click="tab = 'cameras'"><span class="symbol-tile"><FieldIcon name="camera" /></span><strong>看现场</strong><small>查看田间机位</small></button>
+          </div>
+          <button class="running-strip" @click="openJobs('records')">
+            <span class="symbol-tile"><AppIcon name="history" /></span><span><strong>{{ activeJobs.length ? `${activeJobs.length} 项作业进行中` : '查看作业与执行回执' }}</strong><small>{{ activeJobs.length ? activeJobs[0].title : '进度、暂停和停止，随时可查' }}</small></span><AppIcon name="arrowRight" />
+          </button>
           <div class="summary-grid">
             <button @click="tab = 'devices'">
               <strong>{{ devices.length }}</strong
@@ -486,16 +518,6 @@ onBeforeUnmount(() => {
                   : "尚无对应设备"
               }}</small
               ><small>{{ m.device?.name || "—" }}</small>
-            </button>
-          </div>
-          <header class="section-heading"><h2>快捷操作</h2></header>
-          <div class="quick-grid">
-            <button class="card" @click="tab = 'jobs'">
-              <AppIcon name="operations" /><strong>安排作业</strong
-              ><small>农机路线与分区灌溉</small></button
-            ><button class="card" @click="tab = 'cameras'">
-              <AppIcon name="camera" /><strong>看田间画面</strong
-              ><small>按当前农场查看机位</small>
             </button>
           </div>
           <article class="card">
@@ -563,15 +585,15 @@ onBeforeUnmount(() => {
               @click="selectedId = d.id"
             >
               <div class="device-symbol">
-                <AppIcon
+                <FieldIcon
                   :name="
                     d.deviceType === 'CAMERA'
                       ? 'camera'
                       : d.deviceType === 'MACHINERY'
-                        ? 'operations'
+                        ? 'machinery'
                         : ['PUMP', 'GATE'].includes(d.deviceType)
-                          ? 'irrigation'
-                          : 'devices'
+                          ? 'pump'
+                          : 'sensor'
                   "
                 />
               </div>
@@ -600,6 +622,8 @@ onBeforeUnmount(() => {
           :role="identity.role"
           :revision="revision"
           :locked="!!confirmation || !connected"
+          :initial-mode="jobMode"
+          @mode="jobMode = $event"
           @confirm="confirm"
           @device="openDevice"
         />
@@ -642,9 +666,9 @@ onBeforeUnmount(() => {
           :aria-current="tab === t[0] ? 'page' : undefined"
           :class="{ active: tab === t[0] }"
           :disabled="!!confirmation"
-          @click="tab = t[0]"
+          @click="t[0] === 'jobs' ? openJobs('records') : (tab = t[0])"
         >
-          <AppIcon :name="t[2]" /><span>{{ t[1] }}</span>
+          <FieldIcon :name="t[0] === 'devices' ? 'sensor' : t[0] === 'jobs' ? 'machinery' : t[2]" /><span>{{ t[1] }}</span>
         </button>
       </nav>
       <div class="confirm-backdrop" v-if="confirmation">
@@ -657,6 +681,7 @@ onBeforeUnmount(() => {
           <p class="eyebrow">人工确认 · {{ confirmation.farmName }}</p>
           <h2 id="confirm-title">{{ confirmation.title }}</h2>
           <p>{{ confirmation.description }}</p>
+          <dl v-if="confirmation.facts?.length" class="facts confirm-facts"><template v-for="fact in confirmation.facts" :key="fact[0]"><dt>{{ fact[0] }}</dt><dd>{{ fact[1] }}</dd></template></dl>
           <p class="notice">{{ confirmation.source }}</p>
           <p v-if="confirmation.body.note">
             操作说明：{{ confirmation.body.note }}

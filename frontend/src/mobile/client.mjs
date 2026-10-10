@@ -157,3 +157,14 @@ export function canControl(device, action, role) {
     device.freshness === "FRESH"
   );
 }
+
+export function jobBlockReason(device, jobs = [], role) {
+  if (!["ADMIN", "OPERATOR"].includes(role)) return "当前账号仅可查看，不能下发作业。";
+  if (!device) return "请先选择已关联设备的作业范围。";
+  if (device.protocol !== "SIMULATED") return "此流程仅支持模拟调度；现场泵闸请进入设备控制。";
+  if (device.lifecycle !== "ACTIVE") return "设备停用或维护中，请先检查设备。";
+  if (device.freshness !== "FRESH") return "设备反馈已过期或尚未上报，请刷新并核对现场。";
+  if (Number(device.alertCount) > 0) return "设备存在告警，处理后才能下发。";
+  if (jobs.some(j => j.deviceId === device.id && ["RUNNING", "PAUSED"].includes(j.status))) return "设备已有进行中的任务，请先查看、停止或等待完成。";
+  return "";
+}

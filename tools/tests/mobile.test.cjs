@@ -28,6 +28,19 @@ test('API client does not retry uncertain commands or persist authentication', a
   await assert.rejects(client.request('/assets/id/commands', 'POST', { requestId: 'test' }), e => e.uncertain === true && e.status === 0);
   assert.equal(calls, 1);
 });
+test('field dispatch preflight blocks stale, unavailable, real and busy equipment', async () => {
+  const { jobBlockReason } = await load();
+  const device = { id: 'pump', protocol: 'SIMULATED', lifecycle: 'ACTIVE', freshness: 'FRESH', alertCount: 0 };
+  assert.equal(jobBlockReason(device, [], 'OPERATOR'), '');
+  assert.match(jobBlockReason(device, [], 'VIEWER'), /仅可查看/);
+  assert.match(jobBlockReason(undefined, [], 'OPERATOR'), /选择/);
+  assert.match(jobBlockReason({ ...device, protocol: 'HTTP_PUSH' }, [], 'OPERATOR'), /仅支持模拟/);
+  assert.match(jobBlockReason({ ...device, freshness: 'STALE' }, [], 'OPERATOR'), /过期/);
+  assert.match(jobBlockReason({ ...device, alertCount: 1 }, [], 'OPERATOR'), /告警/);
+  assert.match(jobBlockReason({ ...device, lifecycle: 'DISABLED' }, [], 'OPERATOR'), /停用/);
+  assert.match(jobBlockReason(device, [{ deviceId: 'pump', status: 'PAUSED' }], 'OPERATOR'), /进行中/);
+  assert.equal(jobBlockReason(device, [{ deviceId: 'other', status: 'RUNNING' }, { deviceId: 'pump', status: 'STOPPED' }], 'OPERATOR'), '');
+});
 test('late response from a previous session cannot be consumed; expired current session is cleared', async () => {
   const { createClient } = await load(); let resolve;
   const client = createClient(() => new Promise(r => { resolve = r; })); client.setToken('old');

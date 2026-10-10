@@ -75,6 +75,12 @@ const error = ref("");
 // busy 只锁写操作；页面加载用 loading，导航不再被写操作或加载阻塞。
 const busy = ref(false);
 const loading = ref(false);
+const farmAssistant = ref(null);
+const refreshingPage = ref(false);
+const pageLoading = computed(() => loading.value || refreshingPage.value ||
+  (page.value === "ai" && farmAssistant.value?.refreshing));
+const refreshDisabled = computed(() => pageLoading.value ||
+  (page.value === "ai" && farmAssistant.value?.refreshBlocked));
 const pending = ref("");
 const paletteOpen = ref(false);
 const sidebarKey = "zhinong-sidebar";
@@ -315,13 +321,16 @@ async function load() {
     if (sequence === loadSequence) rows.value = data;
     return;
   }
-  const [farms, plots, summary, taskList] = await Promise.all([
+  const results = await Promise.allSettled([
     api("/farm-workspaces"),
     api("/plots"),
     api("/dashboard"),
     api("/tasks"),
   ]);
   if (sequence !== loadSequence) return;
+  const failed = results.find(result => result.status === "rejected");
+  if (failed) throw failed.reason;
+  const [farms, plots, summary, taskList] = results.map(result => result.value);
   farmRows.value = farms;
   if (
     farms.length === 1 ||
@@ -370,17 +379,30 @@ async function reload() {
   error.value = "";
   try {
     await load();
+    return ticket === reloadTicket;
   } catch (e) {
     if (ticket === reloadTicket && !isConnectionError(e)) error.value = e.message;
+    return false;
   } finally {
     if (ticket === reloadTicket) loading.value = false;
   }
 }
 async function refreshActive() {
-  moduleRevision.value++;
-  await reload();
-  if (!error.value)
-    toast(page.value === "daily" ? "今日农场已刷新" : "数据已刷新");
+  if (refreshDisabled.value) return;
+  const target = page.value, farm = farmScope.value, assistant = farmAssistant.value;
+  refreshingPage.value = true;
+  try {
+    // AI 刷新有可等待的结果；其他模块继续沿用 revision 通知。
+    if (target !== "ai") moduleRevision.value++;
+    const [commonReady, moduleReady] = await Promise.all([
+      reload(), target === "ai" ? assistant?.refresh() : true,
+    ]);
+    if (commonReady && moduleReady && page.value === target && farmScope.value === farm &&
+        (target !== "ai" || farmAssistant.value === assistant))
+      toast(target === "daily" ? "今日农场已刷新" : "数据已刷新");
+  } finally {
+    refreshingPage.value = false;
+  }
 }
 async function dailyNavigate({ page: target, farmId, create }) {
   farmScope.value = farmId;
@@ -837,7 +859,7 @@ onUnmounted(() => {
           v-if="!platform && farmRows.length && !account?.mustChangePassword"
           v-model="farmScope"
           :options="farmSelectOptions"
-          :disabled="loading"
+          :disabled="pageLoading"
           @change="selectFarm"
         />
         <span class="topbar-meta">{{ today }}</span
@@ -864,15 +886,16 @@ onUnmounted(() => {
           <button
             class="outline with-icon"
             @click="refreshActive"
-            :disabled="loading"
-            :aria-busy="loading"
+            :disabled="refreshDisabled"
+            :aria-busy="pageLoading"
+            :title="page === 'ai' && farmAssistant?.sending ? '回答生成中，请等待回答完成或手动停止后刷新' : undefined"
           >
-            <AppIcon name="refresh" />{{ loading ? "正在加载…" : "刷新数据" }}
+            <AppIcon name="refresh" />{{ pageLoading ? "正在加载…" : "刷新数据" }}
           </button>
         </div>
         <p v-if="connection.state === 'offline'" role="alert" class="error">
           无法连接本地服务，页面上的数据可能不是最新的。
-          <button class="text-button" @click="refreshActive">重新连接</button>
+          <button class="text-button" :disabled="refreshDisabled" @click="refreshActive">重新连接</button>
         </p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <DailyFarm
@@ -886,7 +909,7 @@ onUnmounted(() => {
           @farm="launchFarm"
           @notice="message"
         />
-        <FarmAssistant v-else-if="page === 'ai'" :key="farmScope" :farm-id="farmScope" :role="role" :revision="moduleRevision" />
+        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" :page-refreshing="refreshingPage" @farm="launchFarm" />
         <FieldCameras v-else-if="page === 'cameras'" :key="farmScope" :farm-id="farmScope" :initial-device-id="cameraFocus" :revision="moduleRevision" @manage="navigate({ page: 'devices', ...$event, cameraOnly: true })" />
         <OperationsOverview
           v-else-if="page === 'operations'"

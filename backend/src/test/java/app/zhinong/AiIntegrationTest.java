@@ -29,6 +29,7 @@ import org.springframework.context.annotation.Primary;
     "farm.demo=true",
     "farm.demo-rich=false",
     "farm.ai.automation-enabled=false",
+    "farm.map.automation-enabled=false",
     "farm.bootstrap-password=Test-Only-Password-429!",
   }
 )
@@ -48,6 +49,7 @@ class AiIntegrationTest {
   @Autowired app.zhinong.ai.IrrigationTicker ticker;
   @Autowired app.zhinong.ai.AiConversations aiConversations;
   @Autowired app.zhinong.ai.IrrigationService irrigationService;
+  @Autowired app.zhinong.workspace.FieldMapService fieldMaps;
   // Task 6: test-only AiStreamTools override, mirrors the TestLlmGateway pattern so the tool-failure
   // path (a whitelisted tool whose execution throws) can be exercised without touching real data.
   @Autowired TestAiStreamTools toolsFake;
@@ -331,7 +333,7 @@ class AiIntegrationTest {
 
   String tenant() {return db.queryForObject("SELECT id FROM tenants WHERE code='demo-a'",String.class);}
   Map<String,Object> irrigationFixture() throws Exception {
-    String plot=call(admin,"POST","/plots",Map.of("farmId",farmId,"name","虚构蔬菜地","crop","蔬菜","areaMu",5),200).path("ID").asText();
+    String plot=call(admin,"POST","/plots",Map.of("farmId",farmId,"name","虚构蔬菜地-"+UUID.randomUUID(),"crop","蔬菜","areaMu",5),200).path("ID").asText();
     String planting=call(admin,"POST","/plantings",Map.of("plotId",plot,"crop","蔬菜","variety","演示品种","areaMu",5,"startDate",java.time.LocalDate.now().minusDays(20).toString(),"endDate",java.time.LocalDate.now().plusDays(30).toString()),200).path("ID").asText();
     call(admin,"PATCH","/plantings/"+planting+"/status",Map.of("status","ACTIVE"),200);
     String sensor=createDevice(plot,"SOIL"),pump=createDevice(plot,"PUMP");
@@ -347,6 +349,84 @@ class AiIntegrationTest {
     db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",UUID.randomUUID().toString(),tenant(),device,metric,value,now,now);
   }
   String propose(Map<String,Object> p) throws Exception {return call(operator,"POST","/ai/irrigation/plots/"+p.get("plotId")+"/propose",null,200).path("ID").asText();}
+
+  Map<String,Object> mappedIrrigationFixture() throws Exception {
+    var p=irrigationFixture();String parcel=UUID.randomUUID().toString(),zone=UUID.randomUUID().toString();
+    db.update("INSERT INTO farm_map_parcels(id,tenant_id,farm_id,plot_id,name,boundary_json,source,source_note,created_at) VALUES(?,?,?,?,?,?,'IMAGERY_ESTIMATE','虚构估绘',?)",parcel,tenant(),farmId,p.get("plotId"),"C-01","[[30,120],[30,120.001],[30.001,120.001],[30.001,120]]",java.time.OffsetDateTime.now());
+    db.update("INSERT INTO farm_map_zones(id,tenant_id,farm_id,parcel_id,pump_id,name,pipeline_json,nodes_json,source) VALUES(?,?,?,?,?,?,'[[30,120],[30.0005,120.0005]]','[]','SIMULATED')",zone,tenant(),farmId,parcel,p.get("pumpId"),"C-01 灌溉分区");
+    p.put("zoneId",zone);return p;
+  }
+  String linkedJob(String run) {return db.queryForObject("SELECT job_id FROM ai_irrigation_map_runs WHERE tenant_id=? AND run_id=?",String.class,tenant(),run);}
+
+  @Test void mappedIrrigationDisplaysHardwareWithoutPolicyAndSharesManualHistory() throws Exception {
+    var p=mappedIrrigationFixture();String path="/farms/"+farmId+"/field-map";
+    var before=call(admin,"GET","/ai/irrigation?farmId="+farmId,null,200);
+    assertTrue(before.path("policies").isEmpty());assertEquals(1,before.path("zones").size());assertEquals(2,before.path("devices").size());
+    assertTrue(before.path("plots").get(0).path("diagnosis").asText().contains("尚未保存"));
+    assertTrue(before.path("devices").findValues("moistureFresh").stream().anyMatch(JsonNode::asBoolean));
+    var job=call(operator,"POST",path+"/irrigation",Map.of("zoneId",p.get("zoneId"),"durationSeconds",60,"requestId",UUID.randomUUID().toString()),200);
+    var state=call(admin,"GET","/ai/irrigation?farmId="+farmId,null,200);
+    assertEquals(job.path("id"),state.path("jobs").get(0).path("id"));assertEquals(1,state.at("/waterTotals/runs").asInt());
+    assertTrue(state.path("runs").isEmpty(),"A manual task must not fabricate an AI recommendation");
+    call(operator,"POST",path+"/jobs/"+job.path("id").asText()+"/actions",Map.of("action","STOP"),200);
+    call(admin,"PUT","/ai/irrigation/policy",p,200);
+    var refused=call(operator,"POST","/ai/irrigation/plots/"+p.get("plotId")+"/propose",null,409);
+    assertTrue(refused.toString().contains("冷却期"),"Manual map irrigation participates in AI cooldown");
+    call(otherAdmin,"GET","/ai/irrigation?farmId="+farmId,null,404);call(platform,"GET","/ai/irrigation?farmId="+farmId,null,403);
+  }
+
+  @Test void mappedApprovalCreatesOneSharedJobAndMapStopCompletesAiWithEstimatedWater() throws Exception {
+    var p=mappedIrrigationFixture();call(admin,"PUT","/ai/irrigation/policy",p,200);String run=propose(p);
+    call(operator,"POST","/ai/irrigation/runs/"+run+"/approve",null,200);
+    call(admin,"POST","/ai/irrigation/runs/"+run+"/approve",null,200);
+    String job=linkedJob(run);assertNotNull(job);
+    assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM farm_map_jobs WHERE tenant_id=? AND farm_id=?",Integer.class,tenant(),farmId));
+    var state=call(admin,"GET","/ai/irrigation?farmId="+farmId,null,200);
+    assertEquals(job,state.path("runs").get(0).path("mapJobId").asText());assertEquals(run,state.path("jobs").get(0).path("aiRunId").asText());
+    assertEquals(p.get("zoneId"),state.path("runs").get(0).path("ZONE_ID").asText());
+    db.update("UPDATE farm_map_jobs SET last_tick_at=? WHERE tenant_id=? AND id=?",java.time.OffsetDateTime.now().minusSeconds(12),tenant(),job);
+    var stopped=call(operator,"POST","/farms/"+farmId+"/field-map/jobs/"+job+"/actions",Map.of("action","STOP"),200);
+    assertTrue(stopped.path("estimatedM3").asDouble()>0);assertTrue(stopped.path("measuredM3").isNull());
+    assertEquals("COMPLETED",db.queryForObject("SELECT status FROM ai_irrigation_runs WHERE tenant_id=? AND id=?",String.class,tenant(),run));
+    ticker.tick();call(admin,"POST","/ai/irrigation/runs/"+run+"/cancel",null,200);
+    assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=? AND action='PUMP_STOP'",Integer.class,tenant(),p.get("pumpId")));
+  }
+
+  @Test void aiStopsSharedTaskOnDeadlinePolicyChangeAndRevokedAuthorization() throws Exception {
+    for(String reason:List.of("deadline","policy","owner")) {
+      var p=mappedIrrigationFixture();p.put("mode","AUTO");call(admin,"PUT","/ai/irrigation/policy",p,200);ticker.tick();
+      String run=db.queryForObject("SELECT id FROM ai_irrigation_runs WHERE tenant_id=? AND plot_id=? AND status='RUNNING'",String.class,tenant(),p.get("plotId")),job=linkedJob(run);
+      if(reason.equals("deadline"))db.update("UPDATE ai_irrigation_runs SET stop_at=? WHERE tenant_id=? AND id=?",java.time.OffsetDateTime.now().minusSeconds(1),tenant(),run);
+      if(reason.equals("policy")){p.put("revision",1);p.put("mode","MANUAL");call(admin,"PUT","/ai/irrigation/policy",p,200);}
+      if(reason.equals("owner"))db.update("UPDATE members SET enabled=FALSE WHERE tenant_id=? AND username='admin'",tenant());
+      try {ticker.tick();assertEquals("COMPLETED",db.queryForObject("SELECT status FROM ai_irrigation_runs WHERE tenant_id=? AND id=?",String.class,tenant(),run));assertEquals("STOPPED",db.queryForObject("SELECT status FROM farm_map_jobs WHERE tenant_id=? AND id=?",String.class,tenant(),job));}
+      finally {db.update("UPDATE members SET enabled=TRUE WHERE tenant_id=? AND username='admin'",tenant());db.update("UPDATE ai_irrigation_policies SET mode='MANUAL' WHERE tenant_id=?",tenant());}
+    }
+  }
+
+  @Test void mapDeadlineCompletesAiAndRetainsAcceptedScopeAfterPolicyEdit() throws Exception {
+    var p=mappedIrrigationFixture();call(admin,"PUT","/ai/irrigation/policy",p,200);String run=propose(p);
+    call(admin,"POST","/ai/irrigation/runs/"+run+"/approve",null,200);String job=linkedJob(run);
+    db.update("UPDATE farm_map_jobs SET last_tick_at=? WHERE tenant_id=? AND id=?",java.time.OffsetDateTime.now().minusMinutes(2),tenant(),job);
+    fieldMaps.tick(tenant(),farmId,job);ticker.tick();
+    assertEquals("COMPLETED",db.queryForObject("SELECT status FROM ai_irrigation_runs WHERE tenant_id=? AND id=?",String.class,tenant(),run));
+    assertEquals("COMPLETED",db.queryForObject("SELECT status FROM farm_map_jobs WHERE tenant_id=? AND id=?",String.class,tenant(),job));
+    p.put("revision",1);p.remove("zoneId");var updated=call(admin,"PUT","/ai/irrigation/policy",p,200);
+    assertEquals(updated.path("runs").get(0).path("ZONE_ID"),updated.path("policies").get(0).path("ZONE_ID"),"Older clients preserve explicit zone binding");
+  }
+
+  @Test void zoneBindingRejectsWrongPlotPumpFarmAndPaddyStillRequiresWaterLevel() throws Exception {
+    var p=mappedIrrigationFixture();var other=mappedIrrigationFixture();
+    var bad=new LinkedHashMap<>(p);bad.put("zoneId",other.get("zoneId"));call(admin,"PUT","/ai/irrigation/policy",bad,400);
+    bad=new LinkedHashMap<>(p);bad.put("pumpId",other.get("pumpId"));call(admin,"PUT","/ai/irrigation/policy",bad,400);
+    String newFarm=call(admin,"POST","/farms",Map.of("name","另一农场","description","虚构"),200).path("ID").asText();
+    db.update("UPDATE farm_map_zones SET farm_id=? WHERE tenant_id=? AND id=?",newFarm,tenant(),p.get("zoneId"));call(admin,"PUT","/ai/irrigation/policy",p,400);
+    db.update("UPDATE farm_map_zones SET farm_id=? WHERE tenant_id=? AND id=?",farmId,tenant(),p.get("zoneId"));
+    call(admin,"PUT","/ai/irrigation/policy",p,200);
+    db.update("UPDATE plantings SET crop='水稻' WHERE tenant_id=? AND plot_id=?",tenant(),p.get("plotId"));
+    var rejected=call(admin,"POST","/ai/irrigation/plots/"+p.get("plotId")+"/propose",null,409);assertTrue(rejected.toString().contains("水位"));
+    assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM farm_map_jobs WHERE tenant_id=? AND farm_id=?",Integer.class,tenant(),farmId));
+  }
 
   @Test void irrigationRequiresApprovalIsIdempotentAndStopsAfterRestartDeadline() throws Exception {
     var p=irrigationFixture();

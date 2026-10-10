@@ -105,6 +105,32 @@ abstract class ResearchScenarioContract {
     }
   }
 
+  @Test void mobileOperatorCanDispatchOnlyTenantScopedSimulatedMachinery() throws Exception {
+    String admin=login("demo-a","admin"),operator=login("demo-a","operator"),f=farm(),path="/farms/"+f+"/field-map";
+    var parcel=call(operator,"GET",path,null,200).path("parcels").get(0);
+    String machine=db.queryForObject("SELECT a.device_id FROM asset_profiles a JOIN devices d ON d.tenant_id=a.tenant_id AND d.id=a.device_id WHERE a.tenant_id=? AND d.farm_id=? AND a.code='DEMO-CTRL-MACHINERY'",String.class,tenant(),f);
+    call(admin,"POST","/assets/"+machine+"/collect",Map.of(),200);
+    var input=new LinkedHashMap<String,Object>();
+    input.put("parcelId",parcel.path("id").asText());input.put("deviceId",machine);input.put("title","手机操作员巡田验证");input.put("taskType","INSPECTION");
+    input.put("widthMeters",5);input.put("bearing",90);input.put("headlandMeters",4);input.put("speedKmh",4);input.put("durationSeconds",120);input.put("simulationRate",1);input.put("requestId",UUID.randomUUID().toString());
+    call(login("demo-a","viewer"),"POST",path+"/jobs",input,403);
+    call(login("platform","platform"),"POST",path+"/jobs",input,403);
+    call(login("demo-b","operator"),"POST",path+"/jobs",input,404);
+    var job=call(operator,"POST",path+"/jobs",input,200);String id=job.path("id").asText();
+    try {
+      String owner=db.queryForObject("SELECT id FROM members WHERE tenant_id=? AND username='operator'",String.class,tenant());
+      assertEquals(owner,db.queryForObject("SELECT owner_id FROM farm_map_jobs WHERE tenant_id=? AND id=?",String.class,tenant(),id));
+      assertEquals(owner,db.queryForObject("SELECT assignee_id FROM task_fieldwork WHERE tenant_id=? AND task_id=?",String.class,tenant(),job.path("taskId").asText()));
+      assertEquals(id,call(operator,"POST",path+"/jobs",input,200).path("id").asText());
+      call(admin,"POST",path+"/jobs",input,409);
+      var duplicate=new LinkedHashMap<>(input);duplicate.put("requestId",UUID.randomUUID().toString());call(operator,"POST",path+"/jobs",duplicate,409);
+      assertEquals("PAUSED",call(operator,"POST",path+"/jobs/"+id+"/actions",Map.of("action","PAUSE"),200).path("status").asText());
+    } finally {call(operator,"POST",path+"/jobs/"+id+"/actions",Map.of("action","STOP"),200);}
+    db.update("UPDATE asset_profiles SET protocol='HTTP_PUSH' WHERE tenant_id=? AND device_id=?",tenant(),machine);
+    try {input.put("requestId",UUID.randomUUID().toString());call(operator,"POST",path+"/jobs",input,409);}
+    finally {db.update("UPDATE asset_profiles SET protocol='SIMULATED' WHERE tenant_id=? AND device_id=?",tenant(),machine);}
+  }
+
   @Test void mapRoutesTasksAndEstimatedWaterPersistWithTenantIsolation() throws Exception {
     String token=login("demo-a","admin"),f=farm(),path="/farms/"+f+"/field-map";
     var map=call(token,"GET",path,null,200);assertEquals(9,map.path("parcels").size());assertEquals(9,map.path("zones").size());

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import {
   canControl,
   freshness,
@@ -28,6 +28,14 @@ const selected = ref(""),
   value = ref(0),
   note = ref("手机端人工确认操作");
 const showAll = ref(false);
+const controls = ref(null);
+const stopAction = computed(() => actions.value.find(a => a.code === "PUMP_STOP"));
+async function stopPump() {
+  if (props.locked || loading.value || !stopAction.value || !canControl(detail.value, stopAction.value, props.role)) return;
+  selected.value = "PUMP_STOP";
+  await nextTick();
+  confirm();
+}
 const visibleChannels = computed(() => {
   const priority = ["PUMP_RUNNING", "GATE_OPENING", "REMOTE_ENABLED", "FAULT"];
   const channels = [...(detail.value?.channels || [])].sort(
@@ -91,7 +99,7 @@ onBeforeUnmount(() => {
   historyVersion++;
 });
 function confirm() {
-  if (!action.value || !canControl(detail.value, action.value, props.role))
+  if (props.locked || loading.value || !action.value || !canControl(detail.value, action.value, props.role))
     return;
   emit("confirm", {
     title: action.value.name,
@@ -143,6 +151,10 @@ const trend = computed(() => {
       </div>
       <span class="tag">{{ freshness(detail || device) }}</span>
     </header>
+    <div v-if="detail && actions.length" class="device-shortcuts">
+      <button @click="controls?.scrollIntoView({ block: 'start' })">前往设备控制</button>
+      <button v-if="stopAction" class="danger-button" :disabled="locked || loading || !canControl(detail, stopAction, role)" @click="stopPump">停止水泵</button>
+    </div>
     <p class="error" role="alert" v-if="error">
       {{ error }} <button @click="load">重新读取</button>
     </p>
@@ -236,7 +248,7 @@ const trend = computed(() => {
           </dl>
         </details>
       </article>
-      <article class="card" v-if="actions.length">
+      <article ref="controls" class="card" v-if="actions.length">
         <h3>设备指令</h3>
         <p class="muted">
           {{

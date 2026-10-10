@@ -31,6 +31,14 @@ PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
 EXECUTE zhinong_ai_upgrade_stmt;
 DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
 
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_irrigation_runs')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_irrigation_runs' AND CONSTRAINT_NAME='uq_ai_irrigation_run_tenant'),
+ 'ALTER TABLE ai_irrigation_runs ADD CONSTRAINT uq_ai_irrigation_run_tenant UNIQUE(tenant_id,id)', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
 CREATE TABLE IF NOT EXISTS tenants (
  id VARCHAR(36) PRIMARY KEY, code VARCHAR(40) NOT NULL UNIQUE,
  name VARCHAR(120) NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE
@@ -320,7 +328,8 @@ CREATE TABLE IF NOT EXISTS ai_irrigation_runs (
  FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),FOREIGN KEY(tenant_id,plot_id) REFERENCES plots(tenant_id,id),
  FOREIGN KEY(tenant_id,sensor_id) REFERENCES devices(tenant_id,id),FOREIGN KEY(tenant_id,pump_id) REFERENCES devices(tenant_id,id),
  CHECK(status IN ('PROPOSED','RUNNING','COMPLETED','CANCELLED','EXPIRED')),
- INDEX ix_ai_runs(tenant_id,pump_id,status,created_at)
+ INDEX ix_ai_runs(tenant_id,pump_id,status,created_at),
+ CONSTRAINT uq_ai_irrigation_run_tenant UNIQUE(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS demo_operating_farms (
@@ -443,4 +452,19 @@ CREATE TABLE IF NOT EXISTS farm_map_job_events (
  action VARCHAR(30) NOT NULL,note VARCHAR(500) NOT NULL,occurred_at TIMESTAMP(6) NOT NULL,
  FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id),
  INDEX ix_map_job_events(tenant_id,job_id,occurred_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS ai_irrigation_zone_bindings (
+ tenant_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,zone_id VARCHAR(36) NOT NULL,
+ PRIMARY KEY(tenant_id,plot_id),
+ FOREIGN KEY(tenant_id,plot_id) REFERENCES ai_irrigation_policies(tenant_id,plot_id),
+ FOREIGN KEY(tenant_id,zone_id) REFERENCES farm_map_zones(tenant_id,id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
+CREATE TABLE IF NOT EXISTS ai_irrigation_map_runs (
+ tenant_id VARCHAR(36) NOT NULL,run_id VARCHAR(36) NOT NULL,zone_id VARCHAR(36) NOT NULL,job_id VARCHAR(36),
+ PRIMARY KEY(tenant_id,run_id),UNIQUE(tenant_id,job_id),
+ FOREIGN KEY(tenant_id,run_id) REFERENCES ai_irrigation_runs(tenant_id,id),
+ FOREIGN KEY(tenant_id,zone_id) REFERENCES farm_map_zones(tenant_id,id),
+ FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

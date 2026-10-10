@@ -3,6 +3,11 @@
  * 组件样式只引用第二层，不写色值；tools/check_project.cjs 会检查本文件以外的样式色值。
  * 主题由 appearance.js 写入 html[data-theme]；data-accent 负责品牌、主操作、链接、焦点和选中态。 */
 :root {
+  /* 智禾随行品牌图形：与禾生标识一致，独立于操作主题色。 */
+  --field-brand: #234d3c;
+  --field-cream: #f5f2e6;
+  --field-gold: #dfbc70;
+  --field-soft: #eaf0e7;
   /* 浅色角色色 */
   --light-page: #fcfcfb;
   --light-navigation: #fbfbf9;

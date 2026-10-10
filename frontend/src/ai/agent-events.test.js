@@ -748,17 +748,17 @@ test("irrigationApproveConfirm names the plot, pump and duration before starting
 });
 
 test("the irrigation tab asks for confirmation before approving, and never for cancelling or stopping", () => {
-  const src = fs.readFileSync(new URL("./FarmAssistant.vue", import.meta.url), "utf8");
-  assert.match(src, /action==='approve' && !await confirm\(irrigationApproveConfirm\(run\)\)\) return;/);
+  const src = fs.readFileSync(new URL("./IrrigationWorkspace.vue", import.meta.url), "utf8");
+  assert.match(src, /action==='approve' && !await confirmAction\(irrigationApproveConfirm\(run\)\)\) return;/);
 });
 
 test("irrigation propose/approve/cancel reload only the irrigation workspace, not the full assistant refresh", () => {
-  const src = fs.readFileSync(new URL("./FarmAssistant.vue", import.meta.url), "utf8");
+  const src = fs.readFileSync(new URL("./IrrigationWorkspace.vue", import.meta.url), "utf8");
   const propose = src.match(/async function propose\(id\)[^\n]*/)[0];
   const act = src.match(/async function act\(run,action\)[\s\S]*?\n\}/)[0];
-  assert.match(propose, /refreshIrrigation\(\)/);
+  assert.match(propose, /refresh\(farm\)/);
   assert.doesNotMatch(propose, /await refresh\(\)/);
-  assert.match(act, /refreshIrrigation\(\)/);
+  assert.match(act, /refresh\(farm\)/);
   assert.doesNotMatch(act, /await refresh\(\)/);
 });
 

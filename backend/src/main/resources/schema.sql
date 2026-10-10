@@ -264,6 +264,7 @@ CREATE TABLE IF NOT EXISTS ai_irrigation_runs (
  CHECK(status IN ('PROPOSED','RUNNING','COMPLETED','CANCELLED','EXPIRED'))
 );
 CREATE INDEX IF NOT EXISTS ix_ai_runs ON ai_irrigation_runs(tenant_id,pump_id,status,created_at);
+ALTER TABLE ai_irrigation_runs ADD CONSTRAINT IF NOT EXISTS uq_ai_irrigation_run_tenant UNIQUE(tenant_id,id);
 
 -- Opt-in synthetic operating scenario. The registry never includes ordinary farms.
 CREATE TABLE IF NOT EXISTS demo_operating_farms (
@@ -389,3 +390,18 @@ CREATE TABLE IF NOT EXISTS farm_map_job_events (
  FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id)
 );
 CREATE INDEX IF NOT EXISTS ix_map_job_events ON farm_map_job_events(tenant_id,job_id,occurred_at);
+
+-- A policy selects one physical coverage zone. Runs retain the accepted zone even after policy edits.
+CREATE TABLE IF NOT EXISTS ai_irrigation_zone_bindings (
+ tenant_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,zone_id VARCHAR(36) NOT NULL,
+ PRIMARY KEY(tenant_id,plot_id),
+ FOREIGN KEY(tenant_id,plot_id) REFERENCES ai_irrigation_policies(tenant_id,plot_id),
+ FOREIGN KEY(tenant_id,zone_id) REFERENCES farm_map_zones(tenant_id,id)
+);
+CREATE TABLE IF NOT EXISTS ai_irrigation_map_runs (
+ tenant_id VARCHAR(36) NOT NULL,run_id VARCHAR(36) NOT NULL,zone_id VARCHAR(36) NOT NULL,job_id VARCHAR(36),
+ PRIMARY KEY(tenant_id,run_id),UNIQUE(tenant_id,job_id),
+ FOREIGN KEY(tenant_id,run_id) REFERENCES ai_irrigation_runs(tenant_id,id),
+ FOREIGN KEY(tenant_id,zone_id) REFERENCES farm_map_zones(tenant_id,id),
+ FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id)
+);

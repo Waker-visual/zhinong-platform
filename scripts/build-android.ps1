@@ -50,12 +50,15 @@ try {
     if (-not (Test-Path -LiteralPath $store)) {
         Invoke-Checked (Join-Path $JdkPath 'bin/keytool.exe') @('-genkeypair', '-keystore', $store, '-storetype', 'PKCS12', '-alias', 'zhihe-development', '-storepass:env', 'ZHIHE_ANDROID_SIGNING_PASSWORD', '-keypass:env', 'ZHIHE_ANDROID_SIGNING_PASSWORD', '-keyalg', 'RSA', '-keysize', '3072', '-validity', '3650', '-dname', 'CN=Zhihe Local Development', '-noprompt')
     }
-    $apk = Join-Path $output 'zhihe-mobile-1.0.0.apk'
+    $appManifest = [xml](Get-Content -LiteralPath "$projectRoot/android/AndroidManifest.xml" -Raw)
+    $appVersion = $appManifest.manifest.GetAttribute('versionName', 'http://schemas.android.com/apk/res/android')
+    $apkName = "zhihe-mobile-$appVersion.apk"
+    $apk = Join-Path $output $apkName
     Invoke-Checked $java @('-jar', "$buildTools/lib/apksigner.jar", 'sign', '--ks', $store, '--ks-key-alias', 'zhihe-development', '--ks-pass', 'env:ZHIHE_ANDROID_SIGNING_PASSWORD', '--key-pass', 'env:ZHIHE_ANDROID_SIGNING_PASSWORD', '--out', $apk, "$work/aligned.apk")
     Invoke-Checked $java @('-jar', "$buildTools/lib/apksigner.jar", 'verify', '--verbose', $apk)
     Invoke-Checked "$buildTools/zipalign.exe" @('-c', '4', $apk)
     $sha = (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash.ToLowerInvariant()
-    Set-Content -LiteralPath "$apk.sha256" -Value "$sha  zhihe-mobile-1.0.0.apk"
+    Set-Content -LiteralPath "$apk.sha256" -Value "$sha  $apkName"
     Write-Host "APK: $apk"
     Write-Host "SHA256: $sha"
 } finally { $env:ZHIHE_ANDROID_SIGNING_PASSWORD = $previousPassword }

@@ -6,6 +6,7 @@ import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
 import app.zhinong.workspace.AssetService;
 import app.zhinong.workspace.DeviceCommandService;
+import app.zhinong.workspace.FieldMapService;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 import java.time.*;
@@ -18,10 +19,11 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class IrrigationService {
   private final Store store;private final JdbcTemplate db;private final AssetService assets;private final DeviceCommandService commands;
-  public IrrigationService(Store store,JdbcTemplate db,AssetService assets,DeviceCommandService commands) {this.store=store;this.db=db;this.assets=assets;this.commands=commands;}
+  private final FieldMapService maps;
+  public IrrigationService(Store store,JdbcTemplate db,AssetService assets,DeviceCommandService commands,FieldMapService maps) {this.store=store;this.db=db;this.assets=assets;this.commands=commands;this.maps=maps;}
   public record Policy(@NotBlank String farmId,@NotBlank String plotId,@NotBlank String sensorId,@NotBlank String pumpId,
     @NotBlank @Pattern(regexp="MANUAL|AUTO") String mode,@NotNull @DecimalMin("5") @DecimalMax("80") BigDecimal thresholdValue,
-    @Min(10) @Max(300) int durationSeconds,@Min(30) @Max(1440) int cooldownMinutes,@Min(1) @Max(6) int dailyLimit,@Min(0) int revision) {}
+    @Min(10) @Max(300) int durationSeconds,@Min(30) @Max(1440) int cooldownMinutes,@Min(1) @Max(6) int dailyLimit,@Min(0) int revision,@Size(max=36) String zoneId) {}
 
   public Map<String,Object> workspace(String farmId) {
     store.get("farms",farmId);String tenant=Identity.tenant();
@@ -33,9 +35,41 @@ public class IrrigationService {
         SELECT 1 FROM device_channels c WHERE c.tenant_id=d.tenant_id AND c.device_id=d.id AND c.metric='SOIL_MOISTURE'))
       ORDER BY d.name
       """,tenant,farmId);
-    return Map.of("plots",plots,"devices",devices,"policies",db.queryForList("SELECT * FROM ai_irrigation_policies WHERE tenant_id=? AND farm_id=? ORDER BY plot_id",tenant,farmId),
-      "runs",db.queryForList("SELECT r.*,p.name AS \"plotName\",d.name AS \"pumpName\" FROM ai_irrigation_runs r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.pump_id WHERE r.tenant_id=? AND r.farm_id=? ORDER BY r.created_at DESC LIMIT 50",tenant,farmId),
-      "executionScope","SIMULATED_ONLY");
+    for(var d:devices) {
+      String id=d.get("ID").toString();var detail=assets.detail(id);
+      d.put("freshness",detail.get("freshness"));d.put("alertCount",detail.get("alertCount"));
+      d.put("soilMoisture",assets.latest(tenant,id,"SOIL_MOISTURE"));
+      d.put("moistureFresh",fresh(assets.latest(tenant,id,"SOIL_MOISTURE")));
+      d.put("pumpRunning",assets.latest(tenant,id,"PUMP_RUNNING"));
+    }
+    var policies=db.queryForList("SELECT p.*,b.zone_id FROM ai_irrigation_policies p LEFT JOIN ai_irrigation_zone_bindings b ON b.tenant_id=p.tenant_id AND b.plot_id=p.plot_id WHERE p.tenant_id=? AND p.farm_id=? ORDER BY p.plot_id",tenant,farmId);
+    for(var plot:plots) {
+      String id=plot.get("ID").toString();
+      var crops=db.queryForList("SELECT crop FROM plantings WHERE tenant_id=? AND plot_id=? AND status='ACTIVE' AND start_date<=? AND end_date>=?",String.class,tenant,id,LocalDate.now(),LocalDate.now());
+      plot.put("activeCrops",crops);
+      boolean paddy=crops.stream().anyMatch(c->c.contains("稻")||c.contains("水生"));
+      plot.put("requiresWaterLevel",paddy);
+      var configured=policies.stream().filter(p->id.equals(p.get("PLOT_ID"))).findFirst();
+      String diagnosis=paddy?"当前在种作物需要水位策略；墒情规则不适用，可在下方人工定时灌溉。":crops.size()!=1?"缺少唯一有效在种计划，请先核对种植档案。":"设备与覆盖区已列出；尚未保存 AI 策略，系统不会自动启动。";
+      boolean ready=false;
+      if(configured.isPresent()) {
+        try {eligible(configured.get());ready=true;diagnosis="符合当前墒情规则，可检查生成建议；人工模式仍需确认。";}
+        catch(ApiException ex) {diagnosis=ex.getMessage();}
+      }
+      plot.put("diagnosis",diagnosis);plot.put("readyForProposal",ready);
+    }
+    var spatial=maps.workspace(farmId);
+    var result=new LinkedHashMap<String,Object>();result.put("plots",plots);result.put("devices",devices);result.put("policies",policies);
+    result.put("runs",db.queryForList("""
+      SELECT r.*,p.name AS "plotName",d.name AS "pumpName",b.zone_id,b.job_id AS "mapJobId",z.name AS "zoneName"
+      FROM ai_irrigation_runs r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
+      JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.pump_id
+      LEFT JOIN ai_irrigation_map_runs b ON b.tenant_id=r.tenant_id AND b.run_id=r.id
+      LEFT JOIN farm_map_zones z ON z.tenant_id=b.tenant_id AND z.id=b.zone_id
+      WHERE r.tenant_id=? AND r.farm_id=? ORDER BY r.created_at DESC LIMIT 50
+      """,tenant,farmId));
+    for(String key:List.of("parcels","zones","waterTotals","executionScope"))result.put(key,spatial.get(key));
+    result.put("jobs",maps.irrigationJobs(farmId));return result;
   }
   public Map<String,Object> save(Policy p) {
     Identity.require("ADMIN");store.lock("farms",p.farmId());
@@ -45,13 +79,28 @@ public class IrrigationService {
     if(!"PUMP".equals(pump.get("deviceType")) || !Boolean.TRUE.equals(pump.get("controlEnabled"))) throw new ApiException(400,"请选择已启用控制的水泵");
     if(!"SIMULATED".equals(pump.get("protocol")) || !"SIMULATED".equals(sensor.get("protocol"))) throw new ApiException(409,"当前定时灌溉仅支持模拟测点和模拟水泵；实体网关需先实现本地限时停泵协议");
     if(db.queryForObject("SELECT COUNT(*) FROM device_channels WHERE tenant_id=? AND device_id=? AND metric='SOIL_MOISTURE'",Long.class,Identity.tenant(),p.sensorId())==0) throw new ApiException(400,"所选测点没有土壤水分指标");
+    String zoneId=p.zoneId()==null?boundZone(Identity.tenant(),p.plotId()):p.zoneId();
+    if(zoneId!=null && !zoneId.isBlank())validateZone(p.farmId(),p.plotId(),p.pumpId(),zoneId);
     var old=db.queryForList("SELECT revision FROM ai_irrigation_policies WHERE tenant_id=? AND plot_id=? FOR UPDATE",Identity.tenant(),p.plotId());
     int revision=old.isEmpty()?0:((Number)old.getFirst().get("REVISION")).intValue();
     if(revision!=p.revision()) throw new ApiException(409,"策略已被修改，请刷新后重试");
     db.update(store.sql().upsert("ai_irrigation_policies","tenant_id,plot_id","tenant_id,farm_id,plot_id,sensor_id,pump_id,mode,threshold_value,duration_seconds,cooldown_minutes,daily_limit,owner_id,revision,updated_at,last_result"),
       Identity.tenant(),p.farmId(),p.plotId(),p.sensorId(),p.pumpId(),p.mode(),p.thresholdValue(),p.durationSeconds(),p.cooldownMinutes(),p.dailyLimit(),Identity.current().memberId(),revision+1,OffsetDateTime.now(),"策略已保存，等待检查");
     db.update("UPDATE ai_irrigation_runs SET status='CANCELLED',result_note='策略变更，建议已失效' WHERE tenant_id=? AND plot_id=? AND status='PROPOSED'",Identity.tenant(),p.plotId());
-    stopPlot(p.plotId(),"策略变更，停止原灌溉");store.audit("AI_IRRIGATION_POLICY",p.plotId());return workspace(p.farmId());
+    stopPlot(p.plotId(),"策略变更，停止原灌溉");
+    db.update("DELETE FROM ai_irrigation_zone_bindings WHERE tenant_id=? AND plot_id=?",Identity.tenant(),p.plotId());
+    if(zoneId!=null && !zoneId.isBlank())db.update("INSERT INTO ai_irrigation_zone_bindings(tenant_id,plot_id,zone_id) VALUES(?,?,?)",Identity.tenant(),p.plotId(),zoneId);
+    store.audit("AI_IRRIGATION_POLICY",p.plotId());return workspace(p.farmId());
+  }
+  private String boundZone(String tenant,String plot) {
+    var ids=db.queryForList("SELECT zone_id FROM ai_irrigation_zone_bindings WHERE tenant_id=? AND plot_id=?",String.class,tenant,plot);
+    return ids.isEmpty()?null:ids.getFirst();
+  }
+  private void validateZone(String farm,String plot,String pump,String zone) {
+    if(db.queryForObject("""
+      SELECT COUNT(*) FROM farm_map_zones z JOIN farm_map_parcels p ON p.tenant_id=z.tenant_id AND p.id=z.parcel_id AND p.farm_id=z.farm_id
+      WHERE z.tenant_id=? AND z.farm_id=? AND z.id=? AND p.plot_id=? AND z.pump_id=?
+      """,Integer.class,Identity.tenant(),farm,zone,plot,pump)!=1)throw new ApiException(400,"覆盖区必须属于当前农场和经营地块，且使用该分区已关联的水泵");
   }
   private Map<String,Object> policy(String plot) {
     store.get("plots",plot);
@@ -61,6 +110,7 @@ public class IrrigationService {
   private int number(Map<String,Object> p,String key) {return ((Number)p.get(key)).intValue();}
   private BigDecimal eligible(Map<String,Object> p) {
     String tenant=Identity.tenant(),pumpId=p.get("PUMP_ID").toString(),sensorId=p.get("SENSOR_ID").toString(),plot=p.get("PLOT_ID").toString();
+    if(db.queryForObject("SELECT COUNT(*) FROM farm_archives WHERE tenant_id=? AND farm_id=?",Integer.class,tenant,p.get("FARM_ID"))>0)throw new ApiException(409,"农场已归档，暂停灌溉");
     if(db.queryForObject("SELECT COUNT(*) FROM members m JOIN tenants t ON t.id=m.tenant_id WHERE m.tenant_id=? AND m.id=? AND m.enabled=TRUE AND t.enabled=TRUE AND m.role='ADMIN'",Long.class,tenant,p.get("OWNER_ID"))==0) throw new ApiException(409,"策略授权人或租户已停用，请由管理员重新保存策略");
     var pump=assets.detail(pumpId);var sensor=assets.detail(sensorId);
     if(!p.get("FARM_ID").equals(pump.get("farmId")) || !p.get("FARM_ID").equals(sensor.get("farmId")) || !plot.equals(sensor.get("plotId"))
@@ -69,6 +119,9 @@ public class IrrigationService {
     if(db.queryForObject("SELECT COUNT(*) FROM plantings WHERE tenant_id=? AND plot_id=? AND status='ACTIVE' AND start_date<=? AND end_date>=?",Long.class,tenant,plot,LocalDate.now(),LocalDate.now())!=1) throw new ApiException(409,"需要且只能有一项处于有效日期内的在种计划");
     // This academic dryland rule cannot infer paddy water depth from volumetric soil moisture.
     if(db.queryForObject("SELECT COUNT(*) FROM plantings WHERE tenant_id=? AND plot_id=? AND status='ACTIVE' AND start_date<=? AND end_date>=? AND (crop LIKE '%稻%' OR crop LIKE '%水生%')",Long.class,tenant,plot,LocalDate.now(),LocalDate.now())>0) throw new ApiException(409,"水稻与水生作物需水位控制策略，不能使用本墒情规则");
+    String zone=boundZone(tenant,plot);
+    if(zone!=null)validateZone(p.get("FARM_ID").toString(),plot,pumpId,zone);
+    else if(db.queryForObject("SELECT COUNT(*) FROM farm_map_parcels p JOIN farm_map_zones z ON z.tenant_id=p.tenant_id AND z.parcel_id=p.id WHERE p.tenant_id=? AND p.farm_id=? AND p.plot_id=?",Integer.class,tenant,p.get("FARM_ID"),plot)>0)throw new ApiException(409,"请在策略中选择地图灌溉覆盖区，避免只启泵而未指定作用范围");
     var reading=assets.latest(tenant,sensorId,"SOIL_MOISTURE");
     if(!fresh(reading)) throw new ApiException(409,"土壤测点超过15分钟未更新或缺少读数，暂停灌溉");
     var moisture=new BigDecimal(reading.get("value").toString());
@@ -80,7 +133,11 @@ public class IrrigationService {
     if(db.queryForObject("SELECT COUNT(*) FROM field_issues WHERE tenant_id=? AND plot_id=? AND severity='HIGH' AND status<>'RESOLVED'",Long.class,tenant,plot)>0) throw new ApiException(409,"地块有高严重度问题，请先排查");
     var now=OffsetDateTime.now();
     if(db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND (status='RUNNING' OR started_at>?)",Long.class,tenant,pumpId,now.minusMinutes(number(p,"COOLDOWN_MINUTES")))>0) throw new ApiException(409,"水泵正在运行或仍在灌溉冷却期");
-    if(db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND started_at>=?",Long.class,tenant,pumpId,LocalDate.now().atStartOfDay().atOffset(now.getOffset()))>=number(p,"DAILY_LIMIT")) throw new ApiException(409,"已达到此水泵今日灌溉次数上限");
+    if(db.queryForObject("SELECT COUNT(*) FROM farm_map_jobs WHERE tenant_id=? AND device_id=? AND kind='IRRIGATION' AND (status='RUNNING' OR started_at>?)",Long.class,tenant,pumpId,now.minusMinutes(number(p,"COOLDOWN_MINUTES")))>0)throw new ApiException(409,"水泵有地图灌溉任务或仍在冷却期，AI 与人工用水共用同一设备");
+    var day=LocalDate.now().atStartOfDay().atOffset(now.getOffset());
+    long aiCount=db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND started_at>=?",Long.class,tenant,pumpId,day);
+    long mapCount=db.queryForObject("SELECT COUNT(*) FROM farm_map_jobs j WHERE j.tenant_id=? AND j.device_id=? AND j.kind='IRRIGATION' AND j.started_at>=? AND NOT EXISTS(SELECT 1 FROM ai_irrigation_map_runs a WHERE a.tenant_id=j.tenant_id AND a.job_id=j.id)",Long.class,tenant,pumpId,day);
+    if(aiCount+mapCount>=number(p,"DAILY_LIMIT")) throw new ApiException(409,"已达到此水泵今日灌溉次数上限（含地图人工灌溉）");
     return moisture;
   }
   private boolean fresh(Map<String,Object> r) {if(r==null) return false;var t=DatabaseTime.offset(r.get("time")).toInstant();return t.isAfter(Instant.now().minusSeconds(900)) && !t.isAfter(Instant.now().plusSeconds(60));}
@@ -101,6 +158,8 @@ public class IrrigationService {
         VALUES(?,?,?,?,?,?,?,'PROPOSED',?,?,?,?,?,?)
         """,id,tenant,p.get("FARM_ID"),plot,p.get("SENSOR_ID"),p.get("PUMP_ID"),p.get("REVISION"),
         "土壤水分 "+moistureDisplay+"%，低于配置阈值 "+thresholdDisplay+"%；仅模拟灌溉，尚未接入未来天气预报。",p.get("DURATION_SECONDS"),moisture,automatic?"AI_AUTOMATION":Identity.current().username(),now,now.plusMinutes(10));
+      String zoneId=boundZone(tenant,plot);
+      if(zoneId!=null)db.update("INSERT INTO ai_irrigation_map_runs(tenant_id,run_id,zone_id) VALUES(?,?,?)",tenant,id,zoneId);
       store.audit("AI_IRRIGATION_PROPOSE",id);run=run(id,false);
     }
     if(automatic && "AUTO".equals(p.get("MODE"))) return approve(run.get("ID").toString(),true);
@@ -122,10 +181,21 @@ public class IrrigationService {
     if(number(r,"POLICY_REVISION")!=number(p,"REVISION")) throw new ApiException(409,"策略已更改，请重新生成建议");
     if(automatic && !"AUTO".equals(p.get("MODE"))) throw new ApiException(409,"自动模式已关闭");
     eligible(p);
-    var command=commands.create(r.get("PUMP_ID").toString(),new DeviceCommandService.Input("ai-start-"+id,"PUMP_START",null,"AI定时模拟灌溉 "+r.get("DURATION_SECONDS")+" 秒"));
-    if(!"SUCCEEDED".equals(command.get("status"))) throw new ApiException(409,"模拟设备未确认启动");
+    String commandId;
+    var linked=db.queryForList("SELECT zone_id FROM ai_irrigation_map_runs WHERE tenant_id=? AND run_id=?",String.class,Identity.tenant(),id);
+    if(!linked.isEmpty()) {
+      if(!linked.getFirst().equals(boundZone(Identity.tenant(),r.get("PLOT_ID").toString())))throw new ApiException(409,"建议覆盖区已变化，请重新生成");
+      var job=maps.water(r.get("FARM_ID").toString(),new FieldMapService.WaterInput(linked.getFirst(),number(r,"DURATION_SECONDS"),"ai-irrigation-"+id));
+      db.update("UPDATE ai_irrigation_map_runs SET job_id=? WHERE tenant_id=? AND run_id=?",job.get("id"),Identity.tenant(),id);
+      commandId=db.queryForObject("SELECT start_command_id FROM farm_map_jobs WHERE tenant_id=? AND id=?",String.class,Identity.tenant(),job.get("id"));
+    } else {
+      if(boundZone(Identity.tenant(),r.get("PLOT_ID").toString())!=null)throw new ApiException(409,"旧建议缺少覆盖区，请重新生成");
+      var command=commands.create(r.get("PUMP_ID").toString(),new DeviceCommandService.Input("ai-start-"+id,"PUMP_START",null,"AI定时模拟灌溉 "+r.get("DURATION_SECONDS")+" 秒"));
+      if(!"SUCCEEDED".equals(command.get("status"))) throw new ApiException(409,"模拟设备未确认启动");
+      commandId=command.get("id").toString();
+    }
     var now=OffsetDateTime.now();
-    db.update("UPDATE ai_irrigation_runs SET status='RUNNING',approved_by=?,started_at=?,stop_at=?,command_id=?,result_note='模拟灌溉执行中' WHERE tenant_id=? AND id=?",automatic?"AI_AUTOMATION":Identity.current().username(),now,now.plusSeconds(number(r,"DURATION_SECONDS")),command.get("id"),Identity.tenant(),id);
+    db.update("UPDATE ai_irrigation_runs SET status='RUNNING',approved_by=?,started_at=?,stop_at=?,command_id=?,result_note='模拟灌溉执行中' WHERE tenant_id=? AND id=?",automatic?"AI_AUTOMATION":Identity.current().username(),now,now.plusSeconds(number(r,"DURATION_SECONDS")),commandId,Identity.tenant(),id);
     store.audit(automatic?"AI_IRRIGATION_AUTO":"AI_IRRIGATION_APPROVE",id);return run(id,false);
   }
   public Map<String,Object> cancel(String id) {
@@ -144,6 +214,9 @@ public class IrrigationService {
     var rows=db.queryForList("SELECT pump_id FROM ai_irrigation_runs WHERE tenant_id=? AND id=? AND status='RUNNING'",tenant,id);
     if(rows.isEmpty()) return;
     db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE",tenant,rows.getFirst().get("PUMP_ID"));
+    if(db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_map_runs WHERE tenant_id=? AND run_id=? AND job_id IS NOT NULL",Integer.class,tenant,id)>0) {
+      maps.stopAiIrrigation(tenant,id,reason);return;
+    }
     String command=commands.stopScheduledSimulation(tenant,id);if(command.isEmpty()) return;
     db.update("UPDATE ai_irrigation_runs SET status='COMPLETED',stop_command_id=?,finished_at=?,result_note=? WHERE tenant_id=? AND id=? AND status='RUNNING'",command,OffsetDateTime.now(),reason+"；模拟停泵已确认",tenant,id);
   }
