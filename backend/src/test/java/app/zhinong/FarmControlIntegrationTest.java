@@ -101,7 +101,9 @@ class FarmControlIntegrationTest {
     var scenarios = db.queryForList("SELECT id FROM farms WHERE name='青禾设备联动演示场'", String.class);
     assertEquals(2, scenarios.size());
     for (String farm : scenarios) {
-      assertEquals(9, db.queryForObject("SELECT COUNT(*) FROM devices WHERE farm_id=?", Integer.class, farm));
+      String tenantCode = db.queryForObject("SELECT t.code FROM farms f JOIN tenants t ON t.id=f.tenant_id WHERE f.id=?", String.class, farm);
+      assertEquals(tenantCode.equals("demo-a") ? 11 : 9,
+        db.queryForObject("SELECT COUNT(*) FROM devices WHERE farm_id=?", Integer.class, farm));
       assertEquals(0, db.queryForObject("SELECT COUNT(*) FROM asset_profiles p JOIN devices d ON d.id=p.device_id WHERE d.farm_id=? AND p.credential_hash IS NOT NULL", Integer.class, farm));
     }
     var catalog = call(viewer, "GET", "/assets/catalog", null, 200);

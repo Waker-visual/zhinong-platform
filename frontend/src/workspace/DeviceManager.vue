@@ -20,8 +20,14 @@ import {
   timeText,
   num,
 } from "./presentation";
-const props = defineProps({ role: String, revision: Number });
-const emit = defineEmits(["farm"]);
+const props = defineProps({
+  role: String,
+  revision: Number,
+  initialFarmId: String,
+  initialDeviceId: String,
+  cameraOnly: Boolean,
+});
+const emit = defineEmits(["farm", "camera"]);
 const devices = ref([]),
   farms = ref([]),
   plots = ref([]),
@@ -29,8 +35,8 @@ const devices = ref([]),
   error = ref(""),
   busy = ref(false),
   search = ref(""),
-  farmId = ref(""),
-  type = ref(""),
+  farmId = ref(props.initialFarmId || ""),
+  type = ref(props.cameraOnly ? "CAMERA" : ""),
   status = ref(""),
   page = ref(1);
 const editor = ref(false),
@@ -40,6 +46,7 @@ const editor = ref(false),
   detailMorphActive = ref(false);
 let alive = true,
   sequence = 0;
+let initialOpened = false;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
 const filtered = computed(() =>
   devices.value.filter(
@@ -88,6 +95,18 @@ async function load() {
     farms.value = f;
     plots.value = p;
     catalog.value = c;
+    if (
+      !initialOpened &&
+      props.initialDeviceId &&
+      d.some(
+        (asset) =>
+          asset.id === props.initialDeviceId &&
+          (!props.initialFarmId || asset.farmId === props.initialFarmId),
+      )
+    ) {
+      detailId.value = props.initialDeviceId;
+      initialOpened = true;
+    }
     error.value = "";
     page.value = Math.min(page.value, pageCount.value);
   } catch (e) {
@@ -342,6 +361,12 @@ onBeforeUnmount(() => {
                 >
               </td>
               <td class="actions" role="cell" data-label="操作">
+                <button
+                  v-if="device.deviceType === 'CAMERA'"
+                  @click="emit('camera', device)"
+                >
+                  查看画面
+                </button>
                 <button @click="openDetail(device.id)">详情</button
                 ><button v-if="role === 'ADMIN'" @click="edit(device)">
                   编辑</button
@@ -423,6 +448,7 @@ onBeforeUnmount(() => {
       :plots="plots"
       :catalog="catalog"
       :farm-id="farmId"
+      :default-type="type === 'CAMERA' ? 'CAMERA' : undefined"
       @close="editor = false"
       @saved="saved"
     />

@@ -1,0 +1,16 @@
+<resources>
+  <color name="page">#FCFCFB</color>
+  <color name="text">#18181B</color>
+  <color name="muted">#52514E</color>
+  <color name="seed">#BCD1CA</color>
+  <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <item name="android:fontFamily">sans</item>
+    <item name="android:colorAccent">@color/text</item>
+    <item name="android:windowLightStatusBar">true</item>
+    <item name="android:windowLightNavigationBar">true</item>
+    <item name="android:statusBarColor">@color/page</item>
+    <item name="android:navigationBarColor">@color/page</item>
+    <item name="android:windowBackground">@color/page</item>
+    <item name="android:windowActionModeOverlay">true</item>
+  </style>
+</resources>

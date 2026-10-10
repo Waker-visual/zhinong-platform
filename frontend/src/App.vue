@@ -4,6 +4,7 @@ import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
 import DeviceManager from "./workspace/DeviceManager.vue";
+import FieldCameras from "./workspace/FieldCameras.vue";
 import "./workspace/workspace.css";
 import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
@@ -67,6 +68,8 @@ function passwordChanged() {
 const page = ref("daily");
 const moduleRevision = ref(0);
 const farmToOpen = ref("");
+const cameraFocus = ref("");
+const ledgerFocus = ref({ farmId: "", deviceId: "", cameraOnly: false });
 const navigationRevision = ref(0);
 const error = ref("");
 // busy 只锁写操作；页面加载用 loading，导航不再被写操作或加载阻塞。
@@ -123,7 +126,7 @@ const current = computed(
 );
 // 顶栏“当前农场”是各页面共用的农场范围；今日农场、运行概览与经营模拟必须选定一座农场。
 const farmRequired = computed(() =>
-  ["daily", "operations", "simulation", "ai"].includes(page.value),
+  ["daily", "operations", "simulation", "ai", "cameras"].includes(page.value),
 );
 const simulationKey = ref(0);
 function selectFarm() {
@@ -323,7 +326,7 @@ async function load() {
   if (
     farms.length === 1 ||
     (farmScope.value && !farms.some((f) => f.id === farmScope.value)) ||
-    (["daily", "operations", "ai"].includes(target) && !farmScope.value)
+    (["daily", "operations", "ai", "cameras"].includes(target) && !farmScope.value)
   )
     farmScope.value = (farms.find((farm) => farm.operatingDemo && farm.name === "青禾设备联动演示场") || farms.find((farm) => farm.operatingDemo) || farms[0])?.id || "";
   plotRows.value = plots;
@@ -333,6 +336,7 @@ async function load() {
     target === "daily" ||
     target === "operations" ||
     target === "ai" ||
+    target === "cameras" ||
     target === "dashboard" ||
     target === "devices" ||
     target === "simulation"
@@ -391,6 +395,9 @@ async function launchFarm(id) {
 async function navigate(payload) {
   const id = typeof payload === "string" ? payload : payload.page;
   const morph = typeof payload === "string" ? "" : payload.morph || "";
+  if (typeof payload === "object" && payload.farmId) farmScope.value = payload.farmId;
+  if (id === "cameras") cameraFocus.value = typeof payload === "object" ? payload.deviceId || "" : "";
+  if (id === "devices") ledgerFocus.value = typeof payload === "object" ? { farmId: payload.farmId || "", deviceId: payload.deviceId || "", cameraOnly: !!payload.cameraOnly } : { farmId: "", deviceId: "", cameraOnly: false };
   const update = async () => {
     page.value = id;
     navigationRevision.value++;
@@ -880,6 +887,7 @@ onUnmounted(() => {
           @notice="message"
         />
         <FarmAssistant v-else-if="page === 'ai'" :key="farmScope" :farm-id="farmScope" :role="role" :revision="moduleRevision" />
+        <FieldCameras v-else-if="page === 'cameras'" :key="farmScope" :farm-id="farmScope" :initial-device-id="cameraFocus" :revision="moduleRevision" @manage="navigate({ page: 'devices', ...$event, cameraOnly: true })" />
         <OperationsOverview
           v-else-if="page === 'operations'"
           :farm-id="farmScope"
@@ -897,8 +905,13 @@ onUnmounted(() => {
         />
         <DeviceManager
           v-else-if="page === 'devices'"
+          :key="navigationRevision"
           :role="role"
           :revision="moduleRevision"
+          :initial-farm-id="ledgerFocus.farmId"
+          :initial-device-id="ledgerFocus.deviceId"
+          :camera-only="ledgerFocus.cameraOnly"
+          @camera="navigate({ page: 'cameras', farmId: $event.farmId, deviceId: $event.id })"
           @farm="launchFarm"
         />
         <SimulationPage

@@ -1,6 +1,7 @@
 <script setup>
 // 统一线宽的界面图标，取代菜单里字体相关的 Unicode 字符。路径为本项目绘制。
 const icons = {
+  camera: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/><circle cx="9.5" cy="12" r="2.5"/>',
   profile:
     '<circle cx="12" cy="8" r="3.2"/><path d="M4 20c.7-3.8 3.5-6 8-6s7.3 2.2 8 6"/>',
   security:

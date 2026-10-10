@@ -31,3 +31,9 @@ __pycache__/
 /rds.txt
 
 /docs/source-provenance.json
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+android/local.properties

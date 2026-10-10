@@ -56,6 +56,13 @@ export const menus = [
     description: "一屏查看设备上报是否正常、土壤水分走势和各项作业进展",
   },
   {
+    id: "cameras",
+    title: "田间实景",
+    icon: "camera",
+    group: "农场与设备",
+    description: "按农场查看田间画面，管理机位并联动设备台账",
+  },
+  {
     id: "farms",
     noun: "农场",
     title: "农场档案",

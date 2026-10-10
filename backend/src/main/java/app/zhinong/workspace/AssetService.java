@@ -17,10 +17,12 @@ public class AssetService {
 
   private final Store store;
   private final JdbcTemplate db;
+  private final CameraProfiles cameras;
 
-  public AssetService(Store store) {
+  public AssetService(Store store, CameraProfiles cameras) {
     this.store = store;
     this.db = store.db();
+    this.cameras = cameras;
   }
 
   private static final String SELECT = """
@@ -41,6 +43,7 @@ public class AssetService {
   public Map<String, Object> catalog() {
     Identity.tenant();
     return Map.of(
+      "cameraScenes", cameras.scenes(),
       "presets", MetricCatalog.PRESETS.entrySet().stream().sorted(Map.Entry.comparingByKey())
         .map(e -> Map.of("deviceType", e.getKey(), "metrics", e.getValue())).toList(),
       "metrics",
@@ -68,6 +71,14 @@ public class AssetService {
       : db.queryForList(SELECT + " AND d.farm_id=? ORDER BY p.code", tenant, farmId);
     for (var row : rows) enrich(row, tenant);
     return rows;
+  }
+
+  public Map<String, Object> cameraViews(String farmId) {
+    String tenant = Identity.tenant();
+    var farm = store.get("farms", farmId);
+    var rows = db.queryForList(SELECT + " AND d.farm_id=? AND p.device_type='CAMERA' ORDER BY p.code", tenant, farmId);
+    for (var row : rows) enrich(row, tenant);
+    return Map.of("farmId", farmId, "farmName", farm.get("NAME"), "devices", rows);
   }
 
   public Map<String, Object> detail(String id) {
@@ -99,6 +110,7 @@ public class AssetService {
     row.put("credentialConfigured", Boolean.TRUE.equals(configured) || configured instanceof Number n && n.intValue() != 0);
     row.put("lastReceivedAt", DatabaseTime.utc(row.get("lastReceivedAt")));
     String id = row.get("id").toString();
+    if ("CAMERA".equals(row.get("deviceType"))) row.put("camera", cameras.read(tenant, id));
     if("MACHINERY".equals(row.get("deviceType"))) {
       var profiles=db.queryForList("SELECT profile_json FROM machinery_profiles WHERE tenant_id=? AND device_id=?",String.class,tenant,id);
       if(!profiles.isEmpty())try {row.put("machinery",new com.fasterxml.jackson.databind.ObjectMapper().readValue(profiles.getFirst(),Map.class));}
@@ -355,6 +367,7 @@ public class AssetService {
         channel.lowerLimit(),
         channel.upperLimit()
       );
+    cameras.save(Identity.tenant(), id, input.deviceType(), input.camera());
     store.audit("SAVE_ASSET", id);
     db.update(
       """
@@ -375,6 +388,7 @@ public class AssetService {
   }
 
   private void validate(WorkspaceInputs.Asset input) {
+    cameras.validate(input.deviceType(), input.camera());
     if (
       !MetricCatalog.TYPES.containsKey(input.deviceType()) ||
       !MetricCatalog.PROTOCOLS.containsKey(input.protocol())

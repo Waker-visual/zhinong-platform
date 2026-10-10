@@ -323,6 +323,14 @@ CREATE TABLE IF NOT EXISTS alert_field_issues (
  FOREIGN KEY(tenant_id,issue_id) REFERENCES field_issues(tenant_id,id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS camera_profiles (
+ tenant_id VARCHAR(36) NOT NULL,device_id VARCHAR(36) NOT NULL,
+ media_mode VARCHAR(20) NOT NULL,demo_scene VARCHAR(30) NOT NULL DEFAULT 'qinghe',
+ source_url VARCHAR(2048) NOT NULL DEFAULT '',view_label VARCHAR(100) NOT NULL DEFAULT '',
+ PRIMARY KEY(tenant_id,device_id),FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id) ON DELETE CASCADE,
+ CHECK(media_mode IN ('NONE','DEMO_IMAGE','IMAGE','VIDEO'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS farm_map_parcels (
  id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
  name VARCHAR(80) NOT NULL,boundary_json LONGTEXT NOT NULL,source VARCHAR(24) NOT NULL,source_note VARCHAR(500) NOT NULL,

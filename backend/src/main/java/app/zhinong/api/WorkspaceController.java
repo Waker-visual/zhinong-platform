@@ -73,6 +73,11 @@ public class WorkspaceController {
     return assets.catalog();
   }
 
+  @GetMapping("/farms/{id}/cameras")
+  Object cameras(@PathVariable String id) {
+    return assets.cameraViews(id);
+  }
+
   @GetMapping("/assets")
   Object assets(@RequestParam(required = false) String farmId) {
     return assets.list(farmId);

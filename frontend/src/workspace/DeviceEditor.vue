@@ -8,6 +8,7 @@ const props = defineProps({
   plots: Array,
   catalog: Object,
   farmId: String,
+  defaultType: String,
 });
 const emit = defineEmits(["close", "saved"]);
 const error = ref(""),
@@ -16,7 +17,7 @@ const model = reactive({
   farmId: props.asset?.farmId || props.farmId || props.farms[0]?.id || "",
   name: props.asset?.name || "",
   code: props.asset?.code || "",
-  deviceType: props.asset?.deviceType || "SOIL",
+  deviceType: props.asset?.deviceType || props.defaultType || "SOIL",
   protocol: props.asset?.protocol || "SIMULATED",
   lifecycle: props.asset?.lifecycle || "ACTIVE",
   plotId: props.asset?.plotId || "",
@@ -30,6 +31,12 @@ const model = reactive({
   notes: props.asset?.notes || "",
   intervalSeconds: props.asset?.intervalSeconds || 900,
   revision: props.asset?.revision || 0,
+  camera: {
+    mode: props.asset?.camera?.mode || (props.asset ? "NONE" : "DEMO_IMAGE"),
+    demoScene: props.asset?.camera?.demoScene || "qinghe",
+    sourceUrl: props.asset?.camera?.sourceUrl || "",
+    viewLabel: props.asset?.camera?.viewLabel || "",
+  },
   channels: props.asset?.channels.map((c) => ({
     metric: c.metric,
     lowerLimit: c.lowerLimit ?? "",
@@ -81,6 +88,19 @@ function applyPreset() {
       model.channels.push({ metric, lowerLimit: "", upperLimit: "" });
   }
 }
+watch(
+  () => model.deviceType,
+  (type) => {
+    if (type === "CAMERA") applyPreset();
+  },
+  { immediate: true },
+);
+const cameraModes = [
+  { value: "NONE", label: "暂不配置画面" },
+  { value: "DEMO_IMAGE", label: "预置图片" },
+  { value: "IMAGE", label: "HTTPS 图片源" },
+  { value: "VIDEO", label: "HTTPS 视频源（浏览器可播放）" },
+];
 const metricOptions = computed(() => [
   { value: "", label: "请选择指标", disabled: true },
   ...props.catalog.metrics.map((metric) => ({
@@ -105,6 +125,7 @@ async function save() {
   try {
     const body = {
       ...model,
+      camera: model.deviceType === "CAMERA" ? model.camera : null,
       plotId: model.plotId || null,
       planX:
         model.locationMode === "LOCAL_PLAN" ? numberOrNull(model.planX) : null,
@@ -235,7 +256,7 @@ async function save() {
                 type="number"
                 min="-80"
                 max="80"
-                step="0.000001"
+                step="any"
                 required
             /></label>
             <label
@@ -244,7 +265,7 @@ async function save() {
                 type="number"
                 min="-180"
                 max="180"
-                step="0.000001"
+                step="any"
                 required
             /></label>
           </template>
@@ -274,6 +295,50 @@ async function save() {
           WGS84 安装点位独立保存，调整农场中心不会移动它。高德 /
           百度坐标需先转换；未定位的设备仍保留数据和历史。
         </p>
+        <section v-if="model.deviceType === 'CAMERA'" class="channel-settings">
+          <h3>田间画面配置</h3>
+          <div class="form-grid">
+            <label
+              >机位说明<input
+                v-model.trim="model.camera.viewLabel"
+                maxlength="100"
+                placeholder="例如：东侧稻田固定机位"
+            /></label>
+            <label
+              >画面来源<SelectMenu
+                v-model="model.camera.mode"
+                :options="cameraModes"
+                aria-label="画面来源"
+            /></label>
+            <label v-if="model.camera.mode === 'DEMO_IMAGE'"
+              >预置画面<SelectMenu
+                v-model="model.camera.demoScene"
+                :options="catalog.cameraScenes || []"
+                aria-label="预置画面"
+            /></label>
+            <label v-if="['IMAGE', 'VIDEO'].includes(model.camera.mode)"
+              >画面地址<input
+                v-model.trim="model.camera.sourceUrl"
+                type="url"
+                maxlength="2048"
+                required
+                placeholder="https://…"
+                aria-label="画面地址"
+            /></label>
+          </div>
+          <p class="muted">
+            支持预置图片、HTTPS 图片及浏览器可播放的 MP4 / WebM 视频。
+            设备的启用、维护、停用状态同步作用于画面展示。
+          </p>
+          <p
+            v-if="['IMAGE', 'VIDEO'].includes(model.camera.mode)"
+            class="muted"
+          >
+            请使用 HTTPS 地址，不填写摄像头账号口令。RTSP / GB28181
+            设备需经媒体网关转换为浏览器可播放地址。
+            设备上报与画面来源分别配置。
+          </p>
+        </section>
         <section class="channel-settings">
           <div class="section-title">
             <h3>监测指标与告警阈值</h3>

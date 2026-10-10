@@ -14,6 +14,7 @@ import DataChart from "./DataChart.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 import DeviceControl from "./DeviceControl.vue";
 import DeviceIntegration from "./DeviceIntegration.vue";
+import CameraPlayer from "./CameraPlayer.vue";
 import {
   typeNames,
   sourceNames,
@@ -338,6 +339,10 @@ onBeforeUnmount(() => {
             </div>
           </template>
         </dl>
+        <section v-if="device.deviceType === 'CAMERA'" class="detail-trend">
+          <h3>田间画面</h3>
+          <CameraPlayer :device="device" />
+        </section>
         <div class="metric-cards">
           <button
             v-for="c in device.channels"

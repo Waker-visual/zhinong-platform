@@ -13,7 +13,7 @@ function filesIn(root, relative) {
 
 function fingerprint(root = path.resolve(__dirname, '..')) {
   const inputs = ['backend/src', 'frontend/src', 'backend/pom.xml', 'frontend/package.json',
-    'frontend/package-lock.json', 'frontend/index.html', 'frontend/vite.config.js'];
+    'frontend/package-lock.json', 'frontend/index.html', 'frontend/mobile', 'android', 'frontend/vite.config.js'];
   const entries = inputs.flatMap(p => filesIn(root, p)).sort().map(relative => [relative,
     crypto.createHash('sha256').update(fs.readFileSync(path.join(root, relative))).digest('hex')]);
   return crypto.createHash('sha256').update(JSON.stringify(entries)).digest('hex');
@@ -52,8 +52,8 @@ function scanFiles(root, files) {
       findings.push({ type: 'filled_model_template', path: relative });
     }
     // Scan application sources/configuration; dependency lockfiles and test fixtures contain public samples.
-    if (!/^(backend\/src\/main\/|frontend\/src\/)/.test(relative)) continue;
-    if (!/\.(java|vue|js|sql|yml|json|css)$/.test(relative)) continue;
+    if (!/^(backend\/src\/main\/|frontend\/src\/|android\/src\/|android\/res\/)/.test(relative)) continue;
+    if (!/\.(java|vue|mjs|js|xml|sql|yml|json|css)$/.test(relative)) continue;
     const lines = fs.readFileSync(full, 'utf8').split(/\r?\n/);
     lines.forEach((line, index) => {
       for (const [type, pattern] of Object.entries(patterns)) {

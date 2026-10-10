@@ -18,6 +18,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '项目检查工具测试未通过' }
     node --test tools/tests/coordinates.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '地图坐标回归测试未通过' }
+    node --test tools/tests/mobile.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw '手机端会话与指令测试未通过' }
+    & (Join-Path $PSScriptRoot 'verify-android.ps1')
     node tools/check_project.cjs scan
     if ($LASTEXITCODE -ne 0) { throw '项目公开范围或敏感信息检查未通过' }
     node tools/generate_mysql_schema.cjs --check

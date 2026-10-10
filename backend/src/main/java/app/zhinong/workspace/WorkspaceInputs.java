@@ -30,7 +30,15 @@ public final class WorkspaceInputs {
     @Pattern(regexp = "LOCAL_PLAN|WGS84") String locationMode,
     Double latitude,
     Double longitude,
-    Boolean controlEnabled
+    Boolean controlEnabled,
+    @Valid Camera camera
+  ) {}
+
+  public record Camera(
+    @NotBlank @Pattern(regexp = "NONE|DEMO_IMAGE|IMAGE|VIDEO") String mode,
+    @Size(max = 30) String demoScene,
+    @Size(max = 2048) String sourceUrl,
+    @Size(max = 100) String viewLabel
   ) {}
 
   public record Shape(

@@ -683,4 +683,65 @@ class WorkspaceIntegrationTest {
       db.queryForObject("SELECT COUNT(*) FROM telemetry_readings", Long.class)
     );
   }
+
+  @Test
+  void cameraMediaSharesFarmScopePermissionsAndAssetRevision() throws Exception {
+    String farm = farm(a), otherFarm = farm(a);
+    var body = asset(farm, plot(a, farm), "SIMULATED");
+    body.put("deviceType", "CAMERA");
+    body.put("channels", List.of(Map.of("metric", "CAMERA_ONLINE")));
+    body.put("camera", Map.of("mode", "DEMO_IMAGE", "demoScene", "runze", "viewLabel", "渠道固定机位"));
+    var created = data(request(a, "POST", "/assets", body), 200);
+    String id = created.path("id").asText();
+    assertEquals("/camera-demo/runze.png", created.at("/camera/playbackUrl").asText());
+    var views = data(request(viewer, "GET", "/farms/" + farm + "/cameras", null), 200);
+    assertEquals(farm, views.path("farmId").asText());
+    assertEquals(1, views.path("devices").size());
+    assertEquals(id, views.at("/devices/0/id").asText());
+    assertEquals(0, data(request(a, "GET", "/farms/" + otherFarm + "/cameras", null), 200).path("devices").size());
+    data(request(b, "GET", "/farms/" + farm + "/cameras", null), 404);
+    data(request(platform, "GET", "/farms/" + farm + "/cameras", null), 403);
+    data(request(null, "GET", "/farms/" + farm + "/cameras", null), 401);
+    data(request(b, "GET", "/assets/" + id, null), 404);
+    body.put("revision", created.path("revision").asInt());
+    body.put("camera", Map.of("mode", "VIDEO", "sourceUrl", "https://example.org/field.mp4", "viewLabel", "田间录像"));
+    data(request(viewer, "PUT", "/assets/" + id, body), 403);
+    data(request(operator, "PUT", "/assets/" + id, body), 403);
+    data(request(b, "PUT", "/assets/" + id, body), 404);
+    var saved = data(request(a, "PUT", "/assets/" + id, body), 200);
+    assertEquals("VIDEO", saved.at("/camera/mode").asText());
+    assertEquals("https://example.org/field.mp4", data(request(a, "GET", "/assets/" + id, null), 200).at("/camera/sourceUrl").asText());
+    data(request(a, "PUT", "/assets/" + id, body), 409);
+    body.put("revision", saved.path("revision").asInt());
+    body.put("lifecycle", "DISABLED");
+    body.remove("camera"); // An older asset editor must not erase a configured source.
+    saved = data(request(a, "PUT", "/assets/" + id, body), 200);
+    assertEquals("VIDEO", saved.at("/camera/mode").asText());
+    assertEquals("DISABLED", data(request(a, "GET", "/farms/" + farm + "/cameras", null), 200).at("/devices/0/lifecycle").asText());
+    body.put("revision", saved.path("revision").asInt());
+    body.put("camera", Map.of("mode", "NONE"));
+    assertEquals("", data(request(a, "PUT", "/assets/" + id, body), 200).at("/camera/sourceUrl").asText());
+  }
+
+  @Test
+  void cameraMediaRejectsInvalidSourcesAndCrossFarmAssociations() throws Exception {
+    String farm = farm(a), otherFarm = farm(a);
+    var body = asset(farm, plot(a, farm), "SIMULATED");
+    body.put("deviceType", "CAMERA");
+    for (String url : List.of("javascript:alert(1)", "data:text/html,invalid", "http://example.org/field.jpg", "https://user:pass@example.org/view", "/another-page")) {
+      body.put("camera", Map.of("mode", "IMAGE", "sourceUrl", url));
+      data(request(a, "POST", "/assets", body), 400);
+    }
+    body.put("camera", Map.of("mode", "DEMO_IMAGE", "demoScene", "../private"));
+    data(request(a, "POST", "/assets", body), 400);
+    body.put("camera", Map.of("mode", "IMAGE", "sourceUrl", "https://example.org/field.jpg"));
+    body.put("plotId", plot(a, otherFarm));
+    data(request(a, "POST", "/assets", body), 400);
+    body.put("plotId", null);
+    body.put("deviceType", "SOIL");
+    data(request(a, "POST", "/assets", body), 400);
+    body.put("deviceType", "CAMERA");
+    String id = data(request(a, "POST", "/assets", body), 200).path("id").asText();
+    assertEquals("IMAGE", data(request(viewer, "GET", "/assets/" + id, null), 200).at("/camera/mode").asText());
+  }
 }

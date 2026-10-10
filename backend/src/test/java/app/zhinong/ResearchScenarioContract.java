@@ -38,14 +38,24 @@ abstract class ResearchScenarioContract {
     var cards=call(token,"GET","/farm-workspaces",null,200);assertEquals(5,cards.size());
     assertEquals(5,call(token,"GET","/farms",null,200).size());
     assertEquals(15,call(token,"GET","/plots",null,200).size());
-    var totals=call(token,"GET","/dashboard",null,200);assertEquals(5,totals.path("farms").asInt());assertEquals(70,totals.path("devices").asInt());
-    Set<String> boundaries=new HashSet<>();int models=0;
+    var totals=call(token,"GET","/dashboard",null,200);assertEquals(5,totals.path("farms").asInt());assertEquals(80,totals.path("devices").asInt());
+    Set<String> boundaries=new HashSet<>(), cameraScenes=new HashSet<>();int models=0;
     for(var card:cards) {
       String f=card.path("id").asText();var map=call(token,"GET","/farms/"+f+"/field-map",null,200);
       assertTrue(map.path("parcels").size()>=9);assertEquals(9,map.path("zones").size());
       assertTrue(boundaries.add(map.path("parcels").get(0).path("boundary").toString()));
       var report=call(token,"GET","/farms/"+f+"/research-data",null,200);assertTrue(report.path("consistent").asBoolean(),report.toString());
       assertTrue(report.at("/counts/farm_tasks").asInt()>350);
+      var cameras=call(token,"GET","/farms/"+f+"/cameras",null,200).path("devices");
+      assertEquals(3,cameras.size());assertEquals(f,cameras.get(0).path("farmId").asText());
+      assertEquals("DEMO_IMAGE",cameras.get(0).at("/camera/mode").asText());
+      assertTrue(cameraScenes.add(cameras.get(0).at("/camera/playbackUrl").asText()));
+      Set<String> plots=new HashSet<>(),views=new HashSet<>();
+      for(var c:cameras) {
+        assertEquals(f,c.path("farmId").asText());assertTrue(c.path("positioned").asBoolean());
+        assertTrue(plots.add(c.path("plotId").asText()));assertTrue(views.add(c.at("/camera/playbackUrl").asText()));
+        assertFalse(c.at("/camera/viewLabel").asText().contains("合成演示"));
+      }
       for(var a:call(token,"GET","/assets?farmId="+f,null,200)) if(a.has("machinery")) {
         models++;var profile=a.path("machinery");assertFalse(profile.path("model").asText().isBlank());
         if(!f.equals(farm()))assertEquals("",profile.path("serialNumber").asText());
@@ -182,7 +192,7 @@ abstract class ResearchScenarioContract {
     assertEquals(LocalDate.now().minusYears(2).toString(),report.at("/manifest/historyStart").asText());
     assertTrue(report.at("/counts/farm_tasks").asInt()>350);
     assertTrue(report.at("/counts/production").asInt()>30);
-    assertEquals(14,call(token,"GET","/assets?farmId="+id,null,200).size());
+    assertEquals(16,call(token,"GET","/assets?farmId="+id,null,200).size());
     var work=call(token,"GET","/field-work?farmId="+id,null,200);
     assertTrue(work.path("tasks").get(0).has("ASSIGNEE_ID"));
     assertTrue(work.path("issues").size()>30);
@@ -224,7 +234,28 @@ abstract class ResearchScenarioContract {
       }
     }
     var operations=call(token,"GET","/farms/"+id+"/operations?hours=720",null,200);
-    assertEquals(14,operations.at("/summary/freshDevices").asInt());
+    assertEquals(16,operations.at("/summary/freshDevices").asInt());
+  }
+
+  @Test @Transactional void cameraUpgradeFillsMissingStationsWithoutReplacingConfiguredSources() {
+    String tenant=tenant(),farm=farm();
+    String original=db.queryForObject("SELECT d.id FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id WHERE d.tenant_id=? AND d.farm_id=? AND a.code='DEMO-CTRL-CAMERA'",String.class,tenant,farm);
+    db.update("UPDATE devices SET name='已接入的自定义机位' WHERE tenant_id=? AND id=?",tenant,original);
+    db.update("UPDATE camera_profiles SET media_mode='VIDEO',source_url='https://example.org/private-feed.mp4',view_label='东侧固定机位' WHERE tenant_id=? AND device_id=?",tenant,original);
+    // Recreate a v1 installation with one camera, and verify the additive upgrade twice.
+    for(String id:db.queryForList("SELECT d.id FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id WHERE d.tenant_id=? AND d.farm_id=? AND a.code LIKE 'DEMO-CTRL-ZCAM-%'",String.class,tenant,farm)) {
+      db.update("DELETE FROM telemetry_readings WHERE tenant_id=? AND device_id=?",tenant,id);
+      db.update("DELETE FROM observations WHERE tenant_id=? AND device_id=?",tenant,id);
+      db.update("DELETE FROM devices WHERE tenant_id=? AND id=?",tenant,id);
+    }
+    db.update("DELETE FROM demo_scenarios WHERE tenant_id=? AND scenario=?",tenant,"cam2"+farm);
+    long others=db.queryForObject("SELECT COUNT(*) FROM devices WHERE tenant_id<>?",Long.class,tenant);
+    var seed=context.getBean(app.zhinong.bootstrap.CameraDemoData.class);seed.run(null);seed.run(null);
+    assertEquals(3,db.queryForObject("SELECT COUNT(*) FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id WHERE d.tenant_id=? AND d.farm_id=? AND a.device_type='CAMERA'",Integer.class,tenant,farm));
+    assertEquals("已接入的自定义机位",db.queryForObject("SELECT name FROM devices WHERE tenant_id=? AND id=?",String.class,tenant,original));
+    assertEquals("https://example.org/private-feed.mp4",db.queryForObject("SELECT source_url FROM camera_profiles WHERE tenant_id=? AND device_id=?",String.class,tenant,original));
+    assertEquals("东侧固定机位",db.queryForObject("SELECT view_label FROM camera_profiles WHERE tenant_id=? AND device_id=?",String.class,tenant,original));
+    assertEquals(others,db.queryForObject("SELECT COUNT(*) FROM devices WHERE tenant_id<>?",Long.class,tenant));
   }
 
   @Test @Transactional void upsertsKeepCompositeTenantKeysAndBooleanTypes() {
