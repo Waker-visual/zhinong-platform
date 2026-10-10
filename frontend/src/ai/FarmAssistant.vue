@@ -215,10 +215,13 @@ async function savePolicy() {
   if(policy.mode==='AUTO' && !await confirm({title:'启用此地块的自动模拟灌溉？',message:`土壤水分低于 ${policy.thresholdValue}% 时将自动检查并启动，每次 ${policy.durationSeconds} 秒，每天最多 ${policy.dailyLimit} 次。阈值是教学参数，需要按作物校准。`,confirmLabel:'启用自动模式'})) return;
   await perform(async()=>{irrigation.value=await api('/ai/irrigation/policy','PUT',{...policy,farmId:props.farmId});editing.value=false;notice.value='策略已保存';});
 }
-async function propose(id) {await perform(async()=>{await api(`/ai/irrigation/plots/${id}/propose`,'POST');await refresh();notice.value='建议已生成，请核对原因、设备和时长后确认。';});}
+// 灌溉动作之后只重新读取灌溉工作区：完整 refresh() 还会重算耗时的天气分析并清空聊天运行状态，
+// 导致取消/批准后按钮长时间禁用、聊天里的审批卡片迟迟不更新。
+async function refreshIrrigation() {irrigation.value=await api('/ai/irrigation?farmId='+props.farmId);}
+async function propose(id) {await perform(async()=>{await api(`/ai/irrigation/plots/${id}/propose`,'POST');await refreshIrrigation();notice.value='建议已生成，请核对原因、设备和时长后确认。';});}
 async function act(run,action) {
   if(action==='approve' && !await confirm(irrigationApproveConfirm(run))) return;
-  await perform(async()=>{const result=await api(`/ai/irrigation/runs/${run.id}/${action}`,'POST');await refresh();notice.value=result.status==='RUNNING'?'模拟灌溉已启动，到时自动停泵。':`当前状态：${states[result.status]||result.status}。`;});
+  await perform(async()=>{const result=await api(`/ai/irrigation/runs/${run.id}/${action}`,'POST');await refreshIrrigation();notice.value=result.status==='RUNNING'?'模拟灌溉已启动，到时自动停泵。':`当前状态：${states[result.status]||result.status}。`;});
 }
 function plotName(id){return irrigation.value.plots.find(p=>p.id===id)?.name||id;}
 const weatherCharts=computed(()=>[
