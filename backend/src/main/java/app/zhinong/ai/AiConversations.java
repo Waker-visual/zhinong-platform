@@ -22,6 +22,8 @@ public class AiConversations {
   }
   public record NewChat(@NotBlank String farmId) {}
   public record BranchRequest(@NotBlank String messageId) {}
+  public record RenameRequest(@NotBlank @Size(max=40) String title) {}
+  public record PinRequest(boolean pinned) {}
   public record Question(@NotBlank @Size(max=2000) String question,@NotBlank @Pattern(regexp="[A-Za-z0-9_.:-]{1,80}") String requestId) {}
   // Safe, already-completed activity summary; never raw prompts, tool arguments or credentials.
   public record ActivitySummary(@NotBlank @Size(max=80) String activityId,int sequenceNo,
@@ -30,16 +32,38 @@ public class AiConversations {
     @Size(max=500) String detail,@Size(max=500) String resultSummary,
     OffsetDateTime startedAt,OffsetDateTime finishedAt) {}
   @GetMapping("/analysis") public Map<String,Object> report(@RequestParam String farmId) { return analysis.report(farmId); }
+  // 已置顶（pinned_at 非空）的会话排在最前，按置顶时间倒序；其余按更新时间倒序——
+  // 和同步/流式两条路径写 updated_at 的时机一致，置顶与重命名都不触碰这一列。
   @GetMapping("/conversations") public List<Map<String,Object>> list(@RequestParam String farmId) {
     store.get("farms",farmId);
-    return db.queryForList("SELECT id,title,updated_at AS \"updatedAt\" FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? ORDER BY updated_at DESC LIMIT 50",Identity.tenant(),Identity.current().memberId(),farmId);
+    return db.queryForList(
+      "SELECT id AS \"id\",title AS \"title\",title_source AS \"titleSource\",pinned_at AS \"pinnedAt\",created_at AS \"createdAt\",updated_at AS \"updatedAt\" "
+      +"FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? "
+      +"ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,pinned_at DESC,updated_at DESC LIMIT 50",
+      Identity.tenant(),Identity.current().memberId(),farmId);
   }
   @PostMapping("/conversations") @Transactional public Map<String,Object> create(@RequestBody @Valid NewChat input) {
     store.lock("farms",input.farmId());
     if (list(input.farmId()).size()>=50) throw new ApiException(409,"每个农场最多保留50个对话，请先删除旧对话");
     String id=UUID.randomUUID().toString(); var now=OffsetDateTime.now();
-    db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",id,Identity.tenant(),Identity.current().memberId(),input.farmId(),"新的农事对话",now,now);
+    db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,title_source,created_at,updated_at) VALUES(?,?,?,?,?,'auto',?,?)",id,Identity.tenant(),Identity.current().memberId(),input.farmId(),"新的农事对话",now,now);
     return Map.of("id",id,"title","新的农事对话");
+  }
+  // 重命名：行内编辑提交后调用，1–40字（@Size 已校验最大长度，这里再拦截 trim 后的空标题）；
+  // title_source 切到 'user'，之后自动标题（阶段F新对话首问）永远不会再覆盖它。
+  @PostMapping("/conversations/{id}/rename") @Transactional public Map<String,Object> rename(@PathVariable String id,@RequestBody @Valid RenameRequest input) {
+    owned(id,true);
+    String title=input.title().strip();
+    if(title.isEmpty()) throw new ApiException(400,"标题不能为空");
+    db.update("UPDATE ai_conversations SET title=?,title_source='user' WHERE tenant_id=? AND member_id=? AND id=?",title,Identity.tenant(),Identity.current().memberId(),id);
+    return Map.of("id",id,"title",title,"titleSource","user");
+  }
+  // 置顶/取消置顶：只记一个时间戳，不影响标题或 updated_at；列表按 pinned_at 排序。
+  @PostMapping("/conversations/{id}/pin") @Transactional public Map<String,Object> pin(@PathVariable String id,@RequestBody @Valid PinRequest input) {
+    owned(id,true);
+    var now=input.pinned()?OffsetDateTime.now():null;
+    db.update("UPDATE ai_conversations SET pinned_at=? WHERE tenant_id=? AND member_id=? AND id=?",now,Identity.tenant(),Identity.current().memberId(),id);
+    return Map.of("id",id,"pinned",input.pinned());
   }
   // Package-private (not private): reused by AiStreamService (Task 5) to run the exact same
   // ownership/tenant check before opening a stream, so unauthorized or cross-tenant requests never
@@ -131,8 +155,13 @@ public class AiConversations {
     var now=OffsetDateTime.now();
     insert(id,input.requestId(),"user",input.question().strip(),"user","",now);
     insert(id,input.requestId(),"assistant",answer,mode,completion.isPresent()?"OK":llm.diagnostic(),now.plusNanos(1000000));
-    String title=history.isEmpty()?input.question().strip().substring(0,Math.min(36,input.question().strip().length())):chat.get("TITLE").toString();
-    db.update("UPDATE ai_conversations SET title=?,updated_at=? WHERE tenant_id=? AND member_id=? AND id=?",title,now,tenant,Identity.current().memberId(),id);
+    db.update("UPDATE ai_conversations SET updated_at=? WHERE tenant_id=? AND member_id=? AND id=?",now,tenant,Identity.current().memberId(),id);
+    // 同步接口（旧 /messages）没有阶段F的模型标题生成（那只在流式路径上做），首次提问时只用问题前
+    // 16字作为回退标题，并且和流式路径一样绝不覆盖用户已经手动重命名过的标题（title_source='user'）。
+    if(history.isEmpty()) {
+      String fallbackTitle=input.question().strip().substring(0,Math.min(16,input.question().strip().length()));
+      db.update("UPDATE ai_conversations SET title=? WHERE tenant_id=? AND member_id=? AND id=? AND title_source='auto'",fallbackTitle,tenant,Identity.current().memberId(),id);
+    }
     return Map.of("answer",answer,"mode",mode,"diagnostic",completion.isPresent()?"OK":llm.diagnostic());
   }
 
@@ -144,9 +173,13 @@ public class AiConversations {
    * transaction stays open across the model call itself). If {@code replay} is true, the request id
    * was already answered and the run must only replay {@code existingAnswer} (and {@code existingActivities},
    * if any were saved) rather than call the model. */
-  record PreparedRun(String tenant,String farmId,String title,List<Map<String,Object>> context,Map<String,Object> report,
+  record PreparedRun(String tenant,String farmId,String fallbackTitle,List<Map<String,Object>> context,Map<String,Object> report,
     boolean replay,String existingMessageId,String existingAnswer,String existingMode,String existingDiagnostic,
-    List<Map<String,Object>> existingActivities) {}
+    List<Map<String,Object>> existingActivities,
+    // 阶段F：仅当这是该会话的第一条消息且标题还没被用户手动重命名过（title_source='auto'）时才为
+    // true——只有这种情况下，AiStreamService 才会用模型生成一次短标题（或在模型不可用时回退到
+    // fallbackTitle）并通过 conversation.titled 事件广播、随最终回答一起持久化。
+    boolean autoTitleEligible) {}
 
   @Transactional
   PreparedRun prepareStream(String id,Question input) {
@@ -157,15 +190,17 @@ public class AiConversations {
       var asst=existing.stream().filter(m -> "assistant".equals(m.get("ROLE"))).findFirst().orElseThrow();
       String assistantId=asst.get("ID").toString();
       var activities=db.queryForList("SELECT activity_id,kind,label,status,detail,result_summary,started_at,finished_at FROM ai_message_activities WHERE tenant_id=? AND message_id=? ORDER BY sequence_no",tenant,assistantId);
-      return new PreparedRun(tenant,chat.get("FARM_ID").toString(),chat.get("TITLE").toString(),null,null,
-        true,assistantId,asst.get("CONTENT").toString(),asst.get("MODE").toString(),String.valueOf(asst.get("DIAGNOSTIC")),activities);
+      return new PreparedRun(tenant,chat.get("FARM_ID").toString(),null,null,null,
+        true,assistantId,asst.get("CONTENT").toString(),asst.get("MODE").toString(),String.valueOf(asst.get("DIAGNOSTIC")),activities,false);
     }
     var history=messages(id);
     if(history.size()>=200) throw new ApiException(409,"此对话已达100轮，请新建对话");
     var report=analysis.report(chat.get("FARM_ID").toString());
     var context=buildContext(report,history,input.question());
-    String title=history.isEmpty()?input.question().strip().substring(0,Math.min(36,input.question().strip().length())):chat.get("TITLE").toString();
-    return new PreparedRun(tenant,chat.get("FARM_ID").toString(),title,context,report,false,null,null,null,null,List.of());
+    boolean firstMessage=history.isEmpty();
+    String fallbackTitle=firstMessage?input.question().strip().substring(0,Math.min(16,input.question().strip().length())):null;
+    boolean autoTitleEligible=firstMessage && "auto".equals(String.valueOf(chat.get("TITLE_SOURCE")));
+    return new PreparedRun(tenant,chat.get("FARM_ID").toString(),fallbackTitle,context,report,false,null,null,null,null,List.of(),autoTitleEligible);
   }
 
   /** Result of persisting a finished streaming run. */
@@ -180,8 +215,20 @@ public class AiConversations {
    * this does not double-write — it simply returns the winner's already-persisted result instead (the
    * winner's own finalizeStream call already saved its own activities).
    */
+  /**
+   * @param firstMessageTitle 阶段F：仅当这是该会话的第一条消息且仍允许自动命名时非空——已经由
+   * AiStreamService 生成（模型或回退）并通过 conversation.titled 事件广播过的标题。非首条消息传
+   * null，表示“不改标题”。SQL 里的 {@code AND title_source='auto'} 是最后一道防线：即使调用方
+   * 判断时序上允许自动命名，如果用户恰好在这中间抢先重命名过，也绝不会被这次写回覆盖。
+   */
+  /** 回答落库后写入模型生成的正式标题；用户已手动重命名（title_source='user'）时不覆盖，返回 false。 */
   @Transactional
-  FinalizedRun finalizeStream(String tenant,String id,String requestId,String question,String answer,String mode,String diagnostic,String title,List<ActivitySummary> activities) {
+  boolean updateAutoTitle(String tenant,String id,String title) {
+    return db.update("UPDATE ai_conversations SET title=? WHERE tenant_id=? AND member_id=? AND id=? AND title_source='auto'",title,tenant,Identity.current().memberId(),id)>0;
+  }
+
+  @Transactional
+  FinalizedRun finalizeStream(String tenant,String id,String requestId,String question,String answer,String mode,String diagnostic,String firstMessageTitle,List<ActivitySummary> activities) {
     var now=OffsetDateTime.now();
     try {
       insert(id,requestId,"user",question,"user","",now);
@@ -192,7 +239,8 @@ public class AiConversations {
       var row=winner.getFirst();
       return new FinalizedRun(row.get("ID").toString(),row.get("CONTENT").toString(),row.get("MODE").toString(),String.valueOf(row.get("DIAGNOSTIC")));
     }
-    db.update("UPDATE ai_conversations SET title=?,updated_at=? WHERE tenant_id=? AND member_id=? AND id=?",title,now,tenant,Identity.current().memberId(),id);
+    db.update("UPDATE ai_conversations SET updated_at=? WHERE tenant_id=? AND member_id=? AND id=?",now,tenant,Identity.current().memberId(),id);
+    if(firstMessageTitle!=null) db.update("UPDATE ai_conversations SET title=? WHERE tenant_id=? AND member_id=? AND id=? AND title_source='auto'",firstMessageTitle,tenant,Identity.current().memberId(),id);
     String assistantId=db.queryForObject("SELECT id FROM ai_messages WHERE tenant_id=? AND conversation_id=? AND request_id=? AND role='assistant'",String.class,tenant,id,requestId);
     if(!activities.isEmpty()) saveActivities(tenant,id,assistantId,activities);
     return new FinalizedRun(assistantId,answer,mode,diagnostic);

@@ -234,7 +234,10 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
  id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,member_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,
  title VARCHAR(80) NOT NULL,created_at TIMESTAMP(6) NOT NULL,updated_at TIMESTAMP(6) NOT NULL,
  UNIQUE(tenant_id,id),FOREIGN KEY(tenant_id,member_id) REFERENCES members(tenant_id,id),
- FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id)
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),
+ pinned_at TIMESTAMP(6),
+ title_source VARCHAR(10) NOT NULL DEFAULT 'auto',
+ CONSTRAINT chk_ai_conversations_title_source CHECK(title_source IN ('auto','user'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS ai_messages (
