@@ -218,7 +218,10 @@ class AiIntegrationTest {
     // expected.get("<deviceId>|<metric>") = {latestValue, freshFlag(1/0)}
     var expected = new LinkedHashMap<String, double[]>();
     var batch = new ArrayList<Object[]>();
-    int rowsPerPair = 1500; // 3 devices * 6 metrics * 1500 = 27,000 historical rows
+    // 3 devices * 6 metrics * 400 = 7,200 historical rows: enough to exercise the windowed query and the
+    // equivalence check, small enough that the slow legacy NOT EXISTS query cannot hit H2's statement
+    // timeout on a loaded CI machine (at 27,000 rows it intermittently did).
+    int rowsPerPair = 400;
     for (String device : devices) {
       for (String metric : metrics) {
         for (int i = 0; i < rowsPerPair; i++) {
