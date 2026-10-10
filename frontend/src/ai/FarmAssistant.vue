@@ -253,7 +253,7 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
           <template v-for="group in historyGroups" :key="group.key">
             <p class="ai-history-group-label">{{group.label}}</p>
             <div v-for="c in group.items" :key="c.id" class="ai-history-item" :class="{selected:selected===c.id,'menu-open':openMenuId===c.id}">
-              <input v-if="renamingId===c.id" ref="renameInput" class="ai-history-rename" :value="renameValue" maxlength="40"
+              <input v-if="renamingId===c.id" :ref="el=>{if(el) renameInput=el;}" class="ai-history-rename" :value="renameValue" maxlength="40"
                 @input="e=>renameValue=e.target.value" @keydown.enter="commitRename(c.id)" @keydown.esc="cancelRename"
                 @blur="commitRename(c.id)" @click.stop />
               <button v-else :disabled="sending" :aria-current="selected===c.id?'true':undefined" :title="`创建于 ${time(c.createdAt)}`"

@@ -37,6 +37,8 @@ async function show(focusFirst) {
   window.addEventListener("resize", reposition);
   await nextTick();
   reposition();
+  // 定位样式（去掉 visibility:hidden）要再渲染一次才生效，不可见元素无法获得焦点
+  await nextTick();
   if (focusFirst) menuItems()[0]?.focus();
 }
 function reposition() {
@@ -62,9 +64,13 @@ function close(returnFocus) {
   if (returnFocus) trigger.value?.focus();
 }
 function onTriggerKey(event) {
-  if (event.key === "ArrowDown" && !open.value) {
+  if (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ") {
     event.preventDefault();
-    show(true);
+    if (open.value) menuItems()[0]?.focus();
+    else show(true);
+  } else if (event.key === "Escape" && open.value) {
+    event.preventDefault();
+    close(true);
   }
 }
 function onMenuKey(event) {

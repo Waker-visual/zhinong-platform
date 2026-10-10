@@ -45,14 +45,14 @@
 .ai-history-menu-trigger .app-icon {width:16px;height:16px;}
 /* 菜单本体 Teleport 到 body，由 AiHistoryMenu.vue 按内容宽度测量后右对齐到历史项右缘（position:fixed 内联样式）。
    尺寸比通用 .action-menu-list 小一档：28px 行高、13px 字、14px 图标，像原生上下文菜单一样按内容收缩。 */
-.ai-history-menu-list {width:max-content;min-width:140px;max-width:200px;padding:4px;border-radius:var(--radius);right:auto !important;}
-.ai-history-menu-list li {padding:0;}
-.ai-history-menu-list button {height:28px;min-height:28px;padding:0 10px 0 8px;gap:8px;border-radius:6px;font-size:13px;}
-.ai-history-menu-list button .app-icon {width:14px;height:14px;stroke-width:2;color:var(--label-fg);}
-.ai-history-menu-list button:hover .app-icon,.ai-history-menu-list button:focus-visible .app-icon {color:var(--text);}
-.ai-history-menu-list li.danger-row {margin-top:4px;padding-top:4px;}
-.ai-history-menu-list button.danger,.ai-history-menu-list button.danger .app-icon {color:var(--danger);}
-.ai-history-menu-list button.danger:hover,.ai-history-menu-list button.danger:focus-visible {background:var(--control-hover);color:var(--danger);}
+.action-menu-list.ai-history-menu-list {width:max-content;min-width:140px;max-width:200px;padding:4px;border-radius:var(--radius);right:auto !important;}
+.action-menu-list.ai-history-menu-list li {padding:0;}
+.action-menu-list.ai-history-menu-list button {height:28px;min-height:28px;padding:0 10px 0 8px;gap:8px;border-radius:6px;font-size:13px;}
+.action-menu-list.ai-history-menu-list button .app-icon {width:14px;height:14px;stroke-width:2;color:var(--label-fg);}
+.action-menu-list.ai-history-menu-list button:hover .app-icon,.action-menu-list.ai-history-menu-list button:focus-visible .app-icon {color:var(--text);}
+.action-menu-list.ai-history-menu-list li.danger-row {margin-top:4px;padding-top:4px;}
+.action-menu-list.ai-history-menu-list button.danger,.action-menu-list.ai-history-menu-list button.danger .app-icon {color:var(--danger);}
+.action-menu-list.ai-history-menu-list button.danger:hover,.action-menu-list.ai-history-menu-list button.danger:focus-visible {background:var(--control-hover);color:var(--danger);}
 .ai-messages-wrap {position:relative;min-width:0;}
 .ai-messages {position:relative;height:480px;overflow-y:auto;overflow-x:hidden;padding:24px;}
 .ai-welcome {max-width:660px;margin:20px auto;text-align:center;}.ai-monogram {display:inline-grid;place-items:center;width:46px;height:46px;border-radius:14px;background:var(--brand);color:var(--on-brand);font-family:var(--font-serif);font-size:24px;}
