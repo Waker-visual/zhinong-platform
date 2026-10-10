@@ -12,7 +12,7 @@ import {
   shouldAutoOpenActivities,
   activitySummaryText,
   streamingStatusText,
-  shouldShowCaret,
+  orderActivitiesForDisplay,
   irrigationApprovalTarget,
   formatActivityDuration,
   formatElapsedStatus,
@@ -606,12 +606,23 @@ test("streamingStatusText returns the expected Chinese text per status, includin
   assert.equal(streamingStatusText("error"), "回答失败，请重试");
 });
 
-test("shouldShowCaret only appears while running and text has already started streaming", () => {
-  assert.equal(shouldShowCaret("running", "部分正文"), true);
-  assert.equal(shouldShowCaret("running", ""), false);
-  assert.equal(shouldShowCaret("submitted", "部分正文"), false);
-  assert.equal(shouldShowCaret("completed", "全部正文"), false);
-  assert.equal(shouldShowCaret("error", "部分正文"), false);
+test("orderActivitiesForDisplay sinks running activities below finished ones without mutating the input", () => {
+  const activities = [
+    { id: "context", status: "completed" },
+    { id: "answer", status: "running" },
+    { id: "weather", status: "completed" },
+    { id: "approval", kind: "approval", status: "pending" },
+    { id: "issues", status: "error" },
+  ];
+  const snapshot = activities.map((a) => a.id);
+  assert.deepEqual(orderActivitiesForDisplay(activities).map((a) => a.id), ["context", "weather", "approval", "issues", "answer"]);
+  assert.deepEqual(activities.map((a) => a.id), snapshot);
+});
+
+test("orderActivitiesForDisplay keeps arrival order once nothing is running", () => {
+  const activities = [{ id: "a", status: "completed" }, { id: "b", status: "completed" }];
+  assert.deepEqual(orderActivitiesForDisplay(activities).map((a) => a.id), ["a", "b"]);
+  assert.deepEqual(orderActivitiesForDisplay(undefined), []);
 });
 
 test("irrigationApprovalTarget parses the irrigation-run id encoded in an approval activity", () => {
@@ -704,22 +715,23 @@ test("the streamed assistant text itself is not nested inside the aria-live stat
   assert.ok(textIndex < statusIndex, "ai-message-text must come before the sibling AiStreamingStatus, not wrap it");
 });
 
-test("decorative animated caret and status/activity dots carry aria-hidden=true", () => {
+test("decorative skeleton, orbit loader and status/activity dots carry aria-hidden=true", () => {
   const farmAssistant = read("FarmAssistant.vue");
-  assert.match(farmAssistant, /class="ai-caret"[^>]*aria-hidden="true"/);
   assert.match(farmAssistant, /class="ai-skeleton-lines"[^>]*aria-hidden="true"/);
   const streamingStatus = read("AiStreamingStatus.vue");
   assert.match(streamingStatus, /class="ai-status-dot"[^>]*aria-hidden="true"/);
+  assert.match(streamingStatus, /class="ai-orbit"[^>]*aria-hidden="true"/);
   const activityRow = read("AiActivityRow.vue");
   assert.match(activityRow, /class="ai-activity-dot"[^>]*aria-hidden="true"/);
 });
 
-test("assistant.css disables the caret, shimmer text and disclosure transition under prefers-reduced-motion: reduce", () => {
+test("assistant.css disables the orbit loader, streamed-word fade, shimmer text and disclosure transition under prefers-reduced-motion: reduce", () => {
   const css = read("assistant.css");
   const match = css.match(/@media \(prefers-reduced-motion: reduce\) \{([\s\S]*?)\n\}/);
   assert.ok(match, "assistant.css must contain a prefers-reduced-motion: reduce block");
   const block = match[1];
-  assert.match(block, /\.ai-caret\s*\{[^}]*animation:\s*none/);
+  assert.match(block, /\.ai-orbit i\s*\{[^}]*animation:\s*none/);
+  assert.match(block, /\.ai-stream-seg\s*\{[^}]*animation:\s*none/);
   assert.match(block, /\.ai-streaming-status\.submitted \.ai-status-text,\s*\.ai-streaming-status\.running \.ai-status-text\s*\{[^}]*animation:\s*none/);
   assert.match(block, /\.ai-activity-collapse[^{]*\{[^}]*transition:\s*none/);
 });

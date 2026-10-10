@@ -192,9 +192,13 @@ export function streamingStatusText(status, diagnostic, usingSyncFallback = fals
   }
 }
 
-// 光标仅在运行中且已经有正文时追加，避免空文本时出现孤立的闪烁光标。
-export function shouldShowCaret(status, text) {
-  return status === "running" && !!text;
+// 时间线的展示顺序：仍在进行的活动沉到末尾，其余保持到达顺序。
+// “生成回答”贯穿整轮运行、最先开始，之后才陆续插入各个工具查询——按到达顺序渲染的话，
+// 转圈的进行中图标会夹在一串已完成的勾中间；落库后的活动摘要里它本来就排在最后，
+// 这里让运行中的展示与之一致。只调整展示，不改 run.activities 本身的顺序。
+export function orderActivitiesForDisplay(activities) {
+  const list = activities || [];
+  return [...list.filter((a) => a.status !== "running"), ...list.filter((a) => a.status === "running")];
 }
 
 // 灌溉审批活动的 target 解析：后端把目标编码进活动的标识字段（"irrigation-run:<runId>"），不需要

@@ -7,39 +7,48 @@
 import { h } from "vue";
 import { parseMarkdown } from "./markdown.js";
 
-function renderInline(tokens) {
-  return (tokens || []).map((token) => {
-    if (token.type === "bold") return h("strong", renderInline(token.value));
+// 流式输出时把正文切成词段，每段一个 <span>：新到的词段挂载时淡入，已有词段由 Vue 按位置原地
+// 复用（同类型节点只更新文本），动画不会重播。回答落库后走非流式分支，恢复成普通文本节点。
+const segmenter = typeof Intl !== "undefined" && Intl.Segmenter ? new Intl.Segmenter("zh-CN", { granularity: "word" }) : null;
+function streamSegments(text) {
+  if (segmenter) return Array.from(segmenter.segment(text), (part) => part.segment);
+  return text.match(/[\u4e00-\u9fff]{1,2}|\s+|[^\s\u4e00-\u9fff]+/g) || [text];
+}
+
+function renderInline(tokens, streaming) {
+  return (tokens || []).flatMap((token) => {
+    if (token.type === "bold") return h("strong", renderInline(token.value, streaming));
     if (token.type === "code") return h("code", { class: "ai-md-code-inline" }, token.value);
-    return token.value;
+    if (!streaming) return token.value;
+    return streamSegments(token.value).map((segment) => h("span", { class: "ai-stream-seg" }, segment));
   });
 }
 
-function renderListItems(items, ordered) {
+function renderListItems(items, ordered, streaming) {
   return items.map((item) =>
     h("li", [
-      h("span", renderInline(item.inline)),
-      item.children?.length ? h(ordered ? "ol" : "ul", { class: "ai-md-list ai-md-list-nested" }, renderListItems(item.children, ordered)) : null,
+      h("span", renderInline(item.inline, streaming)),
+      item.children?.length ? h(ordered ? "ol" : "ul", { class: "ai-md-list ai-md-list-nested" }, renderListItems(item.children, ordered, streaming)) : null,
     ]),
   );
 }
 
-function renderBlock(block, key) {
+function renderBlock(block, key, streaming) {
   switch (block.type) {
     case "heading":
-      return h(`h${block.level}`, { key, class: "ai-md-heading" }, renderInline(block.inline));
+      return h(`h${block.level}`, { key, class: "ai-md-heading" }, renderInline(block.inline, streaming));
     case "paragraph":
-      return h("p", { key, class: "ai-md-paragraph" }, renderInline(block.inline));
+      return h("p", { key, class: "ai-md-paragraph" }, renderInline(block.inline, streaming));
     case "hr":
       return h("hr", { key, class: "ai-md-hr" });
     case "blockquote":
-      return h("blockquote", { key, class: "ai-md-blockquote" }, renderBlocks(block.blocks));
+      return h("blockquote", { key, class: "ai-md-blockquote" }, renderBlocks(block.blocks, streaming));
     case "code":
       return h("pre", { key, class: "ai-md-code-block" }, h("code", block.text));
     case "ul":
-      return h("ul", { key, class: "ai-md-list" }, renderListItems(block.items, false));
+      return h("ul", { key, class: "ai-md-list" }, renderListItems(block.items, false, streaming));
     case "ol":
-      return h("ol", { key, class: "ai-md-list" }, renderListItems(block.items, true));
+      return h("ol", { key, class: "ai-md-list" }, renderListItems(block.items, true, streaming));
     case "table":
       return h("div", { key, class: "ai-md-table-wrap" }, [
         h("table", { class: "ai-md-table" }, [
@@ -48,7 +57,7 @@ function renderBlock(block, key) {
             h(
               "tr",
               block.header.map((cell, i) =>
-                h("th", { key: i, style: block.align[i] ? { textAlign: block.align[i] } : null }, renderInline(cell)),
+                h("th", { key: i, style: block.align[i] ? { textAlign: block.align[i] } : null }, renderInline(cell, streaming)),
               ),
             ),
           ),
@@ -58,7 +67,7 @@ function renderBlock(block, key) {
               h(
                 "tr",
                 { key: r },
-                row.map((cell, i) => h("td", { key: i, style: block.align[i] ? { textAlign: block.align[i] } : null }, renderInline(cell))),
+                row.map((cell, i) => h("td", { key: i, style: block.align[i] ? { textAlign: block.align[i] } : null }, renderInline(cell, streaming))),
               ),
             ),
           ),
@@ -69,15 +78,15 @@ function renderBlock(block, key) {
   }
 }
 
-function renderBlocks(blocks) {
-  return blocks.map((block, index) => renderBlock(block, index));
+function renderBlocks(blocks, streaming) {
+  return blocks.map((block, index) => renderBlock(block, index, streaming));
 }
 
 export default {
   name: "AssistantText",
-  props: { text: { type: String, default: "" } },
+  props: { text: { type: String, default: "" }, streaming: { type: Boolean, default: false } },
   render() {
-    return h("div", { class: "ai-md" }, renderBlocks(parseMarkdown(this.text)));
+    return h("div", { class: "ai-md" }, renderBlocks(parseMarkdown(this.text), this.streaming));
   },
 };
 </script>

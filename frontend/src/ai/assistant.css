@@ -90,12 +90,12 @@
 .ai-activity-disclosure:not([open]) .ai-activity-collapse {display:grid;grid-template-rows:0fr;opacity:0;}
 .ai-activity-collapse>.ai-activity-list {overflow:hidden;min-height:0;}
 .ai-activity-list {list-style:none;margin:0;padding:6px 14px 8px;}
-/* 每行自己是一个 20px 图标列 + 内容列 + 耗时列的网格；连接线是本行的 ::before，从本行图标中心
-   向下延伸到本行底部之外、恰好到达下一行图标中心的位置（图标相对本行顶部的偏移在所有行里都
-   一致，所以这个偏移量可以是一个写死的像素值，不需要用 JS 量出下一行的实际位置）。任何行的
-   背景都不会被这根线穿透——它只画在图标列里，不会覆盖到右侧的文字内容。最后一行不画。 */
+/* 每行自己是一个 20px 图标列 + 内容列 + 耗时列的网格；连接线是本行的 ::before，从本行图标下沿
+   留 2px 间隙起，向下延伸到下一行图标上沿前 2px 止（行内边距 7px、图标 16px 在所有行里一致，
+   所以是写死的像素值）。线不进入图标本身——空心圆和转圈弧线没有填充，线穿过去会透出来。
+   线宽 2px、left:7px，与 16px 图标的中轴（x=8）对齐。最后一行不画。 */
 .ai-activity-row {position:relative;display:grid;grid-template-columns:20px minmax(0,1fr) auto;column-gap:10px;align-items:start;padding:7px 0;font-size:12px;}
-.ai-activity-row:not(:last-child)::before {content:'';position:absolute;left:9px;top:15px;bottom:-15px;width:2px;background:var(--label-fg);opacity:.4;}
+.ai-activity-row:not(:last-child)::before {content:'';position:absolute;left:7px;top:25px;bottom:-5px;width:2px;border-radius:1px;background:var(--label-fg);opacity:.4;}
 .ai-activity-dot {grid-row:1;width:16px;height:16px;flex:none;color:var(--label-fg);position:relative;z-index:1;}
 .ai-activity-icon {width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;}
 .ai-activity-row.running .ai-activity-dot,.ai-activity-icon-running {color:var(--brand);}
@@ -136,16 +136,23 @@
 .ai-status-dot {width:7px;height:7px;border-radius:50%;background:var(--brand);flex:none;animation:ai-status-pulse 1.4s ease-in-out infinite;}
 .ai-streaming-status.error .ai-status-dot {background:var(--danger);animation:none;opacity:1;}
 .ai-streaming-status.completed .ai-status-dot {background:var(--brand);animation:none;opacity:1;}
+/* 运行中指示：3×3 点阵（4px 方格、1.5px 间距），外圈 8 格按顺时针依次错开 110ms 点亮，
+   中心格常暗——靠错相位的明暗形成环绕，不做任何旋转变换。 */
+.ai-orbit {display:grid;grid-template-columns:repeat(3,4px);gap:1.5px;flex:none;}
+.ai-orbit i {width:4px;height:4px;border-radius:1px;background:var(--text);opacity:.15;animation:ai-orbit-on 950ms ease-in-out infinite;}
+.ai-orbit i:nth-child(2) {animation-delay:110ms;}.ai-orbit i:nth-child(3) {animation-delay:220ms;}.ai-orbit i:nth-child(6) {animation-delay:330ms;}
+.ai-orbit i:nth-child(9) {animation-delay:440ms;}.ai-orbit i:nth-child(8) {animation-delay:550ms;}.ai-orbit i:nth-child(7) {animation-delay:660ms;}.ai-orbit i:nth-child(4) {animation-delay:770ms;}
+.ai-orbit i:nth-child(5) {opacity:.07;animation:none;}
+@keyframes ai-orbit-on {0%,100%{opacity:.15;}18%,42%{opacity:1;}62%{opacity:.15;}}
 .ai-status-text {flex:1;min-width:0;overflow-wrap:anywhere;}
 .ai-status-elapsed {font-variant-numeric:tabular-nums;}
 /* 正在读取/生成时的状态文案扫光：纯视觉层叠在真实文本上，文本内容本身保持可读、不复制 */
-.ai-streaming-status.submitted .ai-status-text,.ai-streaming-status.running .ai-status-text {background:linear-gradient(90deg,var(--label-fg) 35%,var(--brand) 50%,var(--label-fg) 65%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ai-text-shimmer 2s linear infinite;}
-.ai-stop-button {margin-left:auto;}
+.ai-streaming-status.submitted .ai-status-text,.ai-streaming-status.running .ai-status-text {background:linear-gradient(90deg,var(--label-fg) 35%,var(--text) 50%,var(--label-fg) 65%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:ai-text-shimmer 1.4s linear infinite;}
 @keyframes ai-status-pulse {0%,100%{opacity:.35;}50%{opacity:1;}}
-@keyframes ai-text-shimmer {from{background-position:220% 0;}to{background-position:-220% 0;}}
-/* 流式正文闪烁光标：纯装饰，不代表正文内容 */
-.ai-caret {display:inline-block;width:2px;height:1em;margin-left:1px;vertical-align:-0.15em;background:var(--brand);animation:ai-caret-blink 1s step-end infinite;}
-@keyframes ai-caret-blink {0%,100%{opacity:1;}50%{opacity:0;}}
+@keyframes ai-text-shimmer {from{background-position:150% 0;}to{background-position:-50% 0;}}
+/* 流式正文：新到的词段从轻微模糊淡入（见 AssistantText.vue 的 streaming 分支），不再用闪烁光标 */
+.ai-stream-seg {animation:ai-stream-in 380ms ease-out both;}
+@keyframes ai-stream-in {from{opacity:0;filter:blur(2px);}to{opacity:1;filter:blur(0);}}
 /* 流式占位骨架行：复用全局 .skeleton 扫光 */
 .ai-skeleton-lines {display:flex;flex-direction:column;gap:10px;padding:4px 0;}
 /* 首次加载骨架：与最终布局大致等高，避免数据返回后页面跳动 */
@@ -160,15 +167,20 @@
 .ai-jump-latest .app-icon {width:13px;height:13px;}
 .ai-jump-enter-active,.ai-jump-leave-active {transition:opacity .16s ease,transform .16s ease;}
 .ai-jump-enter-from,.ai-jump-leave-to {opacity:0;transform:translateX(-50%) translateY(6px);}
-.ai-composer {margin:0 24px;padding:12px;border:1px solid var(--border-strong);border-radius:16px;background:var(--input-bg);transition:box-shadow .12s ease,border-color .12s ease;}.ai-composer textarea {border:0;resize:vertical;max-height:180px;box-shadow:none;outline:none;width:100%;background:transparent;}
+/* 输入框：单行起步的紧凑提示词条——文本区随内容增高，右下角一枚 32px 墨色方形发送按钮
+   （运行中原位变成停止）；发丝描边 + 极轻的两层投影把它从页面上托起来。 */
+.ai-composer {display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:end;column-gap:6px;margin:0 24px;padding:6px 6px 6px 12px;border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:0 1px 2px color-mix(in srgb,var(--text) 5%,transparent),0 2px 6px color-mix(in srgb,var(--text) 5%,transparent);transition:box-shadow .15s ease,border-color .15s ease;}
+.ai-composer textarea {grid-column:1;border:0;border-radius:0;resize:none;min-height:32px;max-height:180px;padding:5px 0;font-size:14px;line-height:22px;box-shadow:none;outline:none;width:100%;background:transparent;overflow-wrap:anywhere;}
 /* 焦点环放在圆角的外层容器上，不是贴着文本框边缘的方角描边——圆角和容器一致，视觉上不再是
    “方框套圆角”的突兀效果；:focus-within 在键盘 Tab 聚焦文本框时同样触发，不影响可访问性。 */
 .ai-composer textarea:focus-visible {outline:none;}
 .ai-composer:focus-within {border-color:var(--focus-ring);box-shadow:0 0 0 2px var(--focus-ring);}
-.ai-composer>div {display:flex;justify-content:space-between;gap:12px;align-items:center;}.ai-composer small {font-size:11px;color:var(--label-fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-/* 发送按钮：固定不换行、不被压缩——375px 宽度下曾经把“发送”挤成竖排的“发/送”两个字。
-   min-width 保证“正在回答…”这种更长的文案切换时按钮也不会突然变窄。 */
-.ai-composer .primary {display:inline-flex;align-items:center;gap:6px;white-space:nowrap;flex:none;min-width:72px;justify-content:center;}.ai-composer .primary .app-icon {width:14px;height:14px;}.ai-footnote {font-size:11px;color:var(--label-fg);line-height:1.8;margin:12px 24px 20px;}
+/* 字数只在接近 2000 字上限时出现，平时不占位 */
+.ai-composer-count {grid-column:2;align-self:center;font-size:11px;color:var(--label-fg);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.ai-composer-send {grid-column:3;display:grid;place-items:center;width:32px;height:32px;padding:0;border-radius:9px;background:var(--text);color:var(--surface);transition:background-color .2s ease,color .2s ease;}
+.ai-composer-send .app-icon {width:16px;height:16px;stroke-width:2.4;}
+.ai-composer-send:disabled {opacity:1;background:var(--border-strong);color:var(--label-fg);}
+.ai-footnote {font-size:11px;color:var(--label-fg);line-height:1.8;margin:12px 24px 20px;}
 .ai-analysis,.ai-irrigation {padding:24px;}.ai-section-head {display:flex;gap:20px;align-items:center;justify-content:space-between;margin:0 0 18px;}.ai-section-head h3,.ai-section-head h4 {margin:0;}.ai-section-head p {font-size:12px;color:var(--label-fg);line-height:1.8;}.ai-condition-grid {display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:30px;}.ai-condition-grid article {padding:18px;border:1px solid var(--border);border-radius:12px;}.ai-condition-grid article>div {display:flex;justify-content:space-between;gap:10px;align-items:center;}.ai-condition-grid h3 {margin:0;}.ai-condition-grid span {font-size:11px;color:var(--label-fg);}.ai-condition-grid p {font-size:13px;line-height:1.9;color:var(--text-2);margin:14px 0 0;}
 .ai-weather-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}.ai-weather-grid article {background:var(--subtle-bg);border-radius:12px;padding:20px;}.ai-weather-grid h3 {font-size:28px;margin:12px 0;}.ai-weather-grid h3 small {font-size:14px;font-weight:400;}.ai-weather-grid p,.ai-weather-grid small,.ai-weather-grid span {color:var(--label-fg);font-size:12px;}.ai-weather-grid svg {display:block;width:100%;height:100px;color:var(--brand);}.ai-analysis details {margin:22px 0 30px;font-size:13px;}.ai-analysis summary {cursor:pointer;}.ai-table-wrap {overflow-x:auto;margin:16px 0;}.ai-table-wrap table {width:100%;font-size:12px;white-space:nowrap;}.ai-crops {display:flex;flex-wrap:wrap;gap:15px;}.ai-crops article {padding:15px 22px;background:var(--subtle-bg);border-radius:10px;}.ai-crops h4 {margin:0;}.ai-crops p {font-size:13px;}.ai-crops small {color:var(--label-fg);}
 .ai-notice {padding:12px 16px;border-radius:10px;background:var(--brand-soft);font-size:12px;line-height:1.8;}.ai-policy-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:22px 0;}.ai-policy-grid article,.ai-run {border:1px solid var(--border);padding:20px;border-radius:12px;}.ai-policy-grid h4 {margin:0 0 14px;}.ai-policy-grid p {font-size:13px;}.ai-policy-grid small {display:block;font-size:12px;min-height:30px;color:var(--label-fg);margin-bottom:14px;}.ai-policy-grid button {margin:4px 4px 0 0;}.ai-policy-form {padding:24px;border:1px solid var(--border-strong);border-radius:12px;margin-bottom:24px;}.ai-form-grid {display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}.ai-form-grid label {display:flex;flex-direction:column;gap:8px;font-size:13px;}.ai-policy-form p {font-size:12px;line-height:1.8;color:var(--label-fg);}.ai-policy-form>div:last-child {display:flex;justify-content:flex-end;gap:10px;}.ai-run {margin-bottom:12px;}.ai-run p {font-size:13px;line-height:1.8;}.ai-run small {font-size:12px;color:var(--label-fg);}.ai-run-actions {display:flex;gap:12px;margin-top:18px;}
@@ -233,7 +245,8 @@ h5.ai-md-heading {font-size:13px;color:var(--text-2);}
 @media(max-width:760px) {.ai-md-table {white-space:normal;}}
 @media (prefers-reduced-motion: reduce) {
   .ai-status-dot {animation:none;opacity:1;}
-  .ai-caret {animation:none;opacity:1;}
+  .ai-orbit i {animation:none;opacity:.55;}
+  .ai-stream-seg {animation:none;}
   .ai-streaming-status.submitted .ai-status-text,.ai-streaming-status.running .ai-status-text {animation:none;background:none;-webkit-background-clip:unset;background-clip:unset;color:inherit;}
   .ai-activity-collapse,.ai-activity-disclosure:not([open]) .ai-activity-collapse {transition:none;}
   .ai-jump-enter-active,.ai-jump-leave-active {transition:none;}

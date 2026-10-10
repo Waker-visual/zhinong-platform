@@ -70,6 +70,8 @@ const icons = {
   chevronDown: '<path d="m5.5 9 6.5 6.5L18.5 9"/>',
   send: '<path d="M4 12 20 4l-4.5 16-4-7-7.5-1z"/>',
   arrowDown: '<path d="M12 4.5v14M6 13l6 6 6-6"/>',
+  arrowUp: '<path d="M12 19.5v-14M6 11l6-6 6 6"/>',
+  stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
   arrowRight: '<path d="M4.5 12h14M13 6l6 6-6 6"/>',
 };
 defineProps({ name: { type: String, required: true } });

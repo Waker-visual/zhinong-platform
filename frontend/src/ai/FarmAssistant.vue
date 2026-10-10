@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret, formatMessageTime, irrigationApprovalTarget, irrigationApproveConfirm, groupConversationsByDate } from './agent-events.js';
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, formatMessageTime, irrigationApprovalTarget, irrigationApproveConfirm, groupConversationsByDate } from './agent-events.js';
 import { defaultConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
@@ -25,6 +25,13 @@ const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
 let activeCancel = null;
 const editing = ref(false);
+// 输入框默认单行，随内容增高到上限后内部滚动；停止后把问题还原回输入框时同样要重新量高。
+const composerInput = ref(null);
+function resizeComposer() {
+  const el=composerInput.value; if(!el) return;
+  el.style.height='auto';
+  el.style.height=Math.min(el.scrollHeight,180)+'px';
+}
 // 阶段F：历史栏分组、行内重命名、置顶/删除菜单。
 const historyGroups = computed(() => groupConversationsByDate(conversations.value, new Date(nowTick.value)));
 const renamingId = ref(''), renameValue = ref('');
@@ -240,6 +247,7 @@ const weatherCharts=computed(()=>[
     points:values.map((v,i)=>`${10+i*260/Math.max(1,values.length-1)},${72-(v-lo)*50/range}`).join(' ')};
 }));
 watch(()=>[props.farmId,props.revision],refresh,{immediate:true});
+watch([question,panel],resizeComposer,{flush:'post'});
 timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{irrigation.value=await api('/ai/irrigation?farmId='+props.farmId);}catch{/* next refresh shows errors */}}},10000);
 onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
 </script>
@@ -293,10 +301,10 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
                 <AiActivityDisclosure :activities="m.run.activities" :run-status="m.run.status" @toggle="onActivityToggle" />
                 <AiApprovalCard v-for="a in approvalActivities(m.run.activities)" :key="a.id" :activity="a" :writer="writer" @view-approval="onViewApproval" />
                 <div class="ai-message-text">
-                  <template v-if="m.run.text"><AssistantText :text="m.run.text" /><span v-if="shouldShowCaret(m.run.status,m.run.text)" class="ai-caret" aria-hidden="true"></span></template>
+                  <AssistantText v-if="m.run.text" :text="m.run.text" :streaming="m.run.status==='running'" />
                   <div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:42%"></span></div>
                 </div>
-                <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" :using-sync-fallback="m.run.adapter==='sync'" @retry="retry" @cancel="cancel" />
+                <AiStreamingStatus :status="m.run.status" :diagnostic="m.run.error" :can-retry="m.run.status==='error'" :using-sync-fallback="m.run.adapter==='sync'" @retry="retry" />
               </template>
               <template v-else>
                 <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" />
@@ -310,8 +318,12 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
         </div>
         <Transition name="ai-jump"><button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button></Transition>
         </div>
-        <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" v-model="question" rows="3" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea><div><small><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行 · </span>{{question.length}}/2000</small><button class="primary" :disabled="sending || !question.trim()"><template v-if="!sending"><AppIcon name="send" /></template>{{sending?'正在回答…':'发送'}}</button></div></form>
-        <p class="ai-footnote">发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
+        <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" ref="composerInput" v-model="question" rows="1" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea>
+          <small v-if="question.length>=1800" class="ai-composer-count">{{question.length}}/2000</small>
+          <button v-if="sending" type="button" class="ai-composer-send" aria-label="停止生成" @click="cancel"><AppIcon name="stop" /></button>
+          <button v-else class="ai-composer-send" :disabled="!question.trim()" aria-label="发送"><AppIcon name="arrowUp" /></button>
+        </form>
+        <p class="ai-footnote"><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行。</span>发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
     </div>
     <div v-else-if="panel==='analysis' && initialLoading" class="ai-analysis ai-panel-skeleton" aria-hidden="true">
