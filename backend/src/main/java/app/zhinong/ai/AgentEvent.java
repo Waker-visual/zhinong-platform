@@ -17,7 +17,9 @@ public record AgentEvent(
   String messageId,
   String diagnostic,
   String error,
-  String text
+  String text,
+  String conversationId,
+  String title
 ) {
 
   public static final String RUN_STARTED = "run.started";
@@ -34,6 +36,10 @@ public record AgentEvent(
   public static final String MESSAGE_COMPLETED = "message.completed";
   public static final String RUN_COMPLETED = "run.completed";
   public static final String RUN_ERROR = "run.error";
+  /** 阶段 F：新对话首次提问时，后端在运行开始阶段用模型（或回退规则）生成的标题就绪后广播，
+   * 带上 {@code conversationId} 和已经完成净化、不超过16个汉字的 {@code title}。客户端收到后
+   * 直接更新历史栏对应会话的标题（带一次淡入过渡），不需要重新拉取整个会话列表。 */
+  public static final String CONVERSATION_TITLED = "conversation.titled";
 
   /** 安全的活动摘要：只包含用户可验证的字段，不含原始工具参数或凭据。 */
   @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -49,38 +55,42 @@ public record AgentEvent(
   ) {}
 
   public static AgentEvent runStarted(int seq) {
-    return new AgentEvent(seq, RUN_STARTED, null, null, null, null, null, null);
+    return new AgentEvent(seq, RUN_STARTED, null, null, null, null, null, null, null, null);
   }
 
   public static AgentEvent activityStarted(int seq, Activity activity) {
-    return new AgentEvent(seq, ACTIVITY_STARTED, activity, null, null, null, null, null);
+    return new AgentEvent(seq, ACTIVITY_STARTED, activity, null, null, null, null, null, null, null);
   }
 
   public static AgentEvent activityUpdated(int seq, Activity activity) {
-    return new AgentEvent(seq, ACTIVITY_UPDATED, activity, null, null, null, null, null);
+    return new AgentEvent(seq, ACTIVITY_UPDATED, activity, null, null, null, null, null, null, null);
   }
 
   public static AgentEvent activityCompleted(int seq, Activity activity) {
-    return new AgentEvent(seq, ACTIVITY_COMPLETED, activity, null, null, null, null, null);
+    return new AgentEvent(seq, ACTIVITY_COMPLETED, activity, null, null, null, null, null, null, null);
   }
 
   public static AgentEvent messageDelta(int seq, String delta) {
-    return new AgentEvent(seq, MESSAGE_DELTA, null, delta, null, null, null, null);
+    return new AgentEvent(seq, MESSAGE_DELTA, null, delta, null, null, null, null, null, null);
   }
 
   public static AgentEvent messageReset(int seq, String committedText) {
-    return new AgentEvent(seq, MESSAGE_RESET, null, null, null, null, null, committedText == null ? "" : committedText);
+    return new AgentEvent(seq, MESSAGE_RESET, null, null, null, null, null, committedText == null ? "" : committedText, null, null);
   }
 
   public static AgentEvent messageCompleted(int seq, String messageId) {
-    return new AgentEvent(seq, MESSAGE_COMPLETED, null, null, messageId, null, null, null);
+    return new AgentEvent(seq, MESSAGE_COMPLETED, null, null, messageId, null, null, null, null, null);
   }
 
   public static AgentEvent runCompleted(int seq) {
-    return new AgentEvent(seq, RUN_COMPLETED, null, null, null, null, null, null);
+    return new AgentEvent(seq, RUN_COMPLETED, null, null, null, null, null, null, null, null);
   }
 
   public static AgentEvent runError(int seq, String diagnostic, String error) {
-    return new AgentEvent(seq, RUN_ERROR, null, null, null, diagnostic, error, null);
+    return new AgentEvent(seq, RUN_ERROR, null, null, null, diagnostic, error, null, null, null);
+  }
+
+  public static AgentEvent conversationTitled(int seq, String conversationId, String title) {
+    return new AgentEvent(seq, CONVERSATION_TITLED, null, null, null, null, null, null, conversationId, title);
   }
 }

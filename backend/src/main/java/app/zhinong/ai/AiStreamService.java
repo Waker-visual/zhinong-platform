@@ -84,6 +84,17 @@ public class AiStreamService {
         return;
       }
       send(emitter, AgentEvent.runStarted(sequence.incrementAndGet()), disconnected);
+      if (disconnected.get()) return;
+
+      // 阶段F：新对话首次提问时先立即广播回退标题（问题前16字），历史栏不再停留在“新的农事对话”；
+      // 模型标题等主回答流结束、并发名额释放后再单独生成（见 finalize 之前），既不拖慢首个正文增量，
+      // 也不和主回答争抢网关的 3 个并发名额。持久化统一在 finalizeStream 里以 title_source='auto' 为条件。
+      String firstMessageTitle = null;
+      if (prep.autoTitleEligible()) {
+        firstMessageTitle = prep.fallbackTitle();
+        send(emitter, AgentEvent.conversationTitled(sequence.incrementAndGet(), id, firstMessageTitle), disconnected);
+        if (disconnected.get()) return;
+      }
       OffsetDateTime contextStartedAt = OffsetDateTime.now();
       send(
         emitter,
@@ -260,11 +271,19 @@ public class AiStreamService {
         answer,
         mode,
         diagnostic,
-        prep.title(),
+        firstMessageTitle,
         activities
       );
       send(emitter, AgentEvent.messageCompleted(sequence.incrementAndGet(), finalized.messageId()), disconnected);
       send(emitter, AgentEvent.runCompleted(sequence.incrementAndGet()), disconnected);
+      // 回答已完成并落库，再用模型生成正式标题：不拖慢回答完成态，也不和主回答争抢并发名额。
+      // 客户端此时仍在读流，收到 conversation.titled 后只更新历史栏对应项。
+      if (prep.autoTitleEligible() && "llm".equals(mode) && !disconnected.get()) {
+        String modelTitle = generateAutoTitle(input.question(), prep.fallbackTitle());
+        if (!modelTitle.equals(firstMessageTitle) && conversations.updateAutoTitle(prep.tenant(), id, modelTitle)) {
+          send(emitter, AgentEvent.conversationTitled(sequence.incrementAndGet(), id, modelTitle), disconnected);
+        }
+      }
       completeNormally(emitter);
     } catch (Exception e) {
       // 已经成功发出 run.error 事件后仍调用 completeWithError 会触发 Spring 的异步异常处理流程，
@@ -354,6 +373,42 @@ public class AiStreamService {
     messages.add(assistantTurn);
     messages.addAll(toolReplies);
     return !disconnected.get();
+  }
+
+  /** 阶段F：独立的短、非流式标题生成请求——不带工具、不接历史，只看这次的问题本身，
+   * 保证即使 complete() 偶尔较慢也不会把一整段历史也发一遍。模型不可用、抛异常或返回内容净化
+   * 后为空都直接回退到 fallback（问题前16字），不向上传播任何异常。 */
+  private String generateAutoTitle(String question, String fallback) {
+    try {
+      List<Map<String, Object>> titleMessages = List.of(
+        Map.of(
+          "role",
+          "system",
+          "content",
+          "请根据接下来这条农事问题，生成一个不超过16个汉字的简短对话标题，必须使用简体中文，不要加引号、不要加标点、不要加解释，只输出标题本身。"
+        ),
+        Map.of("role", "user", "content", question.strip())
+      );
+      var result = llm.shortTitle(titleMessages);
+      if (result.isPresent()) return sanitizeAutoTitle(result.get(), fallback);
+    } catch (Exception ignored) {
+      /* 标题生成失败不影响主回答；回退到问题前16字 */
+    }
+    return fallback;
+  }
+
+  /** 净化模型返回的标题：去首尾空白、引号、常见 Markdown/列表符号前缀、句末标点，再裁到16个字符
+   * （以 UTF-16 code unit 计，和既有标题列的截断方式一致）。净化后为空则用 fallback。 */
+  private static String sanitizeAutoTitle(String raw, String fallback) {
+    if (raw == null) return fallback;
+    String cleaned = raw.replaceAll("[\\r\\n]+", " ").strip();
+    cleaned = cleaned.replaceAll("^[\"'“”‘’`#*>\\-\\s]+", "");
+    // 末尾的引号和标点可能混在一起（例如模型输出“灌溉建议咨询”。，右引号在句号之前），
+    // 两类字符放进同一个字符集一次性剥掉，而不是分两次剥（分两次会在引号先于标点出现时漏剥标点）。
+    cleaned = cleaned.replaceAll("[\"'“”‘’`。！？!?.,，；;、\\s]+$", "");
+    cleaned = cleaned.strip();
+    if (cleaned.isEmpty()) return fallback;
+    return cleaned.length() > 16 ? cleaned.substring(0, 16) : cleaned;
   }
 
   /** 把一段文本按 MAX_ANSWER_LENGTH 截断后再发给客户端并累加到 accumulated，保证客户端看到的

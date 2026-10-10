@@ -569,6 +569,18 @@ public class LlmGateway {
     } catch (Exception ex) { throw new ApiException(400,"模型地址必须是 HTTPS，或本机 HTTP 地址"); }
   }
 
+  /** 会话标题：一次不带工具的短请求，max_tokens 很小、超时 8 秒；只走云端，不试本地回退。 */
+  public Optional<String> shortTitle(List<Map<String, Object>> messages) {
+    if (!capacity.tryAcquire()) return Optional.empty();
+    try {
+      String endpoint, key, selectedModel;
+      synchronized (this) { endpoint = url; key = apiKey; selectedModel = model; }
+      if (blank(endpoint) || blank(key)) return Optional.empty();
+      return callCompletions(endpoint, key, blank(selectedModel) ? "deepseek-flash" : selectedModel, messages, List.of(), 8, 32)
+        .map(LlmResponse::content);
+    } finally { capacity.release(); }
+  }
+
   private Optional<LlmResponse> callCompletions(
     String base,
     String key,
@@ -576,6 +588,18 @@ public class LlmGateway {
     List<Map<String, Object>> messages,
     List<Map<String, Object>> tools,
     int secondsBudget
+  ) {
+    return callCompletions(base, key, m, messages, tools, secondsBudget, 1600);
+  }
+
+  private Optional<LlmResponse> callCompletions(
+    String base,
+    String key,
+    String m,
+    List<Map<String, Object>> messages,
+    List<Map<String, Object>> tools,
+    int secondsBudget,
+    int maxTokens
   ) {
     try {
       validateEndpoint(base);
@@ -588,7 +612,7 @@ public class LlmGateway {
           "temperature",
           0.3,
           "max_tokens",
-          1600
+          maxTokens
         ));
       if (!tools.isEmpty()) { body.put("tools",tools); body.put("tool_choice","auto"); }
       if ("api.deepseek.com".equals(URI.create(base).getHost())) body.put("thinking",Map.of("type","disabled"));
