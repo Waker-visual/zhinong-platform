@@ -235,6 +235,44 @@ export function formatMessageTime(date, now = new Date()) {
   return { display, full, iso };
 }
 
+// 阶段F：把会话列表按“已置顶 / 今天 / 昨天 / 近7天 / 更早”分组，供历史栏渲染组标题。
+// 纯函数：now 作为参数传入（而不是内部 new Date()），测试才能钉死“现在”的时刻来覆盖边界
+// （例如“23:59 创建的对话在次日 00:01 算不算今天”）。分组内部顺序原样保留调用方已经排好的
+// 顺序（后端已经按 pinned_at desc, updated_at desc 排序过，这里不重新排序）。
+// 已置顶的对话（pinnedAt 非空）总是单独成组排在最前，不再按时间归入今天/昨天等分组，
+// 即使它恰好是今天创建或更新的。
+const CONVERSATION_GROUP_LABELS = { pinned: "已置顶", today: "今天", yesterday: "昨天", last7: "近 7 天", older: "更早" };
+
+export function conversationGroupLabel(key) {
+  return CONVERSATION_GROUP_LABELS[key] || key;
+}
+
+export function groupConversationsByDate(conversations, now = new Date()) {
+  const n = now instanceof Date ? now : new Date(now);
+  const todayStart = startOfDay(n).getTime();
+  const groups = { pinned: [], today: [], yesterday: [], last7: [], older: [] };
+  for (const c of conversations || []) {
+    if (c.pinnedAt) {
+      groups.pinned.push(c);
+      continue;
+    }
+    const basis = c.updatedAt || c.createdAt;
+    const d = basis ? new Date(basis) : null;
+    if (!d || Number.isNaN(d.getTime())) {
+      groups.older.push(c);
+      continue;
+    }
+    const dayDiff = Math.round((todayStart - startOfDay(d).getTime()) / 86400000);
+    if (dayDiff <= 0) groups.today.push(c);
+    else if (dayDiff === 1) groups.yesterday.push(c);
+    else if (dayDiff <= 7) groups.last7.push(c);
+    else groups.older.push(c);
+  }
+  return Object.entries(groups)
+    .filter(([, items]) => items.length)
+    .map(([key, items]) => ({ key, label: conversationGroupLabel(key), items }));
+}
+
 // 组合当前展示用的消息列表：在不改动已持久化历史的前提下，
 // 追加这次运行的临时用户消息和流式中的助手占位消息。
 // run 为空时直接返回原始历史（不新建数组也可以，但为了调用方一致性这里仍返回新数组的浅拷贝）。

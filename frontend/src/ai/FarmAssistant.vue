@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret, formatMessageTime, irrigationApprovalTarget } from './agent-events.js';
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret, formatMessageTime, irrigationApprovalTarget, groupConversationsByDate } from './agent-events.js';
 import { defaultConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
@@ -11,6 +11,7 @@ import AiActivityDisclosure from './AiActivityDisclosure.vue';
 import AiApprovalCard from './AiApprovalCard.vue';
 import AiStreamingStatus from './AiStreamingStatus.vue';
 import AiMessageActions from './AiMessageActions.vue';
+import AiHistoryMenu from './AiHistoryMenu.vue';
 import AppIcon from '../ui/AppIcon.vue';
 import { diagnosticLabels } from './diagnostics';
 const props = defineProps({ farmId: String, role: String, revision: Number });
@@ -24,6 +25,12 @@ const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
 let activeCancel = null;
 const editing = ref(false);
+// 阶段F：历史栏分组、行内重命名、置顶/删除菜单。
+const historyGroups = computed(() => groupConversationsByDate(conversations.value, new Date(nowTick.value)));
+const renamingId = ref(''), renameValue = ref('');
+const freshlyTitledId = ref(''); // 刚收到 conversation.titled 事件的会话 id：短暂淡入新标题，不打扰其余历史项
+let freshTitleTimer = null;
+const openMenuId = ref(''); // 当前展开着操作菜单的会话 id：用于让该项的 ⋮ 按钮常显（而不仅是 hover/focus-within）
 const policy = reactive({ plotId: '', sensorId: '', pumpId: '', mode: 'MANUAL', thresholdValue: 30, durationSeconds: 60, cooldownMinutes: 120, dailyLimit: 3, revision: 0 });
 const writer = computed(() => ['ADMIN','OPERATOR'].includes(props.role));
 const sensors = computed(() => irrigation.value.devices.filter(d => d.deviceType !== 'PUMP' && d.plotId === policy.plotId));
@@ -75,10 +82,58 @@ async function scrollToLatest(instant=false) {
   followOutput.value=true; showJump.value=false;
 }
 async function newChat() {if(sending.value) return;selected.value='';messages.value=[];question.value='';pendingRequest=null;run.value=null;}
-async function removeChat() {
-  if(!selected.value || sending.value) return;
-  if(!await confirm({title:'删除当前对话？',message:'只删除当前账号的这段对话，灌溉审计记录会保留。',confirmLabel:'删除对话',danger:true})) return;
-  await perform(async()=>{await api('/ai/conversations/'+selected.value,'DELETE'); await newChat(); await refresh();});
+// 阶段F：删除从历史项的操作菜单发起，不再是选中对话下方的独立链接——可以删除任意一条
+// （不一定是当前选中的那条）。删掉的若恰好是当前对话，行为和原来的 removeChat 一致：回到新建对话。
+async function deleteConversation(id) {
+  if(sending.value) return;
+  if(!await confirm({title:'删除这条对话？',message:'只删除当前账号的这段对话，灌溉审计记录会保留。',confirmLabel:'删除对话',danger:true})) return;
+  await perform(async()=>{
+    await api('/ai/conversations/'+id,'DELETE');
+    if(selected.value===id) await newChat();
+    await refresh();
+  });
+}
+// 行内重命名：点击菜单“重命名”后把标签换成输入框；Enter 保存、Esc 取消、失焦保存。
+const renameInput = ref(null);
+function startRename(c) { renamingId.value=c.id; renameValue.value=c.title; nextTick(()=>{renameInput.value?.focus();renameInput.value?.select();}); }
+function cancelRename() { renamingId.value=''; renameValue.value=''; }
+async function commitRename(id) {
+  if(renamingId.value!==id) return;
+  const title=renameValue.value.trim();
+  cancelRename();
+  if(!title || title===conversations.value.find(c=>c.id===id)?.title) return;
+  try {
+    const result=await api('/ai/conversations/'+id+'/rename','POST',{title});
+    const row=conversations.value.find(c=>c.id===id);
+    if(row) {row.title=result.title; row.titleSource=result.titleSource;}
+  } catch(e) {error.value=e.message;}
+}
+async function togglePin(c) {
+  try {
+    await api('/ai/conversations/'+c.id+'/pin','POST',{pinned:!c.pinnedAt});
+    conversations.value=await api('/ai/conversations?farmId='+props.farmId);
+  } catch(e) {error.value=e.message;}
+}
+// conversation.titled 事件到达时，实时把历史栏里对应会话的标题换成模型生成的（或回退）标题，
+// 不用重新拉取整个列表；短暂加一个淡入 class 提示用户“标题刚刚变了”，减弱动态下由 CSS 直接跳过。
+// 新建的会话立即进入历史栏（今天组），不必等整轮回答结束后重新拉取列表才出现。
+function addConversationRow(c) {
+  if(conversations.value.some(row=>row.id===c.id)) return;
+  const now=new Date().toISOString();
+  conversations.value=[{titleSource:'auto',pinnedAt:null,createdAt:now,updatedAt:now,...c},...conversations.value];
+}
+function applyFreshTitle(conversationId,title) {
+  const row=conversations.value.find(c=>c.id===conversationId);
+  if(row) {row.title=title; row.titleSource='auto';}
+  else addConversationRow({id:conversationId,title});
+  freshlyTitledId.value=conversationId;
+  clearTimeout(freshTitleTimer);
+  freshTitleTimer=setTimeout(()=>{if(freshlyTitledId.value===conversationId) freshlyTitledId.value='';},1200);
+}
+function onHistoryMenuAction(c,action) {
+  if(action==='rename') startRename(c);
+  else if(action==='pin') togglePin(c);
+  else if(action==='delete') deleteConversation(c.id);
 }
 async function send(text=question.value) {
   text=text.trim(); if(!text || sending.value || text.length>2000) return;
@@ -87,13 +142,14 @@ async function send(text=question.value) {
   let cancelled=false;
   activeCancel=()=>{cancelled=true; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
   try {
-    if(!selected.value) {const c=await api('/ai/conversations','POST',{farmId:props.farmId});selected.value=c.id;}
+    if(!selected.value) {const c=await api('/ai/conversations','POST',{farmId:props.farmId});selected.value=c.id;addConversationRow(c);}
     const id=selected.value;
     if(!pendingRequest || pendingRequest.text!==text || pendingRequest.id!==id) pendingRequest={text,id,requestId:crypto.randomUUID()};
     run.value=createAgentRun(text,pendingRequest.requestId);
     await scrollToLatest();
     for await (const event of defaultConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId,signal:controller.signal})) {
       if(!alive || cancelled) break;
+      if(event.type==='conversation.titled') { applyFreshTitle(event.conversationId,event.title); continue; }
       run.value=reduceAgentEvent(run.value,event);
       if(event.type==='message.delta' && followOutput.value) await scrollToLatest();
     }
@@ -174,7 +230,7 @@ const weatherCharts=computed(()=>[
 }));
 watch(()=>[props.farmId,props.revision],refresh,{immediate:true});
 timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{irrigation.value=await api('/ai/irrigation?farmId='+props.farmId);}catch{/* next refresh shows errors */}}},10000);
-onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clockTimer);});
+onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
 </script>
 
 <template>
@@ -194,10 +250,23 @@ onUnmounted(()=>{alive=false;generation++;clearInterval(timer);clearInterval(clo
         <p class="muted">我的农事对话</p>
         <div v-if="initialLoading" class="ai-history-skeleton" aria-hidden="true"><span class="skeleton skeleton-block" v-for="n in 4" :key="n"></span></div>
         <template v-else>
-          <button v-for="c in conversations" :key="c.id" :disabled="sending" :aria-current="selected===c.id?'true':undefined" @click="perform(()=>select(c.id))"><span>{{c.title}}</span><small>{{time(c.updatedAt)}}</small></button>
+          <template v-for="group in historyGroups" :key="group.key">
+            <p class="ai-history-group-label">{{group.label}}</p>
+            <div v-for="c in group.items" :key="c.id" class="ai-history-item" :class="{selected:selected===c.id,'menu-open':openMenuId===c.id}">
+              <input v-if="renamingId===c.id" ref="renameInput" class="ai-history-rename" :value="renameValue" maxlength="40"
+                @input="e=>renameValue=e.target.value" @keydown.enter="commitRename(c.id)" @keydown.esc="cancelRename"
+                @blur="commitRename(c.id)" @click.stop />
+              <button v-else :disabled="sending" :aria-current="selected===c.id?'true':undefined" :title="`创建于 ${time(c.createdAt)}`"
+                @click="perform(()=>select(c.id))">
+                <span class="ai-history-title" :class="{fresh:freshlyTitledId===c.id}">{{c.title}}</span>
+              </button>
+              <AiHistoryMenu v-if="renamingId!==c.id" :pinned="!!c.pinnedAt" :label="`“${c.title}”的更多操作`"
+                @rename="onHistoryMenuAction(c,'rename')" @pin="onHistoryMenuAction(c,'pin')" @delete="onHistoryMenuAction(c,'delete')"
+                @open-change="v=>openMenuId=v?c.id:''" />
+            </div>
+          </template>
           <p v-if="!conversations.length" class="muted">对话会自动保存。不同农场与账号分别管理。</p>
         </template>
-        <button v-if="selected" :disabled="sending" class="text-button" @click="removeChat">删除当前对话</button>
       </aside>
       <div class="ai-chat-main">
         <div class="ai-messages-wrap">

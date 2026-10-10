@@ -10,10 +10,49 @@
 .ai-tabs button { border:0;background:transparent; }.ai-tabs button[aria-pressed=true] { background:var(--brand-soft);color:var(--brand); }.ai-refresh {margin-left:auto;}
 .farm-assistant>.error,.farm-assistant>.ai-notice {margin:16px 24px;}
 .ai-chat-layout { display:grid;grid-template-columns:225px minmax(0,1fr);min-height:580px; }
-.ai-history { background:var(--subtle-bg);border-right:1px solid var(--border);padding:20px 12px;display:flex;flex-direction:column;gap:10px;max-height:760px;overflow:auto; }
-.ai-history>button { text-align:left; }.ai-history>button:not(.primary) { background:transparent;border:0; }.ai-history>button[aria-current=true] {background:var(--nav-selected-bg);}
-.ai-history button span {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}.ai-history small {display:block;margin-top:6px;font-size:11px;color:var(--label-fg);}
+.ai-history { background:var(--subtle-bg);border-right:1px solid var(--border);padding:20px 12px;display:flex;flex-direction:column;gap:2px;max-height:760px;overflow:auto; }
+.ai-history>button { text-align:left; }
 .ai-history>p {font-size:12px;padding:0 8px;line-height:1.7;}.ai-chat-main {min-width:0;display:flex;flex-direction:column;}
+/* 阶段F：单行36px圆角矩形历史项，不用边框，悬停/当前项用两级强度的底色；⋮按钮默认隐藏，
+   悬停、键盘聚焦或菜单打开时出现（CSS :focus-within 覆盖键盘 Tab 到 ⋮ 按钮本身的情况）。 */
+.ai-history-group-label {margin:10px 4px 2px;font-size:12px;color:var(--label-fg);line-height:1.6;}
+.ai-history-group-label:first-child {margin-top:4px;}
+.ai-history-item {position:relative;display:flex;align-items:center;height:36px;border-radius:var(--radius-sm);}
+.ai-history-item:hover,.ai-history-item:focus-within {background:var(--control-hover);}
+.ai-history-item.selected {background:var(--nav-selected-bg);}
+.ai-history-item>button {flex:1;min-width:0;height:100%;text-align:left;background:transparent;border:0;padding:0 8px 0 10px;display:flex;align-items:center;}
+.ai-history-title {display:block;overflow:hidden;white-space:nowrap;flex:1;min-width:0;
+  /* 过长标题不截断成“…”——右端用 mask-image 线性淡出，看起来更像正文自然消失，不像还能点的
+     “更多”按钮。悬停/当前项露出⋮按钮时，淡出区要随之左移，避免文字被按钮生硬切断（见下方
+     .ai-history-item:hover .ai-history-title / .menu-open 规则）。 */
+  mask-image:linear-gradient(to right,black calc(100% - 16px),transparent 100%);
+  -webkit-mask-image:linear-gradient(to right,black calc(100% - 16px),transparent 100%);
+}
+.ai-history-item:hover .ai-history-title,.ai-history-item:focus-within .ai-history-title,.ai-history-item.menu-open .ai-history-title,.ai-history-item.selected .ai-history-title {
+  mask-image:linear-gradient(to right,black calc(100% - 40px),transparent 100%);
+  -webkit-mask-image:linear-gradient(to right,black calc(100% - 40px),transparent 100%);
+}
+.ai-history-title.fresh {animation:ai-title-fresh-in 900ms var(--ease-expo);}
+@keyframes ai-title-fresh-in {from {opacity:.15;} to {opacity:1;}}
+.ai-history-rename {flex:1;min-width:0;height:28px;margin:0 8px 0 10px;padding:0 6px;border:1px solid var(--focus-ring);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;}
+/* ⋮按钮：24px圆角正方形，默认隐藏；悬停/键盘聚焦/菜单打开时出现；选中项在触屏上常显
+   （无法 hover 的设备上用 aria-current 近似判断，宽度>0即可见，不依赖指针事件）。 */
+.ai-history-menu {position:relative;flex:none;margin-right:4px;opacity:0;transition:opacity 120ms ease;}
+.ai-history-item:hover .ai-history-menu,.ai-history-item:focus-within .ai-history-menu,.ai-history-item.menu-open .ai-history-menu {opacity:1;}
+@media (hover:none) {.ai-history-item.selected .ai-history-menu {opacity:1;}}
+.ai-history-menu-trigger {width:24px;height:24px;border-radius:var(--radius-sm);display:grid;place-items:center;background:transparent;border:0;padding:0;}
+.ai-history-menu-trigger:hover,.ai-history-menu-trigger:focus-visible,.ai-history-menu.open .ai-history-menu-trigger {background:var(--control-hover);}
+.ai-history-menu-trigger .app-icon {width:16px;height:16px;}
+/* 菜单本体 Teleport 到 body，由 AiHistoryMenu.vue 按内容宽度测量后右对齐到历史项右缘（position:fixed 内联样式）。
+   尺寸比通用 .action-menu-list 小一档：28px 行高、13px 字、14px 图标，像原生上下文菜单一样按内容收缩。 */
+.ai-history-menu-list {width:max-content;min-width:140px;max-width:200px;padding:4px;border-radius:var(--radius);right:auto !important;}
+.ai-history-menu-list li {padding:0;}
+.ai-history-menu-list button {height:28px;min-height:28px;padding:0 10px 0 8px;gap:8px;border-radius:6px;font-size:13px;}
+.ai-history-menu-list button .app-icon {width:14px;height:14px;stroke-width:2;color:var(--label-fg);}
+.ai-history-menu-list button:hover .app-icon,.ai-history-menu-list button:focus-visible .app-icon {color:var(--text);}
+.ai-history-menu-list li.danger-row {margin-top:4px;padding-top:4px;}
+.ai-history-menu-list button.danger,.ai-history-menu-list button.danger .app-icon {color:var(--danger);}
+.ai-history-menu-list button.danger:hover,.ai-history-menu-list button.danger:focus-visible {background:var(--control-hover);color:var(--danger);}
 .ai-messages-wrap {position:relative;min-width:0;}
 .ai-messages {position:relative;height:480px;overflow-y:auto;overflow-x:hidden;padding:24px;}
 .ai-welcome {max-width:660px;margin:20px auto;text-align:center;}.ai-monogram {display:inline-grid;place-items:center;width:46px;height:46px;border-radius:14px;background:var(--brand);color:var(--on-brand);font-family:var(--font-serif);font-size:24px;}
@@ -143,10 +182,17 @@
   .ai-history::-webkit-scrollbar{display:none;height:0;}
   .ai-history>button{flex:none;white-space:nowrap;}
   .ai-history>button.primary{padding:8px 12px;}
-  .ai-history>p{display:none;}
-  .ai-history>button:not(.primary){padding:6px 10px;border-radius:30px;border:1px solid var(--border);}
-  .ai-history>button:not(.primary) span{max-width:140px;}
-  .ai-history small{display:none;}
+  .ai-history>p,.ai-history-group-label{display:none;}
+  /* 移动端：历史栏是一条横向 chip 栏，组标题隐藏（置顶/今天/昨天等分组在窄屏上让位给横向
+     滚动本身的顺序），每一条会话是一枚圆角药丸，同样套用“圆角底板 + 右端淡出 + ⋮按钮”的语义，
+     只是形状从方角列表项换成胶囊；⋮按钮在当前选中的 chip 上常显（没有悬停态的触屏设备上，
+     用户需要先能看到“这一条还能做更多操作”），其余 chip 悬停/聚焦/菜单展开时才出现。 */
+  .ai-history-item{flex:none;height:auto;border-radius:30px;border:1px solid var(--border);background:transparent;}
+  .ai-history-item.selected{border-color:var(--border-strong);}
+  .ai-history-item>button{padding:6px 4px 6px 12px;white-space:nowrap;}
+  .ai-history-title{max-width:140px;mask-image:linear-gradient(to right,black calc(100% - 10px),transparent 100%);-webkit-mask-image:linear-gradient(to right,black calc(100% - 10px),transparent 100%);}
+  .ai-history-item.selected .ai-history-title{mask-image:linear-gradient(to right,black calc(100% - 30px),transparent 100%);-webkit-mask-image:linear-gradient(to right,black calc(100% - 30px),transparent 100%);}
+  .ai-history-menu{margin-right:6px;}
   .ai-messages{height:430px;padding:16px;}.ai-prompts,.ai-weather-grid,.ai-policy-grid,.ai-form-grid{grid-template-columns:1fr;}.ai-composer{margin:0 12px;}.ai-analysis,.ai-irrigation{padding:16px;}.ai-condition-grid{grid-template-columns:1fr;}.ai-section-head{align-items:flex-start;flex-direction:column;}.ai-message,.ai-activity-disclosure,.ai-streaming-status{max-width:100%;}.ai-run-actions{flex-wrap:wrap;}
   /* 发送快捷键提示在窄屏/触屏上没有实际意义（没有物理 Enter 键），让字数计数器独占空间，
      不必和提示文字抢着在一行里挤出省略号。 */
@@ -194,4 +240,5 @@ h5.ai-md-heading {font-size:13px;color:var(--text-2);}
   /* 运行态旋转弧线在 reduced motion 下保持静止（仍显示弧形，只是不转）；chevron 展开/收起不做过渡动画，直接呈现最终角度 */
   .ai-activity-spin {animation:none;}
   .ai-activity-chevron {transition:none;}
+  .ai-history-title.fresh {animation:none;}
 }

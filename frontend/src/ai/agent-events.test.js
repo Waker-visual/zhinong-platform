@@ -17,6 +17,7 @@ import {
   formatActivityDuration,
   formatElapsedStatus,
   formatMessageTime,
+  groupConversationsByDate,
 } from "./agent-events.js";
 import { syncConversationAdapter, streamConversationAdapter, defaultConversationAdapter } from "./agent-adapter.js";
 import { isNearBottom } from "./scroll.js";
@@ -24,6 +25,40 @@ import { createSseParser } from "./sse-parser.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(dir, name), "utf8");
+
+// 阶段F：按固定的 now 验证分组边界（今天/昨天/近7天/更早）以及置顶优先、不参与时间分组。
+test("groupConversationsByDate groups pinned first, then by fixed now's day boundaries", () => {
+  const now = new Date("2026-10-09T15:00:00+08:00");
+  const conversations = [
+    { id: "pinned-but-old", title: "置顶但很旧", pinnedAt: "2026-01-01T00:00:00+08:00", updatedAt: "2026-01-01T00:00:00+08:00" },
+    { id: "today-1", title: "今天上午", updatedAt: "2026-10-09T08:00:00+08:00" },
+    { id: "yesterday-1", title: "昨天的", updatedAt: "2026-10-08T20:00:00+08:00" },
+    { id: "last7-1", title: "五天前", updatedAt: "2026-10-04T12:00:00+08:00" },
+    { id: "older-1", title: "很久以前", updatedAt: "2026-09-01T12:00:00+08:00" },
+    { id: "boundary-7", title: "刚好7天前", updatedAt: "2026-10-02T15:00:00+08:00" },
+    { id: "boundary-8", title: "刚好8天前", updatedAt: "2026-10-01T15:00:00+08:00" },
+  ];
+  const groups = groupConversationsByDate(conversations, now);
+  const byKey = Object.fromEntries(groups.map((g) => [g.key, g.items.map((i) => i.id)]));
+  assert.deepEqual(byKey.pinned, ["pinned-but-old"], "pinned items are grouped separately regardless of age");
+  assert.deepEqual(byKey.today, ["today-1"]);
+  assert.deepEqual(byKey.yesterday, ["yesterday-1"]);
+  assert.deepEqual(byKey.last7, ["last7-1", "boundary-7"], "exactly 7 days ago still counts as 近7天");
+  assert.deepEqual(byKey.older, ["older-1", "boundary-8"], "8 days ago falls into 更早");
+  assert.equal(groups.find((g) => g.key === "pinned").label, "已置顶");
+  assert.equal(groups.find((g) => g.key === "today").label, "今天");
+});
+
+test("groupConversationsByDate omits empty groups and keeps caller's ordering within a group", () => {
+  const now = new Date("2026-10-09T15:00:00+08:00");
+  const conversations = [
+    { id: "a", updatedAt: "2026-10-09T09:00:00+08:00" },
+    { id: "b", updatedAt: "2026-10-09T08:00:00+08:00" },
+  ];
+  const groups = groupConversationsByDate(conversations, now);
+  assert.deepEqual(groups.map((g) => g.key), ["today"], "no 昨天/近7天/更早 groups are emitted when empty");
+  assert.deepEqual(groups[0].items.map((i) => i.id), ["a", "b"], "order within a group is preserved, not re-sorted");
+});
 
 test("createAgentRun returns the initial submitted state", () => {
   const state = createAgentRun("今天地块需要灌溉吗？", "req-1");
