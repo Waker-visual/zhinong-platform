@@ -159,8 +159,11 @@ async function send(text=question.value) {
     if(cancelled || !alive) { if(cancelled) question.value=text; return; }
     if(run.value.status==='error') { question.value=text; return; } // 保留已生成正文与活动摘要，交由 retry() 重试
     pendingRequest=null;
+    const hadApproval=run.value.activities.some(a=>a.kind==='approval');
     messages.value=await api(`/ai/conversations/${id}/messages`); conversations.value=await api('/ai/conversations?farmId='+props.farmId);
     run.value=null;
+    // 回答里出现了审批活动：同步一次灌溉数据，让卡片的有效性核对与“去确认”高亮基于最新建议
+    if(hadApproval) refreshIrrigation().catch(()=>{});
     if(followOutput.value) await scrollToLatest();
   } catch(e) {
     if(alive) {
@@ -174,10 +177,14 @@ function cancel() { activeCancel?.(); }
 function onActivityToggle() { /* 手动展开/收起由 AiActivityDisclosure 自行记忆本轮运行内的状态 */ }
 // 聊天里的灌溉审批卡片点“去确认”：只是导航到既有灌溉管理页签并高亮对应建议，批准/取消仍然
 // 只能通过该页签原有的确认对话框完成——聊天本身不审批、不下发任何设备指令。
-function onViewApproval(target) {
+// 建议可能由自动模式或其他成员生成，本页加载时的灌溉数据未必包含它：先刷新再切页高亮，并滚动到对应建议。
+async function onViewApproval(target) {
   if (!target || target.type !== 'irrigation-run') return;
+  try { await refreshIrrigation(); } catch { /* 刷新失败时仍按已有数据跳转 */ }
   panel.value = 'irrigation';
   highlightedRunId.value = target.id;
+  await nextTick();
+  document.querySelector('.ai-run-highlight')?.scrollIntoView({block:'center',behavior:reducedMotion()?'auto':'smooth'});
 }
 // 时间线下方的审批卡片只在建议仍然有效（PROPOSED）时展示；一旦在灌溉管理页签批准/取消/过期，
 // 已持久化的活动摘要是一张静态快照不会跟着变，这里用当前已加载的 irrigation.runs 再核对一次，

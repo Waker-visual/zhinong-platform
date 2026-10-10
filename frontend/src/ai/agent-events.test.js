@@ -749,3 +749,10 @@ test("irrigation propose/approve/cancel reload only the irrigation workspace, no
   assert.match(act, /refreshIrrigation\(\)/);
   assert.doesNotMatch(act, /await refresh\(\)/);
 });
+
+test("去确认 refreshes irrigation data before highlighting, so proposals created elsewhere are found", () => {
+  const src = fs.readFileSync(new URL("./FarmAssistant.vue", import.meta.url), "utf8");
+  const view = src.slice(src.indexOf("async function onViewApproval"), src.indexOf("function approvalActivities"));
+  assert.ok(view.indexOf("refreshIrrigation()") > -1 && view.indexOf("refreshIrrigation()") < view.indexOf("highlightedRunId.value"));
+  assert.match(src, /if\(hadApproval\) refreshIrrigation\(\)/);
+});
