@@ -723,3 +723,19 @@ test("assistant.css disables the caret, shimmer text and disclosure transition u
   assert.match(block, /\.ai-streaming-status\.submitted \.ai-status-text,\s*\.ai-streaming-status\.running \.ai-status-text\s*\{[^}]*animation:\s*none/);
   assert.match(block, /\.ai-activity-collapse[^{]*\{[^}]*transition:\s*none/);
 });
+
+test("irrigationApproveConfirm names the plot, pump and duration before starting a simulated run", async () => {
+  const { irrigationApproveConfirm } = await import("./agent-events.js");
+  const c = irrigationApproveConfirm({ plotName: "演示分区 3", pumpName: "演示泵房控制器", durationSeconds: 120 });
+  assert.match(c.title, /演示分区 3/);
+  assert.match(c.message, /演示泵房控制器/);
+  assert.match(c.message, /120 秒/);
+  assert.match(c.message, /模拟/);
+  assert.equal(c.confirmLabel, "确认启动");
+  assert.ok(irrigationApproveConfirm({}).title.length > 0);
+});
+
+test("the irrigation tab asks for confirmation before approving, and never for cancelling or stopping", () => {
+  const src = fs.readFileSync(new URL("./FarmAssistant.vue", import.meta.url), "utf8");
+  assert.match(src, /action==='approve' && !await confirm\(irrigationApproveConfirm\(run\)\)\) return;/);
+});

@@ -214,6 +214,19 @@ export function irrigationApprovalTarget(activity) {
   return runId ? { type: "irrigation-run", id: runId } : null;
 }
 
+// 灌溉管理页签里“确认并启动模拟灌溉”的二次确认文案：写明地块、水泵与时长，让人在点击前
+// 明确知道会启动什么（聊天卡片“去确认”只导航到这里，真正的启动只发生在此确认之后）。
+export function irrigationApproveConfirm(run) {
+  const plot = (run && run.plotName) || "该地块";
+  const pump = run && run.pumpName ? `水泵“${run.pumpName}”，` : "";
+  const seconds = run && run.durationSeconds ? `运行 ${run.durationSeconds} 秒` : "按建议时长运行";
+  return {
+    title: `确认启动 ${plot} 的模拟灌溉？`,
+    message: `${pump}${seconds}。当前仅模拟设备，不会驱动实体水泵；启动前系统会重新读取墒情与设备状态，条件不符会拒绝。`,
+    confirmLabel: "确认启动",
+  };
+}
+
 // 消息时间展示：纯函数，便于单测覆盖“刚刚/当天/昨天/n天前/更早”的边界，不依赖 Vue 或浏览器时区 API
 // 之外的任何东西。now 作为参数传入（而不是内部 new Date()），这样测试可以钉死“现在”的时刻。
 function pad2(n) { return String(n).padStart(2, "0"); }

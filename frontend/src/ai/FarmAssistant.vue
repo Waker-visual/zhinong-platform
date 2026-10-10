@@ -2,7 +2,7 @@
 import { computed, nextTick, onUnmounted, reactive, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret, formatMessageTime, irrigationApprovalTarget, groupConversationsByDate } from './agent-events.js';
+import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, shouldShowCaret, formatMessageTime, irrigationApprovalTarget, irrigationApproveConfirm, groupConversationsByDate } from './agent-events.js';
 import { defaultConversationAdapter } from './agent-adapter.js';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
@@ -217,6 +217,7 @@ async function savePolicy() {
 }
 async function propose(id) {await perform(async()=>{await api(`/ai/irrigation/plots/${id}/propose`,'POST');await refresh();notice.value='建议已生成，请核对原因、设备和时长后确认。';});}
 async function act(run,action) {
+  if(action==='approve' && !await confirm(irrigationApproveConfirm(run))) return;
   await perform(async()=>{const result=await api(`/ai/irrigation/runs/${run.id}/${action}`,'POST');await refresh();notice.value=result.status==='RUNNING'?'模拟灌溉已启动，到时自动停泵。':`当前状态：${states[result.status]||result.status}。`;});
 }
 function plotName(id){return irrigation.value.plots.find(p=>p.id===id)?.name||id;}
