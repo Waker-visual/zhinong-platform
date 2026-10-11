@@ -2,8 +2,9 @@ package app.zhinong.mobile;
 
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Bundle;
-import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
 import android.webkit.WebChromeClient;
@@ -45,6 +46,17 @@ public final class MainActivity extends Activity {
         LinearLayout root = new LinearLayout(this); root.setOrientation(LinearLayout.VERTICAL); root.setFitsSystemWindows(true);
         root.setBackgroundColor(getColor(R.color.page)); return root;
     }
+    private LinearLayout panel() {
+        LinearLayout panel = new LinearLayout(this); panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(18), dp(16), dp(18), dp(18));
+        GradientDrawable background = new GradientDrawable(); background.setColor(getColor(R.color.surface));
+        background.setStroke(dp(1), getColor(R.color.border)); background.setCornerRadius(dp(20));
+        panel.setBackground(background); return panel;
+    }
+    private LinearLayout.LayoutParams margins(int top, int bottom) {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(top); params.bottomMargin = dp(bottom); return params;
+    }
     @Override public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         showConnection();
@@ -55,20 +67,38 @@ public final class MainActivity extends Activity {
     }
     private void showConnection() {
         generation++; destroyWeb();
-        LinearLayout root = layout(); root.setPadding(dp(24), dp(28), dp(24), dp(24));
+        LinearLayout root = layout(); root.setPadding(dp(20), dp(18), dp(20), dp(24));
+        LinearLayout header = new LinearLayout(this); header.setGravity(android.view.Gravity.CENTER_VERTICAL);
         ImageView mark = new ImageView(this); mark.setImageResource(R.drawable.app_icon); mark.setContentDescription("智禾农场标志");
-        root.addView(mark, new LinearLayout.LayoutParams(dp(64), dp(64)));
-        root.addView(text("智禾随行", 30)); root.addView(text("田间有你，农场在手边。", 17));
+        header.addView(mark, new LinearLayout.LayoutParams(dp(50), dp(50)));
+        LinearLayout brand = new LinearLayout(this); brand.setOrientation(LinearLayout.VERTICAL); brand.setPadding(dp(12), 0, 0, 0);
+        TextView brandName = text("智禾随行", 25); brandName.setTypeface(null, android.graphics.Typeface.BOLD);
+        TextView brandCaption = text("田间工作伙伴", 12); brandCaption.setTextColor(getColor(R.color.muted));
+        brand.addView(brandName); brand.addView(brandCaption); header.addView(brand);
+        root.addView(header, margins(0, 24));
+
+        TextView eyebrow = text("连接你的农场", 13); eyebrow.setTextColor(getColor(R.color.brand)); eyebrow.setTypeface(null, android.graphics.Typeface.BOLD);
+        root.addView(eyebrow, margins(0, 4));
+        TextView title = text("把田间工作带在身边", 26); title.setTypeface(null, android.graphics.Typeface.BOLD);
+        root.addView(title, margins(0, 2));
+        TextView intro = text("手机和电脑共享同一后端，先配置服务器地址，再使用农场账号登录。", 14); intro.setTextColor(getColor(R.color.muted));
+        root.addView(intro, margins(0, 14));
+
+        FrameLayout scenePanel = new FrameLayout(this);
+        GradientDrawable sceneBackground = new GradientDrawable(); sceneBackground.setColor(getColor(R.color.seed)); sceneBackground.setCornerRadius(dp(20)); scenePanel.setBackground(sceneBackground);
         ImageView scene = new ImageView(this); scene.setImageResource(R.drawable.field_scene); scene.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); scene.setAdjustViewBounds(true);
-        root.addView(scene, new LinearLayout.LayoutParams(-1, dp(135)));
-        root.addView(text("服务器地址", 14));
-        EditText address = new EditText(this); address.setSingleLine(true); address.setInputType(17);
-        address.setHint("https://farm.example.com");
-        address.setText(getPreferences(MODE_PRIVATE).getString("server_origin", "")); root.addView(address);
-        root.addView(text("手机和电脑需能访问同一个后端。局域网使用电脑的网络地址和端口；不要填写手机自身的 127.0.0.1。", 13));
-        TextView result = text("仅保存服务器地址，登录后按农场账号权限查看数据。", 13); root.addView(result);
-        Button connect = button("检查连接并进入"); root.addView(connect);
-        root.addView(text("只需保持农场服务器在线，无须打开电脑网页监督。田间跨网络使用时，请连接已部署的 HTTPS 服务。", 12));
+        scenePanel.addView(scene, new FrameLayout.LayoutParams(-1, dp(132)));
+        root.addView(scenePanel, margins(0, 16));
+
+        LinearLayout connection = panel();
+        TextView serverLabel = text("服务器地址", 13); serverLabel.setTypeface(null, android.graphics.Typeface.BOLD); connection.addView(serverLabel);
+        EditText address = new EditText(this); address.setSingleLine(true); address.setInputType(17); address.setTextSize(16); address.setHint("http://电脑的局域网地址:9175"); address.setPadding(0, dp(8), 0, dp(8));
+        address.setText(getPreferences(MODE_PRIVATE).getString("server_origin", "")); connection.addView(address, margins(4, 4));
+        TextView hint = text("手机和电脑需访问同一个后端。局域网请填写电脑的网络地址和端口，不要填写手机自身的 127.0.0.1。", 12); hint.setTextColor(getColor(R.color.muted)); connection.addView(hint, margins(0, 4));
+        TextView result = text("仅保存服务器地址，登录后按农场账号权限查看数据。", 12); result.setTextColor(getColor(R.color.muted)); connection.addView(result, margins(0, 8));
+        Button connect = button("检查连接并进入"); connect.setTextSize(16); connection.addView(connect);
+        root.addView(connection, margins(0, 14));
+        TextView foot = text("只需保持农场服务器在线，无须打开电脑网页监督。跨网络使用时，请连接已部署的 HTTPS 服务。", 12); foot.setTextColor(getColor(R.color.muted)); root.addView(foot);
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.addView(root); setContentView(scroll);
         connect.setOnClickListener(v -> {
             final String selected;
@@ -104,12 +134,6 @@ public final class MainActivity extends Activity {
     }
     private void showFarm() {
         LinearLayout root = layout();
-        LinearLayout toolbar = new LinearLayout(this); toolbar.setGravity(Gravity.CENTER_VERTICAL); toolbar.setPadding(dp(12), 0, dp(8), 0);
-        TextView host = text(origin, 11); host.setSingleLine(true); host.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        toolbar.addView(host, new LinearLayout.LayoutParams(0, dp(44), 1));
-        Button settings = button("连接设置"); settings.setTextSize(11); toolbar.addView(settings);
-        settings.setOnClickListener(v -> new AlertDialog.Builder(this).setTitle("返回连接设置？").setMessage("将关闭当前页面，重新进入需登录。已下发的任务会继续执行，可重新登录查看结果。").setNegativeButton("继续查看", null).setPositiveButton("返回设置", (d, w) -> showConnection()).show());
-        root.addView(toolbar);
         frame = new FrameLayout(this); root.addView(frame, new LinearLayout.LayoutParams(-1, 0, 1));
         web = new WebView(this); frame.addView(web, new FrameLayout.LayoutParams(-1, -1));
         WebSettings cfg = web.getSettings(); cfg.setJavaScriptEnabled(true); cfg.setDomStorageEnabled(false); cfg.setAllowFileAccess(false); cfg.setAllowContentAccess(false);
@@ -120,7 +144,9 @@ public final class MainActivity extends Activity {
         WebView.setWebContentsDebuggingEnabled(false);
         web.setWebViewClient(new WebViewClient() {
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
-                boolean allowed = ServerAddress.sameOrigin(origin, request.getUrl().toString());
+                Uri target = request.getUrl();
+                if (ServerAddress.sameOrigin(origin, target.toString()) && "/mobile/connection-settings".equals(target.getPath())) { showConnection(); return true; }
+                boolean allowed = ServerAddress.sameOrigin(origin, target.toString());
                 if (!allowed) Toast.makeText(MainActivity.this, "仅允许访问已配置的农场服务器", Toast.LENGTH_SHORT).show();
                 return !allowed;
             }

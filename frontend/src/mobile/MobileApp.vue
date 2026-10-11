@@ -15,6 +15,7 @@ import FieldPicker from "./FieldPicker.vue";
 import CameraPlayer from "../workspace/CameraPlayer.vue";
 import MobileDevice from "./MobileDevice.vue";
 import MobileJobs from "./MobileJobs.vue";
+import MobileAlerts from "./MobileAlerts.vue";
 import {
   createClient,
   freshness,
@@ -43,6 +44,14 @@ const error = ref(""),
   connected = ref(false);
 const credentials = reactive({ tenantCode: "", username: "", password: "" });
 const location = window.location;
+const nativeShell = /ZhiheMobile\/[\d.]+/.test(navigator.userAgent);
+const showLoginPassword = ref(false),
+  showCurrentPassword = ref(false),
+  showNewPassword = ref(false),
+  alertCenterOpen = ref(false),
+  alertSelection = ref(""),
+  connectionCheck = ref(null),
+  checkingConnection = ref(false);
 const mustChange = ref(false),
   password = reactive({ currentPassword: "", newPassword: "" });
 const confirmation = ref(null),
@@ -80,6 +89,7 @@ const filtered = computed(() =>
         .includes(search.value.toLowerCase()),
   ),
 );
+const hasDeviceFilters = computed(() => Boolean(search.value.trim() || filter.value));
 const metrics = computed(() =>
   ["TEMPERATURE", "SOIL_MOISTURE", "RAINFALL", "PEST_COUNT"].map((metric) => {
     const device = devices.value.find((d) =>
@@ -203,9 +213,40 @@ function openDevice(id) {
   tab.value = "devices";
   selectedId.value = id;
 }
+function clearDeviceFilters() {
+  search.value = "";
+  filter.value = "";
+}
 function openJobs(mode = "records") {
   jobMode.value = mode;
   tab.value = "jobs";
+}
+function openConnectionSettings() {
+  if (nativeShell) window.location.assign("/mobile/connection-settings");
+  else message.value = "浏览器预览请直接打开目标服务器地址；Android 客户端可在这里更换服务器。";
+}
+function openAlerts(id = "") {
+  alertSelection.value = id;
+  alertCenterOpen.value = true;
+}
+function closeAlerts() {
+  alertCenterOpen.value = false;
+  alertSelection.value = "";
+}
+async function checkConnection() {
+  if (checkingConnection.value) return;
+  checkingConnection.value = true;
+  connectionCheck.value = null;
+  const started = performance.now();
+  try {
+    const response = await fetch("/api/health", { cache: "no-store", credentials: "omit" });
+    if (!response.ok) throw Error("服务返回异常");
+    connectionCheck.value = { ok: true, latency: Math.max(1, Math.round(performance.now() - started)) };
+  } catch {
+    connectionCheck.value = { ok: false };
+  } finally {
+    checkingConnection.value = false;
+  }
 }
 async function logout() {
   const request = client.request("/auth/logout", "POST").catch(() => {});
@@ -331,7 +372,7 @@ onBeforeUnmount(() => {
           <p class="login-intro">智禾随行 · 从一株禾苗，到每一次安心作业。</p>
           <FieldScene />
         </section>
-        <form class="card login-form" @submit.prevent="login">
+        <form class="card login-form" :aria-busy="busy" @submit.prevent="login">
           <h2>连接你的农场</h2>
           <p class="muted">使用农场分配的账号，继续今天的田间工作</p>
           <label
@@ -348,18 +389,19 @@ onBeforeUnmount(() => {
               required
               maxlength="60"
               placeholder="输入登录账号" /></label
-          ><label
-            >密码<input
-              type="password"
+          ><label class="field-with-action"
+            >密码<div class="field-control"><input
+              :type="showLoginPassword ? 'text' : 'password'"
               v-model="credentials.password"
-              autocomplete="off"
+              aria-label="密码"
+              autocomplete="current-password"
               required
               maxlength="72"
               placeholder="输入账号密码"
-          /></label>
+            /><button type="button" class="field-action" :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'" :aria-pressed="showLoginPassword" @click="showLoginPassword = !showLoginPassword">{{ showLoginPassword ? '隐藏' : '显示' }}</button></div></label>
           <p v-if="error" role="alert" class="error">{{ error }}</p>
           <p v-if="message" role="status" class="notice">{{ message }}</p>
-          <button class="primary full" :disabled="busy">
+          <button class="primary full" :disabled="busy || !credentials.tenantCode.trim() || !credentials.username.trim() || !credentials.password">
             {{ busy ? "登录中…" : "登录农场" }}
           </button>
         </form>
@@ -373,14 +415,15 @@ onBeforeUnmount(() => {
         <div class="brand">
           <img :src="brandLogo" width="32" height="32" alt="智禾农场标志" /><strong>智禾随行</strong><span>田间工作伙伴</span>
         </div>
-        <button
-          class="icon-button"
-          aria-label="账号与连接"
-          @click="tab = 'account'"
-          :disabled="!!confirmation"
-        >
-          <AppIcon name="profile" />
-        </button>
+        <div class="header-actions">
+          <button class="icon-button alert-button" aria-label="查看告警" @click="openAlerts()" :disabled="!!confirmation">
+            <AppIcon name="bell" />
+            <span v-if="alerts.length" class="notification-count">{{ alerts.length > 9 ? "9+" : alerts.length }}</span>
+          </button>
+          <button class="icon-button" aria-label="账号与连接" @click="tab = 'account'" :disabled="!!confirmation">
+            <AppIcon name="profile" />
+          </button>
+        </div>
       </header>
       <main class="mobile-main">
         <section v-if="!mustChange" class="farm-switch">
@@ -403,12 +446,21 @@ onBeforeUnmount(() => {
           </div>
         </section>
         <p v-if="error" class="error" role="alert">
-          {{ error
-          }}{{
-            lastSync && !connected
-              ? " 当前展示上次读取的数据，恢复连接后再操作。"
-              : ""
-          }}
+          <span>{{ error
+            }}{{
+              lastSync && !connected
+                ? " 当前展示上次读取的数据，恢复连接后再操作。"
+                : ""
+            }}</span>
+          <button
+            v-if="farmId && !connected"
+            class="error-action"
+            type="button"
+            :disabled="refreshing || !!confirmation"
+            @click="refresh"
+          >
+            {{ refreshing ? "连接中…" : "重新连接" }}
+          </button>
         </p>
         <p v-if="message" class="notice" role="status">
           {{ message }}
@@ -418,30 +470,50 @@ onBeforeUnmount(() => {
           ><section class="card">
             <h2>{{ identity.displayName }}</h2>
             <p>{{ identity.tenantName }} · {{ roleName }}</p>
-            <p class="muted break">服务器：{{ location.origin }}</p>
             <p class="muted">
               前台每 30 秒刷新，返回应用时重新读取；不在离线时排队执行指令。
             </p>
             <button @click="logout" :disabled="!!confirmation">退出登录</button>
           </section>
+          <section class="card connection-card">
+            <header class="section-heading">
+              <div>
+                <p class="eyebrow">SERVER CONNECTION</p>
+                <h3>服务器连接</h3>
+              </div>
+              <span class="tag">{{ connected ? "已连接" : "未同步" }}</span>
+            </header>
+            <p class="muted break">当前服务器：{{ location.origin }}</p>
+            <p class="muted">更换服务器会退出当前账号，需要重新登录。</p>
+            <p v-if="connectionCheck" class="connection-result" :class="{ failed: !connectionCheck.ok }" role="status">
+              {{ connectionCheck.ok ? `连接正常 · ${connectionCheck.latency} ms` : "连接失败，请检查电脑和手机是否在同一网络。" }}
+            </p>
+            <button class="full" type="button" @click="checkConnection" :disabled="checkingConnection || !!confirmation">
+              {{ checkingConnection ? "检查中…" : "检查连接" }}
+            </button>
+            <button v-if="nativeShell" class="primary full" type="button" @click="openConnectionSettings" :disabled="!!confirmation">更换服务器</button>
+            <p v-else class="muted">浏览器预览请直接打开目标服务器地址。</p>
+          </section>
           <form class="card" @submit.prevent="changePassword">
             <h3>{{ mustChange ? "首次使用需更新密码" : "修改密码" }}</h3>
-            <label
-              >当前密码<input
-                type="password"
+            <label class="field-with-action"
+              >当前密码<div class="field-control"><input
+                :type="showCurrentPassword ? 'text' : 'password'"
                 v-model="password.currentPassword"
-                autocomplete="off"
+                aria-label="当前密码"
+                autocomplete="current-password"
                 required
-                maxlength="72" /></label
-            ><label
-              >新密码<input
-                type="password"
+                maxlength="72" /><button type="button" class="field-action" :aria-label="showCurrentPassword ? '隐藏当前密码' : '显示当前密码'" :aria-pressed="showCurrentPassword" @click="showCurrentPassword = !showCurrentPassword">{{ showCurrentPassword ? '隐藏' : '显示' }}</button></div></label
+            ><label class="field-with-action"
+              >新密码<div class="field-control"><input
+                :type="showNewPassword ? 'text' : 'password'"
                 v-model="password.newPassword"
+                aria-label="新密码"
                 autocomplete="new-password"
                 required
                 minlength="12"
                 maxlength="72"
-            /></label>
+            /><button type="button" class="field-action" :aria-label="showNewPassword ? '隐藏新密码' : '显示新密码'" :aria-pressed="showNewPassword" @click="showNewPassword = !showNewPassword">{{ showNewPassword ? '隐藏' : '显示' }}</button></div></label>
             <p class="muted">至少 12 个字符，修改后手机和电脑需要重新登录。</p>
             <button class="primary" :disabled="busy || !!confirmation">
               更新密码
@@ -479,10 +551,10 @@ onBeforeUnmount(() => {
               }}</strong
               ><span>正常上报</span>
             </button>
-            <div>
+            <button class="summary-item alert-summary" aria-label="查看待处理告警" @click="openAlerts()">
               <strong>{{ alerts.length }}</strong
               ><span>待处理告警</span>
-            </div>
+            </button>
           </div>
           <header class="section-heading">
             <h2>田间快照</h2>
@@ -520,8 +592,11 @@ onBeforeUnmount(() => {
               ><small>{{ m.device?.name || "—" }}</small>
             </button>
           </div>
-          <article class="card">
-            <h3>待处理告警</h3>
+          <article class="card alert-preview">
+            <header class="section-heading">
+              <h3>待处理告警</h3>
+              <button class="text-button" type="button" @click="openAlerts()">查看全部</button>
+            </header>
             <p v-if="!alerts.length" class="muted">
               {{ connected ? "当前没有待处理告警" : "等待告警数据" }}
             </p>
@@ -529,7 +604,7 @@ onBeforeUnmount(() => {
               class="alert-row"
               v-for="a in alerts.slice(0, 5)"
               :key="a.id"
-              @click="openDevice(a.deviceId)"
+              @click="openAlerts(a.id)"
             >
               <strong>{{ a.deviceName || "设备告警" }}</strong
               ><span
@@ -565,18 +640,41 @@ onBeforeUnmount(() => {
                 aria-label="搜索设备"
                 placeholder="搜索名称、型号或田块" /></label
             ><label class="filter-label"
-              >设备类型<select v-model="filter">
-                <option value="">全部类型</option>
-                <option
-                  v-for="t in [...new Set(devices.map((d) => d.deviceType))]"
-                  :key="t"
-                  :value="t"
-                >
-                  {{ typeNames[t] || t }}
-                </option>
-              </select></label
+              >设备类型<span class="select-control"
+                ><select v-model="filter" aria-label="设备类型">
+                  <option value="">全部类型</option>
+                  <option
+                    v-for="t in [...new Set(devices.map((d) => d.deviceType))]"
+                    :key="t"
+                    :value="t"
+                  >
+                    {{ typeNames[t] || t }}
+                  </option>
+                </select><AppIcon name="chevronDown" /></span></label
             >
-            <p class="empty" v-if="!filtered.length">没有匹配的设备</p>
+            <div class="filter-summary" aria-live="polite">
+              <span>显示 {{ filtered.length }} / {{ devices.length }} 台设备</span>
+              <button
+                v-if="hasDeviceFilters"
+                class="text-button"
+                type="button"
+                @click="clearDeviceFilters"
+              >
+                清除筛选
+              </button>
+            </div>
+            <div class="empty" v-if="!filtered.length">
+              <strong>{{ hasDeviceFilters ? "没有匹配的设备" : "当前农场还没有设备" }}</strong>
+              <span>{{ hasDeviceFilters ? "换个关键词或恢复全部类型后再试。" : "请在电脑端设备台账添加设备。" }}</span>
+              <button
+                v-if="hasDeviceFilters"
+                class="full"
+                type="button"
+                @click="clearDeviceFilters"
+              >
+                显示全部设备
+              </button>
+            </div>
             <button
               class="card device-card"
               v-for="d in filtered"
@@ -671,6 +769,17 @@ onBeforeUnmount(() => {
           <FieldIcon :name="t[0] === 'devices' ? 'sensor' : t[0] === 'jobs' ? 'machinery' : t[2]" /><span>{{ t[1] }}</span>
         </button>
       </nav>
+      <MobileAlerts
+        v-if="alertCenterOpen"
+        :alerts="alerts"
+        :client="client"
+        :role="identity.role"
+        :initial-id="alertSelection"
+        :locked="!!confirmation || !connected"
+        @close="closeAlerts"
+        @changed="closeAlerts(); refresh()"
+        @device="(id) => { closeAlerts(); openDevice(id); }"
+      />
       <div class="confirm-backdrop" v-if="confirmation">
         <section
           class="confirm-dialog card"

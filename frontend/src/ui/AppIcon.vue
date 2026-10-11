@@ -74,6 +74,8 @@ const icons = {
   arrowUp: '<path d="M12 19.5v-14M6 11l6-6 6 6"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"/>',
   arrowRight: '<path d="M4.5 12h14M13 6l6 6-6 6"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  bell: '<path d="M6.5 10.5a5.5 5.5 0 0 1 11 0c0 5 2 5.5 2 7H4.5c0-1.5 2-2 2-7z"/><path d="M10 20h4"/>',
 };
 defineProps({ name: { type: String, required: true } });
 </script>

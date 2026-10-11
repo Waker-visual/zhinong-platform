@@ -1,5 +1,7 @@
 <resources>
   <color name="page">#FCFCFB</color>
+  <color name="surface">#FFFFFF</color>
+  <color name="border">#D9E2DC</color>
   <color name="text">#18181B</color>
   <color name="muted">#52514E</color>
   <color name="seed">#BCD1CA</color>
