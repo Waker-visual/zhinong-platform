@@ -1,3 +1,35 @@
+/* 展示大屏固定采用湖蓝与田野绿；作用域内保持图表和正文同一配色。 */
+.farm-display {
+  --display-lake: #0d2534;
+  --display-teal: #123f49;
+  --display-leaf: #82c5a0;
+  --display-gold: #e6bd74;
+  --display-white: #ecf3ed;
+  --display-muted: #9fb8ba;
+  --display-header: #0c202e;
+  --display-map: #102f38;
+  --display-map-line: #24424b;
+  --display-map-label: #bfdbc8;
+  --display-crop-0: #235b52;
+  --display-crop-1: #426553;
+  --display-crop-2: #31554d;
+  --display-crop-3: #5e6748;
+  --display-leaf-soft: #173e3e;
+  --display-leaf-line: #467764;
+  --display-gold-soft: #3c3c30;
+  --display-gold-line: #7e714f;
+  --page: var(--display-lake);
+  --surface: #112f3d;
+  --subtle-bg: var(--display-teal);
+  --text: var(--display-white);
+  --text-2: var(--display-muted);
+  --label-fg: var(--display-muted);
+  --border: #29434d;
+  --border-strong: #41616a;
+  --brand: var(--display-leaf);
+  --info: var(--display-leaf);
+}
+
 /* 智禾农场设计令牌。
  * 沿用磐隐情报系统的两层结构：第一层是取样定下的角色色，第二层是组件引用的语义别名。
  * 组件样式只引用第二层，不写色值；tools/check_project.cjs 会检查本文件以外的样式色值。
@@ -855,4 +887,23 @@ html[data-theme="dark"] .accent-options i[data-accent="rose"] {
   .table-tools {
     flex-wrap: wrap;
   }
+}
+
+/* 小禾为原创禾苗角色；角色色不随操作主题色改变，气泡沿用界面语义色。 */
+.sprout-companion {
+  --sprout-leaf: #285846;
+  --sprout-young-leaf: #79b975;
+  --sprout-rice: #edf3d5;
+  --sprout-line: #24473b;
+  --sprout-gold: #d6b85f;
+  --sprout-cheek: #e9b9a0;
+  --sprout-highlight: #fafced;
+  --sprout-vein: #aed291;
+  --sprout-limb: #527757;
+  --sprout-shadow: color-mix(in srgb, var(--sprout-leaf) 14%, transparent);
+}
+html[data-theme="dark"] .sprout-companion {
+  --sprout-leaf: #4a8160;
+  --sprout-limb: #a2bd87;
+  --sprout-shadow: color-mix(in srgb, var(--sprout-young-leaf) 12%, transparent);
 }

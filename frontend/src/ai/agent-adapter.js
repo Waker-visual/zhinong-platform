@@ -1,15 +1,10 @@
-// 同步适配器：把现有的同步 POST /api/ai/conversations/{id}/messages 接口包装成
-// AgentRunEvent 流，驱动阶段 A 的 Agent UI，待阶段 B 替换为真实 SSE 适配器。
-// 真实的 `api` 实现延迟到调用时才导入（而非在模块顶层导入），
-// 因为它在加载时读取浏览器的 sessionStorage，在 Node 测试环境中会立即抛错；
-// 测试总是注入自己的 `send`，不会触发这次动态导入。
+import { api, streamJson } from "../api.js";
+
+// 与页面共用同一个请求模块和认证状态；api.js 可直接在 Node 测试环境导入。
 async function defaultSend({ conversationId, question, requestId, signal }) {
-  const { api } = await import("../api.js");
   return api(`/ai/conversations/${conversationId}/messages`, "POST", { question, requestId }, { timeoutMs: 70000, signal });
 }
 
-// 流式适配器的默认发送：真正的 SSE 实现延迟到调用时才导入 api.js（原因同上，避免在 Node
-// 测试环境加载时触发 sessionStorage 访问）。
 // 必须是 async function*（而不是普通 async function 再 return 一个异步生成器）：调用方
 // 用 `for await (const event of send(...))` 直接迭代返回值。普通 async function 的返回值
 // 会被包成 Promise<AsyncGenerator>，Promise 本身不是 async-iterable，`for await...of` 会在
@@ -18,7 +13,6 @@ async function defaultSend({ conversationId, question, requestId, signal }) {
 // 验收中复现：实际发送请求只命中 /messages，从未命中 /stream）。用 yield* 委托，
 // defaultStreamSend(...) 调用后立即同步返回一个真正的异步生成器，才能被正确迭代。
 async function* defaultStreamSend({ conversationId, question, requestId, signal }) {
-  const { streamJson } = await import("../api.js");
   yield* streamJson(`/ai/conversations/${conversationId}/stream`, { question, requestId }, { timeoutMs: 70000, signal });
 }
 

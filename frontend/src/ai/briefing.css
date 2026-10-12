@@ -1,0 +1,308 @@
+.farm-briefing {
+  margin-bottom: 24px;
+  padding: 22px 24px 12px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--module-planting);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+.briefing-heading,
+.briefing-heading-title,
+.briefing-dialog-heading,
+.briefing-priority-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.briefing-heading,
+.briefing-dialog-heading,
+.briefing-priority-heading {
+  justify-content: space-between;
+}
+.briefing-heading-title {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.briefing-heading-title > .app-icon {
+  color: var(--brand);
+  width: 22px;
+  height: 22px;
+}
+.briefing-source {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 3px 7px;
+  font-size: 11px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.briefing-date,
+.briefing-timestamp,
+.briefing-caption,
+.briefing-dialog-heading p,
+.briefing-report-footer {
+  font-size: 12px;
+  color: var(--label-fg);
+  line-height: 1.7;
+}
+.briefing-date {
+  flex: none;
+}
+.briefing-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(230px, 1fr);
+  gap: 28px;
+  padding: 20px 0;
+}
+.briefing-lead > p:first-child {
+  max-width: 64ch;
+  font-size: 16px;
+  line-height: 1.8;
+}
+.briefing-lead .briefing-timestamp {
+  margin-top: 10px;
+}
+.briefing-progress {
+  color: var(--label-fg);
+  font-size: 12px;
+  margin-top: 8px;
+  line-height: 1.7;
+}
+.briefing-next {
+  padding-left: 24px;
+  border-left: 1px solid var(--border);
+}
+.briefing-next h3,
+.briefing-dialog h3 {
+  font-size: 14px;
+  margin: 0 0 12px;
+}
+.briefing-next > p {
+  font-size: 13px;
+  line-height: 1.8;
+}
+.briefing-next > .text-button {
+  margin-top: 12px;
+}
+.briefing-priority-label {
+  color: var(--label-fg);
+  font-size: 12px;
+}
+.briefing-priority-label.urgent {
+  color: var(--danger);
+}
+.briefing-next .briefing-priority-label {
+  font-weight: 600;
+  margin-bottom: 7px;
+}
+.briefing-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+.briefing-actions .primary,
+.briefing-actions .outline {
+  min-height: 36px;
+  padding: 8px 12px;
+}
+.briefing-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  gap: 16px;
+}
+.briefing-facts dt {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.briefing-facts dd {
+  font-size: 23px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin: 5px 0;
+}
+.briefing-facts dd small {
+  font-weight: 400;
+}
+.briefing-caption {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  padding-top: 10px;
+}
+.briefing-error {
+  color: var(--danger);
+  margin: 14px 0;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.briefing-skeleton {
+  display: grid;
+  gap: 16px;
+  padding: 24px 0;
+}
+.briefing-skeleton .skeleton {
+  height: 16px;
+  width: 90%;
+}
+.briefing-skeleton .skeleton:last-child {
+  width: 55%;
+}
+.briefing-dialog.app-dialog {
+  width: min(820px, calc(100vw - 32px));
+  max-width: 820px;
+}
+.briefing-dialog-heading {
+  align-items: flex-start;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.briefing-dialog-heading h2 {
+  line-height: 1.6;
+}
+.briefing-report-summary {
+  padding: 22px 0;
+}
+.briefing-history {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 16px;
+  padding-top: 18px;
+  font-size: 12px;
+  color: var(--label-fg);
+}
+.briefing-history label {
+  min-width: 190px;
+}
+.briefing-history label > .select-menu {
+  margin-top: 6px;
+}
+.briefing-history > span,
+.briefing-history > button {
+  margin-bottom: 10px;
+}
+.briefing-report-summary > p,
+.briefing-priorities article > p {
+  font-size: 14px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+}
+.briefing-model-summary {
+  margin-top: 22px;
+}
+.briefing-model-summary .assistant-text {
+  line-height: 1.85;
+}
+.briefing-priorities article {
+  padding: 17px 0;
+  border-top: 1px solid var(--border);
+}
+.briefing-priority-heading {
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.briefing-priority-heading h4 {
+  font-size: 14px;
+  margin: 0;
+}
+.briefing-priority-heading span {
+  flex-shrink: 0;
+}
+.briefing-priorities ul,
+.briefing-gaps ul {
+  padding-left: 20px;
+  margin: 8px 0 0;
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--text-2);
+}
+.briefing-gaps {
+  padding: 18px;
+  background: var(--subtle-bg);
+  border-radius: var(--radius-sm);
+  margin: 12px 0 20px;
+}
+.briefing-evidence {
+  font-size: 13px;
+  border-block: 1px solid var(--border);
+}
+.briefing-evidence summary {
+  padding: 16px 0;
+  cursor: pointer;
+}
+.briefing-evidence dl {
+  margin: 0 0 16px;
+}
+.briefing-evidence dl > div {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(0, 3fr);
+  gap: 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  line-height: 1.7;
+}
+.briefing-evidence dt {
+  color: var(--text-2);
+}
+.briefing-evidence dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.briefing-evidence small {
+  display: block;
+}
+.briefing-report-footer {
+  display: block;
+  margin-top: 0;
+  letter-spacing: normal;
+  padding-top: 18px;
+}
+.briefing-report-footer p + p {
+  margin-top: 6px;
+}
+@media (max-width: 700px) {
+  .farm-briefing {
+    padding: 16px 16px 10px;
+    margin-bottom: 18px;
+  }
+  .briefing-heading {
+    align-items: flex-start;
+  }
+  .briefing-heading-title h2 {
+    font-size: 16px;
+  }
+  .briefing-heading-title .briefing-source {
+    margin-left: 30px;
+  }
+  .briefing-overview {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding-block: 16px;
+  }
+  .briefing-next {
+    padding: 16px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  .briefing-lead > p:first-child {
+    font-size: 14px;
+  }
+  .briefing-facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: 20px;
+  }
+  .briefing-caption {
+    font-size: 11px;
+  }
+  .briefing-dialog.app-dialog .dialog-body {
+    padding: 20px;
+  }
+}

@@ -20,7 +20,8 @@ export const AuthenticatedTileLayer = L.TileLayer.extend({
     tile.setAttribute("role", "presentation");
     const controller = new AbortController();
     tile._mapAbort = controller;
-    const timeout = setTimeout(() => controller.abort(), 15000);
+    // Allow both bounded upstream attempts plus a short queueing margin.
+    const timeout = setTimeout(() => controller.abort(), 30000);
     let settled = false;
     tile._mapCancel = () => {
       settled = true;

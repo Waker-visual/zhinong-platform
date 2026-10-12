@@ -501,6 +501,8 @@ onBeforeUnmount(() => {
               <p v-if="alert.handleNote">
                 {{ alert.handledBy }}：{{ alert.handleNote }}
               </p>
+              <p v-if="alert.recommendation">排查建议：{{ alert.recommendation }}</p>
+              <details v-if="alert.evidence" class="alert-evidence"><summary>判定依据</summary><p>{{ alert.evidence }}</p></details>
               <p v-if="alert.issueId">
                 已关联田间问题：{{
                   {
@@ -531,7 +533,7 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </div>
-          <p v-if="!device.alerts.length" class="empty">暂无阈值告警记录</p>
+          <p v-if="!device.alerts.length" class="empty">暂无设备告警记录</p>
         </section>
         </template>
       </div>

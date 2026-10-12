@@ -30,9 +30,12 @@ public class AlertFieldWorkService {
     var profile=store.db().queryForMap("SELECT plot_id FROM asset_profiles WHERE tenant_id=? AND device_id=?",tenant,alert.get("DEVICE_ID"));
     if(profile.get("PLOT_ID")==null) throw new ApiException(409,"请先为设备关联所属地块，再转为田间问题");
     String metric=alert.get("METRIC").toString();
+    boolean health=Set.of("OFFLINE","DATA_STALE").contains(metric);
     String category=metric.equals("PEST_COUNT")?"PEST":metric.startsWith("SOIL_MOISTURE") || Set.of("WATER_LEVEL","FLOW","WATER_TOTAL").contains(metric)?"WATER":
-      Set.of("FAULT","EMERGENCY_STOP","VOLTAGE","CURRENT","PUMP_RUNNING","GATE_OPENING").contains(metric)?"EQUIPMENT":"OTHER";
-    String description="设备告警："+MetricCatalog.get(metric).name()+"="+alert.get("MEASURED_VALUE")+MetricCatalog.get(metric).unit()+
+      health || Set.of("FAULT","EMERGENCY_STOP","VOLTAGE","CURRENT","PUMP_RUNNING","GATE_OPENING").contains(metric)?"EQUIPMENT":"OTHER";
+    String reading=health?(metric.equals("OFFLINE")?"设备离线":"采样数据过期"):
+      MetricCatalog.get(metric).name()+"="+alert.get("MEASURED_VALUE")+MetricCatalog.get(metric).unit();
+    String description="设备告警："+reading+
       "；"+alert.get("MESSAGE")+"；现场说明："+input.note().strip();
     if(description.length()>500) description=description.substring(0,500);
     @SuppressWarnings("unchecked") var issue=(Map<String,Object>)work.report(new FieldWorkService.IssueInput(profile.get("PLOT_ID").toString(),category,input.severity(),description));

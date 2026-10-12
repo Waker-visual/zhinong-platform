@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
@@ -10,6 +10,8 @@ import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import FarmAssistant from "./ai/FarmAssistant.vue";
+import FarmBriefing from "./ai/FarmBriefing.vue";
+import AlertCenter from "./workspace/AlertCenter.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
 import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
@@ -76,6 +78,10 @@ const error = ref("");
 const busy = ref(false);
 const loading = ref(false);
 const farmAssistant = ref(null);
+const alertCenter = ref(null);
+const assistantQuestion = ref("");
+const screenOpen = ref(false), screenOpening = ref(false), screenComponent = shallowRef(null);
+let displayOpener;
 const refreshingPage = ref(false);
 const pageLoading = computed(() => loading.value || refreshingPage.value ||
   (page.value === "ai" && farmAssistant.value?.refreshing));
@@ -409,6 +415,63 @@ async function dailyNavigate({ page: target, farmId, create }) {
   await navigate(target);
   if (create && canCreate.value) openForm();
 }
+async function askFromInsight({ farmId, question }) {
+  if (farmAssistant.value?.sending) {
+    toast("请先等待当前 AI 回答完成，或停止生成后再带入排查问题。");
+    return;
+  }
+  farmScope.value = farmId;
+  assistantQuestion.value = question;
+  await navigate({ page: "ai", farmId });
+}
+async function openDisplay(event) {
+  if (screenOpening.value || !["ADMIN", "OPERATOR", "VIEWER"].includes(role.value) ||
+      !account.value || account.value.mustChangePassword) return;
+  if (!farmOptions.value.some(farm => farm.id === farmScope.value))
+    farmScope.value = farmOptions.value[0]?.id || "";
+  const actor = identity.value;
+  displayOpener = event?.currentTarget || document.activeElement;
+  screenOpening.value = true;
+  try {
+    const module = await import("./screen/FarmDisplay.vue");
+    if (identity.value !== actor || !account.value || account.value.mustChangePassword) return;
+    screenComponent.value = module.default;
+    screenOpen.value = true;
+  } catch (e) {
+    toast("展示大屏加载失败，请刷新页面后重试。");
+  } finally {
+    screenOpening.value = false;
+  }
+}
+async function leaveDisplay() {
+  screenOpen.value = false;
+  await nextTick();
+  if (displayOpener?.isConnected) displayOpener.focus();
+}
+function selectDisplayFarm(id) {
+  farmScope.value = id;
+  selectFarm();
+  if (page.value === "devices") {
+    ledgerFocus.value = { ...ledgerFocus.value, farmId: id, deviceId: "" };
+    navigationRevision.value++;
+  }
+}
+async function displayNavigate(payload) {
+  await leaveDisplay();
+  await navigate(payload);
+}
+async function displayAsk(payload) {
+  await leaveDisplay();
+  await askFromInsight(payload);
+}
+async function displayAlerts() {
+  await leaveDisplay();
+  alertCenter.value?.open();
+}
+function alertChanged() {
+  moduleRevision.value++;
+  reload();
+}
 async function launchFarm(id) {
   farmScope.value = id;
   await navigate("dashboard");
@@ -416,6 +479,7 @@ async function launchFarm(id) {
 }
 async function navigate(payload) {
   const id = typeof payload === "string" ? payload : payload.page;
+  if (id === "display") return openDisplay();
   const morph = typeof payload === "string" ? "" : payload.morph || "";
   if (typeof payload === "object" && payload.farmId) farmScope.value = payload.farmId;
   if (id === "cameras") cameraFocus.value = typeof payload === "object" ? payload.deviceId || "" : "";
@@ -510,6 +574,7 @@ async function signOut() {
   });
 }
 function expire() {
+  screenOpen.value = false;
   resetFeedback();
   setToken("");
   identity.value = null;
@@ -526,6 +591,7 @@ function expire() {
   dialog.value = false;
   captureDevice.value = null;
   paletteOpen.value = false;
+  assistantQuestion.value = "";
   loading.value = false;
   ++loadSequence;
 }
@@ -852,7 +918,7 @@ onUnmounted(() => {
     <div class="main-shell">
       <header class="topbar">
         <span class="topbar-brand"
-          ><img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" />智禾农场</span
+          ><img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" /><span>智禾农场</span></span
         ><span class="topbar-trail"
           >工作空间 <b>/</b> {{ current.title }}</span
         ><FarmSelect
@@ -864,6 +930,28 @@ onUnmounted(() => {
         />
         <span class="topbar-meta">{{ today }}</span
         ><StatusCapsule @refresh="refreshActive" />
+        <button
+          v-if="!platform && account && !account.mustChangePassword"
+          type="button"
+          class="display-entry"
+          aria-label="进入展示大屏"
+          aria-haspopup="dialog"
+          title="进入展示大屏"
+          :disabled="screenOpening"
+          :aria-busy="screenOpening"
+          @click="openDisplay"
+        ><AppIcon name="screen" /><span>{{ screenOpening ? "加载中…" : "展示大屏" }}</span></button>
+        <AlertCenter
+          v-if="!platform && account && !account.mustChangePassword"
+          ref="alertCenter"
+          :farm-id="farmScope"
+          :farm-name="farmRows.find(f => f.id === farmScope)?.name"
+          :role="role"
+          :revision="moduleRevision"
+          @navigate="navigate"
+          @ask="askFromInsight"
+          @changed="alertChanged"
+        />
         <button
           type="button"
           class="icon-button topbar-search"
@@ -878,11 +966,13 @@ onUnmounted(() => {
         v-if="account && !account.mustChangePassword"
         :style="activeMorph && page !== 'operations' ? { viewTransitionName: 'ops-morph' } : null"
       >
-        <div class="page-heading">
-          <div>
+        <div class="page-heading" :class="{ 'page-heading-ai': page === 'ai' }">
+          <div class="page-heading-copy">
             <h1>{{ current.title }}</h1>
             <p class="muted">{{ current.description }}</p>
           </div>
+          <div class="page-heading-actions">
+          <div v-if="page === 'ai' && farmScope" id="farm-assistant-companion" class="page-heading-companion"></div>
           <button
             class="outline with-icon"
             @click="refreshActive"
@@ -892,12 +982,21 @@ onUnmounted(() => {
           >
             <AppIcon name="refresh" />{{ pageLoading ? "正在加载…" : "刷新数据" }}
           </button>
+          </div>
         </div>
         <p v-if="connection.state === 'offline'" role="alert" class="error">
           无法连接本地服务，页面上的数据可能不是最新的。
           <button class="text-button" :disabled="refreshDisabled" @click="refreshActive">重新连接</button>
         </p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
+        <FarmBriefing
+          v-if="!platform && ['daily', 'operations'].includes(page)"
+          :farm-id="farmScope"
+          :revision="moduleRevision"
+          @ask="askFromInsight"
+          @navigate="navigate"
+          @alerts="alertCenter?.open()"
+        />
         <DailyFarm
           v-if="page === 'daily'"
           :identity="identity"
@@ -909,7 +1008,7 @@ onUnmounted(() => {
           @farm="launchFarm"
           @notice="message"
         />
-        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" :page-refreshing="refreshingPage" @farm="launchFarm" />
+        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :page-refreshing="refreshingPage" @farm="launchFarm" @question-prepared="assistantQuestion = ''" />
         <FieldCameras v-else-if="page === 'cameras'" :key="farmScope" :farm-id="farmScope" :initial-device-id="cameraFocus" :revision="moduleRevision" @manage="navigate({ page: 'devices', ...$event, cameraOnly: true })" />
         <OperationsOverview
           v-else-if="page === 'operations'"
@@ -1222,6 +1321,18 @@ onUnmounted(() => {
       </button>
     </nav>
     <ConfirmDialog />
+    <component
+      :is="screenComponent"
+      v-if="screenOpen && !platform && account && !account.mustChangePassword"
+      :farm-id="farmScope"
+      @update:farm-id="selectDisplayFarm"
+      :farms="farmOptions"
+      :role="role"
+      @close="leaveDisplay"
+      @navigate="displayNavigate"
+      @ask="displayAsk"
+      @alerts="displayAlerts"
+    />
     <CommandPalette
       v-model:open="paletteOpen"
       :items="paletteItems"

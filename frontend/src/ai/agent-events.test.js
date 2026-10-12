@@ -22,9 +22,88 @@ import {
 import { syncConversationAdapter, streamConversationAdapter, defaultConversationAdapter } from "./agent-adapter.js";
 import { isNearBottom } from "./scroll.js";
 import { createSseParser } from "./sse-parser.js";
+import { connection, setToken } from "../api.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(dir, name), "utf8");
+
+function browserSession(t) {
+  const values = new Map();
+  const expired = [];
+  const globals = {
+    sessionStorage: {
+      getItem: (key) => values.get(key) ?? null,
+      setItem: (key, value) => values.set(key, value),
+      removeItem: (key) => values.delete(key),
+    },
+    window: { dispatchEvent: (event) => expired.push(event.type) },
+  };
+  const originals = Object.fromEntries(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, value });
+  t.after(() => {
+    setToken("");
+    for (const [key, descriptor] of Object.entries(originals)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  });
+  return { values, expired };
+}
+
+test("default adapter sends authenticated SSE through the shared request module", async (t) => {
+  browserSession(t);
+  setToken("test-session");
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls.push({ url, options });
+    return new Response('data: {"type":"run.started","sequence":1}\n\ndata: {"type":"run.completed","sequence":2}\n\n', {
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  });
+  const events = [];
+  for await (const event of defaultConversationAdapter({ conversationId: "conversation-1", question: "今日建议", requestId: "request-1" })) events.push(event);
+  assert.equal(calls.length, 1, "the default transport must use SSE without submitting a duplicate sync request");
+  assert.equal(calls[0].url, "/api/ai/conversations/conversation-1/stream");
+  assert.equal(calls[0].options.headers.Authorization, "Bearer test-session");
+  assert.match(calls[0].options.headers.Accept, /text\/event-stream/);
+  assert.deepEqual(JSON.parse(calls[0].options.body), { question: "今日建议", requestId: "request-1" });
+  assert.deepEqual(events.map((event) => [event.type, event.adapter]), [["run.started", "stream"], ["run.completed", "stream"]]);
+  assert.equal(connection.inflight, 0);
+});
+
+test("default SSE cancellation aborts fetch without falling back or showing an error", async (t) => {
+  browserSession(t);
+  const controller = new AbortController();
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    calls.push(url);
+    controller.abort();
+    assert.equal(options.signal.aborted, true, "the caller signal must reach the actual fetch");
+    throw new DOMException("Aborted", "AbortError");
+  });
+  const events = [];
+  for await (const event of defaultConversationAdapter({ conversationId: "conversation-1", question: "取消", requestId: "request-2", signal: controller.signal })) events.push(event);
+  assert.deepEqual(calls, ["/api/ai/conversations/conversation-1/stream"]);
+  assert.deepEqual(events, []);
+  assert.equal(connection.inflight, 0);
+});
+
+test("default SSE transport clears the shared session and emits session expiry on 401", async (t) => {
+  const { values, expired } = browserSession(t);
+  setToken("expired-test-session");
+  t.mock.method(globalThis, "fetch", async () => new Response(JSON.stringify({ message: "请重新登录" }), {
+    status: 401,
+    headers: { "Content-Type": "application/json" },
+  }));
+  await assert.rejects(async () => {
+    for await (const event of streamConversationAdapter({ conversationId: "conversation-1", question: "q", requestId: "request-3" })) {
+      assert.fail(`unexpected event: ${event.type}`);
+    }
+  }, (error) => error.status === 401 && error.message === "请重新登录");
+  assert.equal(values.has("zhinong-session"), false);
+  assert.deepEqual(expired, ["session-expired"]);
+  assert.equal(connection.inflight, 0);
+});
 
 // 阶段F：按固定的 now 验证分组边界（今天/昨天/近7天/更早）以及置顶优先、不参与时间分组。
 test("groupConversationsByDate groups pinned first, then by fixed now's day boundaries", () => {

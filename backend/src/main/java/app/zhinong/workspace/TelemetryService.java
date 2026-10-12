@@ -20,13 +20,15 @@ public class TelemetryService {
   private final Store store;
   private final AssetService assets;
   private final DeviceCredentials credentials;
+  private final DeviceAlertMonitor monitor;
   private final SecureRandom random = new SecureRandom();
 
-  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials) {
+  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials, DeviceAlertMonitor monitor) {
     this.db = store.db();
     this.store = store;
     this.assets = assets;
     this.credentials = credentials;
+    this.monitor = monitor;
   }
 
   public Map<String, Object> collect(String id) {
@@ -240,6 +242,7 @@ public class TelemetryService {
       tenant,
       id
     );
+    monitor.checkDevice(tenant, id);
     db.update(
       "INSERT INTO audit_events(id,tenant_id,actor,action,resource_id,occurred_at) VALUES(?,?,?,?,?,?)",
       UUID.randomUUID().toString(),
@@ -314,32 +317,88 @@ public class TelemetryService {
     }
   }
 
+  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
   public List<Map<String, Object>> alerts(String farmId, String status) {
     String tenant = Identity.tenant();
     if (farmId != null && !farmId.isBlank()) store.get("farms", farmId);
     if (
       status != null && !Set.of("OPEN", "ACKNOWLEDGED", "RESOLVED", "ALL").contains(status)
     ) throw new ApiException(400, "告警状态无效");
+    monitor.scanFarm(tenant, farmId);
     String sql = """
       SELECT a.id AS "id",a.device_id AS "deviceId",d.name AS "deviceName",d.farm_id AS "farmId",
         f.name AS "farmName",a.metric AS "metric",a.measured_value AS "value",a.message AS "message",
         a.status AS "status",a.opened_at AS "openedAt",a.updated_at AS "updatedAt",
-        a.handled_by AS "handledBy",a.handle_note AS "handleNote"
+        a.handled_by AS "handledBy",a.handle_note AS "handleNote",p.protocol AS "protocol",
+        p.interval_seconds AS "intervalSeconds",p.last_received_at AS "lastReceivedAt",
+        c.lower_limit AS "lowerLimit",c.upper_limit AS "upperLimit",i.id AS "issueId",i.status AS "issueStatus",
+        p.plot_id AS "plotId",q.name AS "plotName"
       FROM device_alerts a JOIN devices d ON d.tenant_id=a.tenant_id AND d.id=a.device_id
-      JOIN farms f ON f.tenant_id=d.tenant_id AND f.id=d.farm_id WHERE a.tenant_id=?
+      JOIN farms f ON f.tenant_id=d.tenant_id AND f.id=d.farm_id
+      JOIN asset_profiles p ON p.tenant_id=a.tenant_id AND p.device_id=a.device_id
+      LEFT JOIN plots q ON q.tenant_id=p.tenant_id AND q.id=p.plot_id
+      LEFT JOIN device_channels c ON c.tenant_id=a.tenant_id AND c.device_id=a.device_id AND c.metric=a.metric
+      LEFT JOIN alert_field_issues l ON l.tenant_id=a.tenant_id AND l.alert_id=a.id
+      LEFT JOIN field_issues i ON i.tenant_id=l.tenant_id AND i.id=l.issue_id
+      WHERE a.tenant_id=?
       """;
     var args = new ArrayList<Object>();
     args.add(tenant);
     if (AssetService.blank(farmId) != null) {
       sql += " AND d.farm_id=?";
       args.add(farmId);
-    }
+    } else sql += " AND NOT EXISTS(SELECT 1 FROM farm_archives x WHERE x.tenant_id=d.tenant_id AND x.farm_id=d.farm_id)";
     if (status == null) sql += " AND a.status<>'RESOLVED'";
     else if (!status.equals("ALL")) {
       sql += " AND a.status=?";
       args.add(status);
     }
-    return db.queryForList(sql + " ORDER BY a.opened_at DESC LIMIT 200", args.toArray());
+    var rows = db.queryForList(sql + " ORDER BY a.opened_at DESC LIMIT 200", args.toArray());
+    rows.forEach(TelemetryService::explainAlert);
+    return rows;
+  }
+
+  private static void explainAlert(Map<String, Object> alert) {
+    String metric = alert.get("metric").toString();
+    boolean offline = metric.equals("OFFLINE"), stale = metric.equals("DATA_STALE");
+    long threshold = DeviceAlertMonitor.thresholdSeconds(((Number) alert.get("intervalSeconds")).intValue());
+    alert.put("thresholdSeconds", threshold);
+    alert.put("lastReceivedAt", app.zhinong.database.DatabaseTime.offset(alert.get("lastReceivedAt")));
+    alert.put("kind", offline ? "OFFLINE" : stale ? "DATA_STALE" : "THRESHOLD");
+    alert.put("severity", offline || Set.of("FAULT", "EMERGENCY_STOP").contains(metric) ? "HIGH" : "WARNING");
+    alert.put("source", "RULE_ENGINE");
+    if (offline || stale) {
+      alert.put("metricName", offline ? "设备离线" : "采样数据过期");
+      alert.put("unit", "秒");
+      alert.put("evidence", alert.get("message") + "；判定窗口 " + threshold + " 秒（上报周期的 3 倍，最低 180 秒）。");
+      alert.put("recommendation", offline
+        ? ("SIMULATED".equals(alert.get("protocol")) ? "先点击设备采集刷新模拟数据；若仍无更新，检查模拟数据流和设备启用状态。"
+          : "依次检查设备电源或电量、网关网络及上报服务；确认接入地址与凭据配置，在设备页验证收到最新数据。")
+        : "检查缺测通道接线与采样任务，校准设备时钟并上报当前时间的完整通道数据；历史补报不能用于判断当前生产状态。");
+      return;
+    }
+    var spec = MetricCatalog.get(metric);
+    alert.put("metricName", spec.name());
+    alert.put("unit", spec.unit());
+    var value = new BigDecimal(alert.get("value").toString());
+    var lower = (BigDecimal) alert.get("lowerLimit");
+    var upper = (BigDecimal) alert.get("upperLimit");
+    boolean low = lower != null && value.compareTo(lower) < 0;
+    alert.put("evidence", spec.name() + " " + value.stripTrailingZeros().toPlainString() + spec.unit()
+      + "；设备配置范围 " + (lower == null ? "未设下限" : lower.stripTrailingZeros().toPlainString())
+      + " ～ " + (upper == null ? "未设上限" : upper.stripTrailingZeros().toPlainString()) + spec.unit()
+      + "。阈值来自设备配置，需结合现场与作物阶段复核。");
+    String advice;
+    if (metric.startsWith("SOIL_MOISTURE")) advice = low
+      ? "复测土壤墒情并核对作物生育期、降雨和灌溉记录；确认缺水后在灌溉助手评估方案，人工确认后执行。"
+      : "复测土壤墒情，检查积水、排水和近期灌溉记录；确认过湿后调整灌溉计划并跟踪恢复。";
+    else if (metric.contains("TEMPERATURE")) advice = "核查温度探头安装和遮阳条件，对比相邻测点；结合天气与作物阶段评估通风、遮阳或保温措施。";
+    else if (metric.equals("BATTERY")) advice = "检查设备供电与电池状态，安排充电或更换，并核对太阳能板、线缆和上报频率。";
+    else if (Set.of("FAULT", "EMERGENCY_STOP", "VOLTAGE", "CURRENT").contains(metric)) advice = "先现场确认设备故障与供电状态，停止依赖异常反馈的自动操作；由具备资质的维护人员检查，复测正常后恢复。";
+    else if (metric.equals("PEST_COUNT")) advice = "检查诱捕器和识别记录，开展现场虫情复核；结合虫种、密度及作物阶段制定防治方案。";
+    else if (Set.of("WATER_LEVEL", "FLOW", "WATER_TOTAL").contains(metric)) advice = "核对水位或流量计读数，检查水源、管路与泵阀运行记录；确认原因后调整供排水安排。";
+    else advice = "复测该指标并对比相邻测点，检查传感器安装、校准与阈值配置；确认生产异常后转为现场问题并安排复核。";
+    alert.put("recommendation", advice);
   }
 
   public void handle(String id, WorkspaceInputs.AlertAction input) {

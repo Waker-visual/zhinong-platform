@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 流式对话工具循环（Task 6）可调用的只读工具：复用 /api/ai/ask（{@link AiController}）已有的查询
- * 模式，但只保留四个安全、只读、按租户+农场限定的工具。farmId 永远取自已鉴权的会话记录
+ * 模式，工具按租户+农场限定。farmId 永远取自已鉴权的会话记录
  * （{@code AiStreamService} 里的 {@code prep.farmId()}），绝不使用模型给出的参数——模型的 tool_calls
  * 参数在这里被完全忽略，避免把未经校验的输入传进查询。
  *
@@ -27,7 +27,10 @@ public class AiStreamTools {
     "get_farm_summary", "查询农场经营概况",
     "get_pending_tasks", "查询待办任务",
     "get_open_issues", "查询现场问题",
-    "get_weather_conditions", "查询天气与四情"
+    "get_weather_conditions", "查询天气与四情",
+    "get_device_alerts", "核查设备异常与离线",
+    "get_production_comparison", "对比近两期收获记录",
+    "get_daily_briefing", "读取今日经营简报"
   );
 
   /** 任务状态枚举 -> 中文标签，与 frontend/src/catalog.js 的 labels 保持一致（阶段 E 验收发现模型
@@ -62,12 +65,14 @@ public class AiStreamTools {
   private final FieldWorkService fieldWork;
   private final AgronomyAnalysis analysis;
   private final ObjectMapper json;
+  private final FarmDecisionSupport decisions;
 
-  public AiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json) {
+  public AiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, FarmDecisionSupport decisions) {
     this.farmWorkspace = farmWorkspace;
     this.fieldWork = fieldWork;
     this.analysis = analysis;
     this.json = json;
+    this.decisions = decisions;
   }
 
   /** OpenAI 兼容 tools 定义，和 {@link AiController#toolDefinitions()} 使用同样的 JSON Schema 写法。 */
@@ -76,7 +81,10 @@ public class AiStreamTools {
       tool("get_farm_summary", "获取农场经营概况：总面积(亩)、累计产量(kg)、任务总数与已完成数、设备告警数"),
       tool("get_pending_tasks", "获取待办或进行中的农事任务：标题、状态、到期日、地块"),
       tool("get_open_issues", "获取未解决的现场问题：标题、状态、严重度、地块"),
-      tool("get_weather_conditions", "获取近7天天气与苗情/墒情/虫情/灾情四情摘要")
+      tool("get_weather_conditions", "获取近7天天气与苗情/墒情/虫情/灾情四情摘要"),
+      tool("get_device_alerts", "获取当前农场未解决的设备离线、采样过期及阈值异常，含检测依据、时间与排查建议；涉及设备异常或生产调整时先核验此工具"),
+      tool("get_production_comparison", "对比最近两个完整30天窗口的登记收获量、记录数与近期分地块明细，不含今天，不能据此推断利润、单产或因果"),
+      tool("get_daily_briefing", "只读当前农场今日已保存的经营简报、优先行动、依据和数据缺口；未生成则明确返回不可用，简报是生成时快照，实时异常需另查设备工具")
     );
   }
 
@@ -99,6 +107,9 @@ public class AiStreamTools {
       case "get_pending_tasks" -> pendingTasks(farmId);
       case "get_open_issues" -> openIssues(farmId);
       case "get_weather_conditions" -> weatherConditions(farmId);
+      case "get_device_alerts" -> decisions.alerts(farmId);
+      case "get_production_comparison" -> decisions.productionComparison(farmId);
+      case "get_daily_briefing" -> decisions.briefing(farmId);
       default -> throw new IllegalArgumentException("unknown tool: " + name);
     };
   }
@@ -116,6 +127,9 @@ public class AiStreamTools {
       }
       case "get_farm_summary" -> "已读取农场经营概况";
       case "get_weather_conditions" -> "已读取近7天天气与四情摘要";
+      case "get_device_alerts" -> "已核查设备告警及排查依据";
+      case "get_production_comparison" -> "已对比两个完整30天窗口的登记收获量";
+      case "get_daily_briefing" -> "已查询今日经营简报的保存状态";
       default -> "已完成查询";
     };
   }

@@ -1,6 +1,9 @@
 <script setup>
 // 统一线宽的界面图标，取代菜单里字体相关的 Unicode 字符。路径为本项目绘制。
 const icons = {
+  expand: '<path d="M8 3H3v5M16 3h5v5M21 16v5h-5M8 21H3v-5"/>',
+  screen: '<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M7 12l3-3 3 2 4-4"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4M12 2v1"/>',
   camera: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/><circle cx="9.5" cy="12" r="2.5"/>',
   profile:
     '<circle cx="12" cy="8" r="3.2"/><path d="M4 20c.7-3.8 3.5-6 8-6s7.3 2.2 8 6"/>',
@@ -17,6 +20,7 @@ const icons = {
   calendar:
     '<rect x="4" y="5.5" width="16" height="15" rx="1.5"/><path d="M8 3.5v4M16 3.5v4M4 10h16"/>',
   simulation: '<path d="M3.5 3.5v17h17"/><path d="m7.5 15 4-4.5 3 3 5-6"/>',
+  sprout: '<path d="M12 9C8.5 9 5.8 6.8 5.2 3.8c3.6.2 6.2 1.9 6.8 5.2Zm0 0c0-4 3-6.3 7-6.3-.6 3.7-3.1 6.3-7 6.3Z"/><path d="M12 9c-2.5 1.4-5.2 4.7-5.2 7.4 0 3 1.9 4.6 5.2 4.6s5.2-1.6 5.2-4.6C17.2 13.7 14.5 10.4 12 9Z"/><path d="M9.7 15.5v.6m4.6-.6v.6m-4 1.8q1.7 1.5 3.4 0"/>',
   overview:
     '<path d="m9 4.5-5.5 2v13l5.5-2 6 2 5.5-2v-13l-5.5 2z"/><path d="M9 4.5v13M15 6.5v13"/>',
   farms:

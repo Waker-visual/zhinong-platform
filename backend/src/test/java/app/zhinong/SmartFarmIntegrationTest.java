@@ -127,7 +127,9 @@ class SmartFarmIntegrationTest {
     assertEquals("FRESH",channel(detail,"SOIL_MOISTURE").path("freshness").asText());
     assertEquals("STALE",channel(detail,"SOIL_MOISTURE_2").path("freshness").asText());
     assertEquals("NO_DATA",channel(detail,"SOIL_MOISTURE_3").path("freshness").asText());
-    assertEquals(0,detail.path("alerts").size());
+    assertEquals(1,detail.path("alerts").size());
+    // Historical low moisture never raises a live threshold alert; it does expose stale channel data.
+    assertEquals("DATA_STALE",detail.path("alerts").get(0).path("metric").asText());
     var history=call(admin,"GET","/assets/"+d.id()+"/history?metric=SOIL_MOISTURE_2&hours=24",null,200);
     assertEquals(1,history.path("points").size());
     var events=call(viewer,"GET","/assets/"+d.id()+"/integration",null,200).path("events");

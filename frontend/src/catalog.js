@@ -24,7 +24,11 @@ export const labels = {
 };
 export const menus = [
   {
-    id: "ai", title: "农场 AI 助手", icon: "simulation", group: "分析与管理",
+    id: "display", title: "展示大屏", icon: "screen", group: "分析与管理",
+    description: "集中展示农场总览、智能农情与今日建议",
+  },
+  {
+    id: "ai", title: "农场 AI 助手", icon: "sprout", group: "分析与管理",
     description: "对话问农事，结合天气与四情数据分析，审核定时灌溉建议",
   },
   {

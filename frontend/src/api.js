@@ -1,7 +1,8 @@
 import { reactive } from "vue";
 import { createSseParser } from "./ai/sse-parser.js";
 
-let token = sessionStorage.getItem("zhinong-session") || "";
+// Node 中的适配器测试不提供浏览器存储；导入模块本身不应要求浏览器环境。
+let token = typeof sessionStorage === "undefined" ? "" : sessionStorage.getItem("zhinong-session") || "";
 
 // 与本地服务的真实连接状态，供顶栏状态胶囊显示：收到任何 HTTP 响应即视为在线
 export const connection = reactive({

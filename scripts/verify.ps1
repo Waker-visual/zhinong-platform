@@ -15,6 +15,12 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Agent 事件模型测试未通过' }
         node --test src/ai/markdown.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
+        node --test src/ai/companion-model.test.js
+        if ($LASTEXITCODE -ne 0) { throw '禾苗助手互动状态测试未通过' }
+        node --test src/screen/screen-model.test.js
+        if ($LASTEXITCODE -ne 0) { throw '展示大屏数据模型测试未通过' }
+        node --test src/screen/satellite-model.test.js
+        if ($LASTEXITCODE -ne 0) { throw '大屏卫星地图坐标测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }

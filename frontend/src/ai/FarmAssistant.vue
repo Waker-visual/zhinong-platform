@@ -14,9 +14,12 @@ import AiMessageActions from './AiMessageActions.vue';
 import AiHistoryMenu from './AiHistoryMenu.vue';
 import AppIcon from '../ui/AppIcon.vue';
 import IrrigationWorkspace from './IrrigationWorkspace.vue';
+import SproutCompanion from './SproutCompanion.vue';
+import { companionPresentation, companionTopics, prepareCompanionQuestion } from './companion-model.js';
 import { diagnosticLabels } from './diagnostics';
-const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean });
-const emit = defineEmits(['farm']);
+const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, companionTarget: String });
+const emit = defineEmits(['farm', 'question-prepared']);
+const contextPrepared = ref(false);
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const refreshing = ref(false);
@@ -24,8 +27,14 @@ const refreshBlocked = computed(() => busy.value || sending.value || refreshing.
 const interactionLocked = computed(() => refreshBlocked.value || props.pageRefreshing);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
 const run = ref(null);
+const companionOutcome = ref(''), companionNotice = ref(''), companionTopicIndex = ref(0);
 const highlightedRunId = ref(''); // 从聊天里的灌溉审批活动点击“去确认”后，高亮对应建议
 const initialLoading = ref(true); // 首次读取完成前，历史栏/消息区/分析页/灌溉页展示与最终布局等高的骨架屏，避免跳动
+const companion = computed(() => companionPresentation({ loading: initialLoading.value || refreshing.value || props.pageRefreshing,
+  sending: sending.value, run: run.value, error: error.value, outcome: companionOutcome.value }));
+const companionMessage = computed(() => ['idle', 'done'].includes(companion.value.state) && companionNotice.value
+  ? companionNotice.value : companion.value.message);
+const companionTopic = computed(() => companionTopics[companionTopicIndex.value % companionTopics.length]);
 const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
 let activeCancel = null;
@@ -35,6 +44,18 @@ function resizeComposer() {
   const el=composerInput.value; if(!el) return;
   el.style.height='auto';
   el.style.height=Math.min(el.scrollHeight,180)+'px';
+}
+async function suggestCompanionTopic() {
+  const result = prepareCompanionQuestion(question.value, companionTopic.value, interactionLocked.value);
+  if (interactionLocked.value) return;
+  panel.value = 'chat';
+  companionNotice.value = result.notice;
+  if (result.changed) {
+    question.value = result.question;
+    contextPrepared.value = false;
+    companionTopicIndex.value++;
+  }
+  await nextTick(); resizeComposer(); composerInput.value?.focus();
 }
 // 阶段F：历史栏分组、行内重命名、置顶/删除菜单。
 const historyGroups = computed(() => groupConversationsByDate(conversations.value, new Date(nowTick.value)));
@@ -71,6 +92,7 @@ async function refresh() {
 }
 async function select(id) {
   if(sending.value) return;
+  companionOutcome.value=''; companionNotice.value='';
   // 一次已经停止/出错的运行只属于它发生时所在的对话；切换到另一个对话后必须清空，
   // 不能让上一个对话的问题、空回答和状态条跟着一起显示出来。
   run.value=null; pendingRequest=null;
@@ -90,7 +112,7 @@ async function scrollToLatest(instant=false) {
   el.scrollTo({top:el.scrollHeight, behavior:(instant||reducedMotion())?'auto':'smooth'});
   followOutput.value=true; showJump.value=false;
 }
-async function newChat() {if(sending.value) return;selected.value='';messages.value=[];question.value='';pendingRequest=null;run.value=null;}
+async function newChat() {if(sending.value) return;selected.value='';messages.value=[];question.value='';contextPrepared.value=false;pendingRequest=null;run.value=null;companionOutcome.value='';companionNotice.value='';}
 // 阶段F：删除从历史项的操作菜单发起，不再是选中对话下方的独立链接——可以删除任意一条
 // （不一定是当前选中的那条）。删掉的若恰好是当前对话，行为和原来的 removeChat 一致：回到新建对话。
 async function deleteConversation(id) {
@@ -146,10 +168,11 @@ function onHistoryMenuAction(c,action) {
 }
 async function send(text=question.value) {
   text=text.trim(); if(!text || interactionLocked.value || text.length>2000) return;
-  sending.value=true; error.value=''; question.value='';
+  companionOutcome.value=''; companionNotice.value='';
+  sending.value=true; error.value=''; question.value=''; contextPrepared.value=false;
   const controller=new AbortController();
   let cancelled=false;
-  activeCancel=()=>{cancelled=true; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
+  activeCancel=()=>{if(run.value?.status==='completed') return; cancelled=true; question.value=text; companionOutcome.value='stopped'; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
   try {
     if(!selected.value) {const c=await api('/ai/conversations','POST',{farmId:props.farmId});selected.value=c.id;addConversationRow(c);}
     const id=selected.value;
@@ -169,8 +192,13 @@ async function send(text=question.value) {
     if(run.value.status==='error') { question.value=text; return; } // 保留已生成正文与活动摘要，交由 retry() 重试
     pendingRequest=null;
     const hadApproval=run.value.activities.some(a=>a.kind==='approval');
-    messages.value=await api(`/ai/conversations/${id}/messages`); conversations.value=await api('/ai/conversations?farmId='+props.farmId);
+    const answerCompleted=run.value.status==='completed';
+    const storedMessages=await api(`/ai/conversations/${id}/messages`);
+    const storedConversations=await api('/ai/conversations?farmId='+props.farmId);
+    if(cancelled || !alive) return;
+    messages.value=storedMessages; conversations.value=storedConversations;
     run.value=null;
+    if(alive && answerCompleted) companionOutcome.value='completed';
     // 回答里出现了审批活动：同步一次灌溉数据，让卡片的有效性核对与“去确认”高亮基于最新建议
     if(hadApproval) refreshIrrigation().catch(()=>{});
     if(followOutput.value) await scrollToLatest();
@@ -234,12 +262,21 @@ const weatherCharts=computed(()=>[
 }));
 defineExpose({refresh, refreshing, refreshBlocked, sending});
 watch(()=>props.farmId,refresh,{immediate:true});
+watch(()=>props.initialQuestion, async value => {
+  if (!value || sending.value) return;
+  panel.value = 'chat'; question.value = value.slice(0, 2000); contextPrepared.value = true;
+  emit('question-prepared');
+  await nextTick(); resizeComposer(); composerInput.value?.focus();
+}, { immediate: true });
 watch([question,panel],resizeComposer,{flush:'post'});
 timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{await refreshIrrigation();}catch{/* next refresh shows errors */}}},10000);
 onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
 </script>
 
 <template>
+  <Teleport v-if="farmId && companionTarget" :to="companionTarget" defer>
+    <SproutCompanion compact :state="companion.state" :message="companionMessage" :disabled="interactionLocked" :suggested-label="companionTopic.label" @suggest="suggestCompanionTopic" />
+  </Teleport>
   <section class="farm-assistant" v-if="farmId">
     <div class="ai-context">
       <p><strong>{{report?.farmName || '正在读取农场'}}</strong><span>虚构学术演示数据</span></p>
@@ -278,7 +315,9 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);
         <div ref="scroller" class="ai-messages" role="log" aria-label="农事对话记录" :aria-busy="!!run || initialLoading" @scroll="handleScroll">
           <div v-if="initialLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
           <template v-else>
-            <div v-if="!displayedMessages.length" class="ai-welcome"><span class="ai-monogram">禾</span><h3>今天想了解农场的什么？</h3><p>我会结合当前农场的种植、气象、监测和生产记录，为你梳理依据与行动建议；发送问题后会先读取当前农场资料。</p>
+            <div v-if="!displayedMessages.length" class="ai-welcome">
+              <h3>今天想了解农场的什么？</h3>
+              <p>从一块田、一项观测，或今天要做的农事开始。</p>
               <div class="ai-prompts"><button v-for="p in prompts" :key="p" :disabled="interactionLocked" @click="send(p)"><AppIcon name="send" />{{p}}</button></div>
             </div>
             <article v-for="(m,index) in displayedMessages" :key="m.id||('tmp-'+index)" class="ai-message" :class="m.role">
@@ -304,9 +343,10 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);
         </div>
         <Transition name="ai-jump"><button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button></Transition>
         </div>
+        <p v-if="contextPrepared" class="ai-footnote" role="status">已带入简报或预警上下文，可编辑下方问题后发送。</p>
         <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" ref="composerInput" v-model="question" rows="1" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea>
           <small v-if="question.length>=1800" class="ai-composer-count">{{question.length}}/2000</small>
-          <button v-if="sending" type="button" class="ai-composer-send" aria-label="停止生成" @click="cancel"><AppIcon name="stop" /></button>
+          <button v-if="sending" type="button" class="ai-composer-send" :disabled="run?.status==='completed'" :aria-label="run?.status==='completed' ? '正在同步回答' : '停止生成'" :title="run?.status==='completed' ? '回答已生成，正在同步对话记录' : '停止生成'" @click="cancel"><AppIcon name="stop" /></button>
           <button v-else class="ai-composer-send" :disabled="interactionLocked || !question.trim()" aria-label="发送"><AppIcon name="arrowUp" /></button>
         </form>
         <p class="ai-footnote"><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行。</span>发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>

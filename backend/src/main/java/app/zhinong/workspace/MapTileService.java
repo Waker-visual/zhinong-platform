@@ -69,12 +69,12 @@ public class MapTileService {
 
   private static Fetcher httpFetcher() {
     var client = HttpClient.newBuilder()
-      .connectTimeout(Duration.ofSeconds(4))
+      .connectTimeout(Duration.ofSeconds(8))
       .followRedirects(HttpClient.Redirect.NEVER)
       .build();
     return (uri, headers) -> {
       var request = HttpRequest.newBuilder(uri)
-        .timeout(Duration.ofSeconds(6))
+        .timeout(Duration.ofSeconds(12))
         .header("User-Agent", "ZhinongPlatform/0.3 LocalFarmMap")
         .header("Accept", "image/png,image/jpeg");
       headers.forEach(request::header);

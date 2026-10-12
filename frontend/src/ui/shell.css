@@ -75,9 +75,26 @@
 .page-heading {
   gap: 16px;
 }
-.page-heading > .outline {
+.page-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.page-heading-actions > .outline {
   flex-shrink: 0;
   white-space: nowrap;
+}
+.page-heading-ai { flex-wrap: wrap; }
+.page-heading-ai .page-heading-copy { flex: 1 1 260px; min-width: 0; }
+.page-heading-ai .page-heading-actions { flex: 1 1 490px; max-width: 580px; margin-left: auto; }
+.page-heading-companion { flex: 1 1 340px; min-width: 0; }
+/* 小禾与气泡在标题区参与排版，展开时把下方内容推开，不覆盖对话或输入框。 */
+.page-heading-companion .sprout-companion { margin: 0; }
+@media (max-width: 760px) {
+  .page-heading-ai .page-heading-actions { flex-basis: 100%; max-width: none; flex-wrap: wrap; gap: 10px; }
+  .page-heading-ai .page-heading-companion { flex-basis: 100%; }
+  .page-heading-ai .page-heading-actions > .outline { margin-left: auto; }
 }
 /* 按下反馈：所有可用按钮轻微缩小，确认点击已被接收 */
 button:active:not(:disabled) {
@@ -573,6 +590,29 @@ button[aria-busy="true"]::after {
   background: var(--surface);
   color: var(--label-fg);
   font-size: 13px;
+}
+.display-entry {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-shrink: 0;
+  min-height: 34px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  white-space: nowrap;
+}
+.display-entry:hover:not(:disabled) { background: var(--control-hover); }
+@media (max-width: 620px) {
+  .topbar { gap: 8px; }
+  .display-entry { width: 34px; padding: 5px; }
+  .display-entry span { display: none; }
+  .topbar:has(.status-capsule.offline) .topbar-brand > span { display: none; }
+}
+@media (max-width: 370px) {
+  .topbar-brand > span { display: none; }
 }
 .topbar-trail {
   color: var(--text-2);

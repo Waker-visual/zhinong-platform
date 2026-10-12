@@ -67,6 +67,16 @@ CREATE TABLE IF NOT EXISTS farms (
  FOREIGN KEY(tenant_id) REFERENCES tenants(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
+CREATE TABLE IF NOT EXISTS ai_farm_briefings (
+ id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) NOT NULL, farm_id VARCHAR(36) NOT NULL,
+ report_date DATE NOT NULL, status VARCHAR(20) NOT NULL, source VARCHAR(20) NOT NULL,
+ model VARCHAR(100), diagnostic VARCHAR(50) NOT NULL, body_json LONGTEXT NOT NULL, ai_summary LONGTEXT,
+ generated_at TIMESTAMP(6) NOT NULL, updated_at TIMESTAMP(6) NOT NULL,
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE,
+ UNIQUE(tenant_id,farm_id,report_date),
+ CHECK(status IN ('PENDING','GENERATING','READY')), CHECK(source IN ('RULE_ENGINE','LLM'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
+
 CREATE TABLE IF NOT EXISTS plots (
  id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) NOT NULL, farm_id VARCHAR(36) NOT NULL,
  name VARCHAR(100) NOT NULL, area_mu DECIMAL(12,2) NOT NULL CHECK(area_mu>0),

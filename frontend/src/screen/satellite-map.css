@@ -1,0 +1,159 @@
+.farm-display .display-satellite-map {
+  isolation: isolate;
+}
+.farm-display .display-satellite-canvas {
+  position: absolute;
+  inset: 0;
+  background: var(--display-map);
+  font-family: var(--font-sans);
+  z-index: 0;
+}
+.farm-display .satellite-status {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  left: 10px;
+  max-width: calc(100% - 152px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1.5;
+  pointer-events: none;
+}
+.farm-display .satellite-status.warning {
+  color: var(--display-gold);
+  border-color: var(--display-gold-line);
+}
+.farm-display .satellite-status-mark {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 5px;
+  border-radius: 50%;
+  background: var(--display-leaf);
+}
+.farm-display .satellite-status.warning .satellite-status-mark {
+  background: var(--display-gold);
+}
+.farm-display .satellite-status button {
+  pointer-events: auto;
+  padding: 1px 5px;
+  min-height: 24px;
+  font-size: inherit;
+  color: inherit;
+}
+.farm-display .satellite-reset {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 48px;
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--surface);
+}
+.farm-display .display-satellite-map .display-plot-detail {
+  z-index: 2;
+  bottom: 40px;
+}
+.farm-display .display-satellite-map .leaflet-control-zoom {
+  border: 1px solid var(--border-strong);
+  box-shadow: none;
+}
+.farm-display .display-satellite-map .leaflet-control-zoom a {
+  width: 30px;
+  height: 29px;
+  line-height: 29px;
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border);
+}
+.farm-display .display-satellite-map .leaflet-control-attribution {
+  max-width: 72%;
+  padding: 3px 5px;
+  font-size: 9px;
+  line-height: 1.35;
+  background: var(--surface);
+  color: var(--text-2);
+}
+.farm-display .display-satellite-map .leaflet-control-attribution a {
+  color: var(--display-leaf);
+}
+.farm-display .display-satellite-map .leaflet-control-scale-line {
+  background: var(--surface);
+  border-color: var(--text-2);
+  color: var(--text);
+  text-shadow: none;
+  font-size: 10px;
+}
+.farm-display .display-satellite-map .satellite-parcel-label,
+.farm-display .display-satellite-map .satellite-device-label {
+  background: var(--surface);
+  border: 1px solid var(--display-leaf-line);
+  border-radius: 3px;
+  box-shadow: none;
+  color: var(--text);
+  font-size: 11px;
+  padding: 3px 6px;
+  line-height: 1.35;
+}
+.farm-display .display-satellite-map .satellite-label-measure {
+  visibility: hidden;
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: none;
+  pointer-events: none;
+}
+.farm-display .display-satellite-map .satellite-parcel:focus,
+.farm-display .display-satellite-map .satellite-device:focus {
+  outline: none;
+  stroke: var(--display-gold);
+  stroke-width: 4;
+}
+.farm-display .display-satellite-map .satellite-parcel:hover {
+  fill-opacity: 0.22;
+}
+.farm-display .satellite-unlocated {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+  font-size: 13px;
+}
+.farm-display .satellite-unlocated p {
+  color: var(--text-2);
+  max-width: 34em;
+}
+@media (prefers-reduced-motion: reduce) {
+  .farm-display .display-satellite-map .leaflet-zoom-animated,
+  .farm-display .display-satellite-map .leaflet-fade-anim .leaflet-tile {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+@media (max-width: 600px) {
+  .farm-display .satellite-status {
+    max-width: calc(100% - 60px);
+    font-size: 10px;
+  }
+  .farm-display .satellite-reset {
+    top: 82px;
+    right: 10px;
+    bottom: auto;
+  }
+  .farm-display .display-satellite-map .leaflet-control-attribution {
+    max-width: 76%;
+    font-size: 8px;
+  }
+}

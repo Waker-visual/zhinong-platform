@@ -18,23 +18,26 @@ public class AgronomyAnalysis {
   public Map<String,Object> report(String farmId) {
     var farm=store.get("farms",farmId);
     String tenant=Identity.tenant();
-    var now=OffsetDateTime.now();
-    var since=LocalDate.now().minusDays(6).atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+    var zone=ZoneId.of("Asia/Shanghai");
+    var now=OffsetDateTime.now(zone);
+    var date=now.toLocalDate();
+    var since=date.minusDays(6).atStartOfDay(zone).toOffsetDateTime();
     var crops=db.queryForList("""
       SELECT p.id AS "plotId",p.name AS "plotName",s.crop,s.variety,s.start_date AS "startDate",s.end_date AS "endDate",s.area_mu AS "areaMu"
       FROM plantings s JOIN plots p ON p.tenant_id=s.tenant_id AND p.id=s.plot_id
       WHERE p.tenant_id=? AND p.farm_id=? AND s.status='ACTIVE' AND s.start_date<=? AND s.end_date>=?
       ORDER BY p.name,s.start_date
-      """,tenant,farmId,LocalDate.now(),LocalDate.now());
-    crops.forEach(c -> c.put("daysAfterPlanting",java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(c.get("startDate").toString()),LocalDate.now())));
+      """,tenant,farmId,date,date);
+    crops.forEach(c -> c.put("daysAfterPlanting",java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(c.get("startDate").toString()),date)));
     // Latest reading per (device,metric) via a single windowed pass over the existing
     // ix_telemetry_history(tenant_id,device_id,metric,measured_at) index, instead of a
     // per-row correlated NOT EXISTS that re-scans telemetry_readings for every row and
     // turns unbounded (demo-length) history into an O(n^2) query.
     var sensors=db.queryForList("""
-      SELECT "deviceId","deviceName","plotId","plotName",metric,"value","time",source FROM (
+      SELECT "deviceId","deviceName","plotId","plotName",metric,"value","time",source,"protocol","intervalSeconds","lastReceivedAt","readingReceivedAt" FROM (
         SELECT d.id AS "deviceId",d.name AS "deviceName",a.plot_id AS "plotId",p.name AS "plotName",
           t.metric,t.measured_value AS "value",t.measured_at AS "time",t.source,
+          a.protocol AS "protocol",a.interval_seconds AS "intervalSeconds",a.last_received_at AS "lastReceivedAt",t.received_at AS "readingReceivedAt",
           ROW_NUMBER() OVER (PARTITION BY t.device_id,t.metric ORDER BY t.measured_at DESC,t.id DESC) AS rn
         FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
         JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
@@ -44,8 +47,16 @@ public class AgronomyAnalysis {
       ) ranked WHERE rn=1
       ORDER BY "deviceName",metric
       """,tenant,farmId);
-    sensors.forEach(s -> { var time=DatabaseTime.offset(s.get("time"));
-      s.put("fresh",time!=null && time.toInstant().isAfter(now.toInstant().minusSeconds(900)) && !time.toInstant().isAfter(now.toInstant().plusSeconds(60))); });
+    sensors.forEach(s -> {
+      var time=DatabaseTime.offset(s.get("time"));
+      var received=DatabaseTime.offset(s.get("lastReceivedAt") == null ? s.get("readingReceivedAt") : s.get("lastReceivedAt"));
+      long threshold=Math.min(900, app.zhinong.workspace.DeviceAlertMonitor.thresholdSeconds(((Number)s.get("intervalSeconds")).intValue()));
+      s.put("freshnessSeconds",threshold);
+      s.put("fresh", time!=null && time.toInstant().isAfter(now.toInstant().minusSeconds(threshold))
+        && !time.toInstant().isAfter(now.toInstant().plusSeconds(60))
+        && Objects.equals(s.get("protocol"),s.get("SOURCE"))
+        && received!=null && received.toInstant().isAfter(now.toInstant().minusSeconds(threshold)));
+    });
     var bucket=store.sql().calendarDate("t.measured_at");
     var weather=db.queryForList("SELECT "+bucket+" AS \"date\",t.metric,ROUND(AVG(t.measured_value),2) AS \"average\","
       +"MIN(t.measured_value) AS \"min\",MAX(t.measured_value) AS \"max\",COUNT(*) AS \"samples\" "
@@ -67,7 +78,7 @@ public class AgronomyAnalysis {
       SELECT COUNT(*) AS "pending",COALESCE(SUM(CASE WHEN t.due_date<? THEN 1 ELSE 0 END),0) AS "overdue"
       FROM farm_tasks t JOIN plots p ON p.tenant_id=t.tenant_id AND p.id=t.plot_id
       WHERE t.tenant_id=? AND p.farm_id=? AND t.status IN ('PENDING','RUNNING')
-      """,LocalDate.now(),tenant,farmId);
+      """,date,tenant,farmId);
     var pestHistory=db.queryForList(("""
       SELECT %s AS "date",ROUND(AVG(t.measured_value),2) AS "averageCount",MAX(t.measured_value) AS "peakCount",COUNT(*) AS "samples"
       FROM telemetry_readings t JOIN devices d ON d.tenant_id=t.tenant_id AND d.id=t.device_id
@@ -102,7 +113,7 @@ public class AgronomyAnalysis {
     out.put("tasks",tasks);out.put("pestHistory",pestHistory);out.put("cautions",cautions);
     out.put("thresholdNotice","35℃高温、10m/s大风、90%高湿为教学筛查阈值，不是特定作物灾害标准；需结合品种、持续时间及现场检查。");
     out.put("weatherNotice","近7天站点观测趋势，不是未来天气预报。当日均值仅覆盖已采集时段，不宜与完整日均值直接比较。累计雨量仅展示读数范围，不按采样点相加；尚未接入预报服务。");
-    out.put("sources",List.of("有效种植计划","近7天气象站读数","各测点最新读数（15分钟内视为新鲜）","未关闭现场问题","历史生产记录"));
+    out.put("sources",List.of("有效种植计划","近7天气象站读数","最新读数及接收时间须在设备有效窗口内（最长15分钟），且来源匹配当前接入方式","未关闭现场问题","历史生产记录"));
     return out;
   }
   private Map<String,String> card(String code,String name,String state,String advice) {

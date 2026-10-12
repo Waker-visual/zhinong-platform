@@ -53,6 +53,7 @@ class AiIntegrationTest {
   // Task 6: test-only AiStreamTools override, mirrors the TestLlmGateway pattern so the tool-failure
   // path (a whitelisted tool whose execution throws) can be exercised without touching real data.
   @Autowired TestAiStreamTools toolsFake;
+  @Autowired app.zhinong.ai.FarmDecisionSupport decisions;
 
   final HttpClient client = HttpClient.newHttpClient();
   String admin, otherAdmin, operator, viewer, platform, farmId;
@@ -201,6 +202,19 @@ class AiIntegrationTest {
     assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE farm_id=?",Integer.class,farmId));
   }
 
+  @Test void agronomyDoesNotTreatOfflineOrPreviousProtocolReadingsAsFresh() throws Exception {
+    String plot = call(admin, "POST", "/plots", Map.of("farmId", farmId, "name", "可信监测地", "crop", "蔬菜", "areaMu", 5), 200).path("ID").asText();
+    String sensor = createDevice(plot, "SOIL");
+    reading(sensor, "SOIL_MOISTURE", 20, 600);
+    db.update("UPDATE asset_profiles SET last_received_at=? WHERE tenant_id=? AND device_id=?", java.time.OffsetDateTime.now().minusSeconds(600), tenant(), sensor);
+    assertEquals(0, call(admin, "GET", "/ai/analysis?farmId=" + farmId, null, 200).path("freshMeasurements").asInt(), "60-second device is stale after 180 seconds, even within the former 15-minute window");
+    reading(sensor, "SOIL_MOISTURE", 20, 1);
+    db.update("UPDATE asset_profiles SET last_received_at=?,protocol='HTTP_PUSH' WHERE tenant_id=? AND device_id=?", java.time.OffsetDateTime.now(), tenant(), sensor);
+    assertEquals(0, call(admin, "GET", "/ai/analysis?farmId=" + farmId, null, 200).path("freshMeasurements").asInt(), "prior simulated readings cannot be evidence for the new HTTP source");
+    db.update("UPDATE asset_profiles SET protocol='SIMULATED' WHERE tenant_id=? AND device_id=?", tenant(), sensor);
+    assertEquals(1, call(admin, "GET", "/ai/analysis?farmId=" + farmId, null, 200).path("freshMeasurements").asInt());
+  }
+
   // Regression/benchmark test for the bounded latest-reading rewrite in AgronomyAnalysis.report():
   // seeds tens of thousands of telemetry rows across several devices/metrics (plus a second
   // tenant's farm) and checks that the latest value per (device,metric) and its freshness flag
@@ -332,6 +346,53 @@ class AiIntegrationTest {
   }
 
   String tenant() {return db.queryForObject("SELECT id FROM tenants WHERE code='demo-a'",String.class);}
+
+  @Test void decisionToolsUseCompletePeriodsAndRejectForeignFarms() throws Exception {
+    String plot = UUID.randomUUID().toString();
+    String tenantId = tenant();
+    db.update("INSERT INTO plots(id,tenant_id,farm_id,name,area_mu,crop) VALUES(?,?,?,?,?,?)", plot, tenantId, farmId, "虚构对比地块", 10, "玉米");
+    var today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Shanghai"));
+    for (int days : List.of(0, 1, 30, 31, 60, 61)) {
+      db.update("INSERT INTO production(id,tenant_id,plot_id,record_date,yield_kg,note) VALUES(?,?,?,?,?,?)",
+        UUID.randomUUID().toString(), tenantId, plot, today.minusDays(days), 10, "虚构测试记录");
+    }
+    var member = db.queryForMap("SELECT id FROM members WHERE tenant_id=? AND username='admin'", tenantId);
+    var identity = new app.zhinong.security.Identity(member.get("ID").toString(), tenantId, "演示租户", "admin", "管理员", "ADMIN");
+    app.zhinong.security.Identity.runAs(identity, () -> {
+      var report = json.valueToTree(decisions.productionComparison(farmId));
+      assertEquals(2, report.path("currentPeriod").path("records").asInt());
+      assertEquals(20, report.path("currentPeriod").path("yieldKg").asInt());
+      assertEquals(2, report.path("previousPeriod").path("records").asInt());
+      assertEquals(1, report.path("byPlot").size());
+      assertTrue(report.path("notice").asText().contains("无记录不等于零产出"));
+      assertEquals(false, decisions.briefing(farmId).get("available"), "reading through a chat tool never generates a report or invokes a model");
+      assertThrows(app.zhinong.api.ApiException.class, () -> decisions.alerts("not-owned-farm"));
+      assertThrows(app.zhinong.api.ApiException.class, () -> decisions.productionComparison("not-owned-farm"));
+      assertThrows(app.zhinong.api.ApiException.class, () -> decisions.briefing("not-owned-farm"));
+    });
+    var platformIdentity = new app.zhinong.security.Identity("platform-test", tenantId, "平台", "platform", "平台", "PLATFORM_ADMIN");
+    app.zhinong.security.Identity.runAs(platformIdentity, () ->
+      assertThrows(app.zhinong.api.ApiException.class, () -> decisions.productionComparison(farmId)));
+  }
+
+  @Test void streamedDecisionToolsIgnoreModelSuppliedFarmAndPersistEvidenceActivities() throws Exception {
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    llm.scriptedStream = new java.util.LinkedList<>(List.of(
+      LlmGateway.StreamResult.toolCalls(List.of(
+        new LlmGateway.ToolCall("decision-alerts", "get_device_alerts", "{\"farmId\":\"foreign-farm\"}"),
+        new LlmGateway.ToolCall("decision-production", "get_production_comparison", "{\"tenantId\":\"foreign-tenant\"}"),
+        new LlmGateway.ToolCall("decision-briefing", "get_daily_briefing", "{}"))),
+      LlmGateway.StreamResult.completed("请先检查设备采集情况，再核对当期收获记录。")));
+    var events = streamEvents(admin, id, Map.of("question", "结合今日简报分析设备和收获", "requestId", "decision-tools"), 200);
+    assertTrue(Arrays.stream(events).anyMatch(e -> "run.completed".equals(e.path("type").asText())));
+    var messages = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    String saved = messages.toString();
+    assertTrue(saved.contains("核查设备异常与离线"));
+    assertTrue(saved.contains("对比近两期收获记录"));
+    assertTrue(saved.contains("读取今日经营简报"));
+    assertFalse(saved.contains("foreign-farm"));
+    assertFalse(saved.contains("foreign-tenant"));
+  }
   Map<String,Object> irrigationFixture() throws Exception {
     String plot=call(admin,"POST","/plots",Map.of("farmId",farmId,"name","虚构蔬菜地-"+UUID.randomUUID(),"crop","蔬菜","areaMu",5),200).path("ID").asText();
     String planting=call(admin,"POST","/plantings",Map.of("plotId",plot,"crop","蔬菜","variety","演示品种","areaMu",5,"startDate",java.time.LocalDate.now().minusDays(20).toString(),"endDate",java.time.LocalDate.now().plusDays(30).toString()),200).path("ID").asText();
@@ -1104,8 +1165,8 @@ class AiIntegrationTest {
 
     @Bean
     @Primary
-    TestAiStreamTools testAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json) {
-      return new TestAiStreamTools(farmWorkspace, fieldWork, analysis, json);
+    TestAiStreamTools testAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, app.zhinong.ai.FarmDecisionSupport decisions) {
+      return new TestAiStreamTools(farmWorkspace, fieldWork, analysis, json, decisions);
     }
   }
 
@@ -1114,8 +1175,8 @@ class AiIntegrationTest {
   static class TestAiStreamTools extends AiStreamTools {
     volatile String forcedFailureTool;
 
-    TestAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json) {
-      super(farmWorkspace, fieldWork, analysis, json);
+    TestAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, app.zhinong.ai.FarmDecisionSupport decisions) {
+      super(farmWorkspace, fieldWork, analysis, json, decisions);
     }
 
     @Override
