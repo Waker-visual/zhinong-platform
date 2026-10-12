@@ -26,6 +26,10 @@ import { connection, setToken } from "../api.js";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const read = (name) => fs.readFileSync(path.join(dir, name), "utf8");
+// Conversation labels and message tooltips use the user's local calendar. Build
+// those fixtures locally, then serialize like API timestamps; never assume UTC+8.
+const localIso = (year, month, day, hour = 0, minute = 0) =>
+  new Date(year, month - 1, day, hour, minute).toISOString();
 
 function browserSession(t) {
   const values = new Map();
@@ -107,15 +111,15 @@ test("default SSE transport clears the shared session and emits session expiry o
 
 // 阶段F：按固定的 now 验证分组边界（今天/昨天/近7天/更早）以及置顶优先、不参与时间分组。
 test("groupConversationsByDate groups pinned first, then by fixed now's day boundaries", () => {
-  const now = new Date("2026-10-09T15:00:00+08:00");
+  const now = new Date(2026, 9, 9, 15);
   const conversations = [
-    { id: "pinned-but-old", title: "置顶但很旧", pinnedAt: "2026-01-01T00:00:00+08:00", updatedAt: "2026-01-01T00:00:00+08:00" },
-    { id: "today-1", title: "今天上午", updatedAt: "2026-10-09T08:00:00+08:00" },
-    { id: "yesterday-1", title: "昨天的", updatedAt: "2026-10-08T20:00:00+08:00" },
-    { id: "last7-1", title: "五天前", updatedAt: "2026-10-04T12:00:00+08:00" },
-    { id: "older-1", title: "很久以前", updatedAt: "2026-09-01T12:00:00+08:00" },
-    { id: "boundary-7", title: "刚好7天前", updatedAt: "2026-10-02T15:00:00+08:00" },
-    { id: "boundary-8", title: "刚好8天前", updatedAt: "2026-10-01T15:00:00+08:00" },
+    { id: "pinned-but-old", title: "置顶但很旧", pinnedAt: localIso(2026, 1, 1), updatedAt: localIso(2026, 1, 1) },
+    { id: "today-1", title: "今天上午", updatedAt: localIso(2026, 10, 9, 8) },
+    { id: "yesterday-1", title: "昨天的", updatedAt: localIso(2026, 10, 8, 20) },
+    { id: "last7-1", title: "五天前", updatedAt: localIso(2026, 10, 4, 12) },
+    { id: "older-1", title: "很久以前", updatedAt: localIso(2026, 9, 1, 12) },
+    { id: "boundary-7", title: "刚好7天前", updatedAt: localIso(2026, 10, 2, 15) },
+    { id: "boundary-8", title: "刚好8天前", updatedAt: localIso(2026, 10, 1, 15) },
   ];
   const groups = groupConversationsByDate(conversations, now);
   const byKey = Object.fromEntries(groups.map((g) => [g.key, g.items.map((i) => i.id)]));
@@ -129,10 +133,10 @@ test("groupConversationsByDate groups pinned first, then by fixed now's day boun
 });
 
 test("groupConversationsByDate omits empty groups and keeps caller's ordering within a group", () => {
-  const now = new Date("2026-10-09T15:00:00+08:00");
+  const now = new Date(2026, 9, 9, 15);
   const conversations = [
-    { id: "a", updatedAt: "2026-10-09T09:00:00+08:00" },
-    { id: "b", updatedAt: "2026-10-09T08:00:00+08:00" },
+    { id: "a", updatedAt: localIso(2026, 10, 9, 9) },
+    { id: "b", updatedAt: localIso(2026, 10, 9, 8) },
   ];
   const groups = groupConversationsByDate(conversations, now);
   assert.deepEqual(groups.map((g) => g.key), ["today"], "no 昨天/近7天/更早 groups are emitted when empty");
@@ -776,34 +780,34 @@ test("irrigationApprovalTarget also recognizes the persisted activityId field (r
 // --- formatMessageTime：当天/昨天(跨午夜)/刚刚/n天前的边界，不依赖浏览器时区之外的任何东西 ---
 
 test("formatMessageTime reports '刚刚' for a message less than 60s old", () => {
-  const now = new Date("2026-10-09T12:00:30.000+08:00");
-  const r = formatMessageTime(new Date("2026-10-09T12:00:00.000+08:00"), now);
+  const now = new Date(2026, 9, 9, 12, 0, 30);
+  const r = formatMessageTime(new Date(2026, 9, 9, 12), now);
   assert.equal(r.display, "刚刚");
   assert.equal(r.full, "2026年10月9日 12:00");
 });
 
 test("formatMessageTime shows HH:mm for an earlier message the same calendar day", () => {
-  const now = new Date("2026-10-09T20:30:00.000+08:00");
-  const r = formatMessageTime(new Date("2026-10-09T08:05:00.000+08:00"), now);
+  const now = new Date(2026, 9, 9, 20, 30);
+  const r = formatMessageTime(new Date(2026, 9, 9, 8, 5), now);
   assert.equal(r.display, "08:05");
 });
 
 test("formatMessageTime shows '昨天 HH:mm' across a midnight boundary", () => {
-  const now = new Date("2026-10-09T00:10:00.000+08:00");
-  const r = formatMessageTime(new Date("2026-10-08T23:50:00.000+08:00"), now);
+  const now = new Date(2026, 9, 9, 0, 10);
+  const r = formatMessageTime(new Date(2026, 9, 8, 23, 50), now);
   assert.equal(r.display, "昨天 23:50");
 });
 
 test("formatMessageTime shows 'n 天前' for 2-30 days ago", () => {
-  const now = new Date("2026-10-09T12:00:00.000+08:00");
-  assert.equal(formatMessageTime(new Date("2026-10-07T12:00:00.000+08:00"), now).display, "2 天前");
-  assert.equal(formatMessageTime(new Date("2026-09-15T12:00:00.000+08:00"), now).display, "24 天前");
+  const now = new Date(2026, 9, 9, 12);
+  assert.equal(formatMessageTime(new Date(2026, 9, 7, 12), now).display, "2 天前");
+  assert.equal(formatMessageTime(new Date(2026, 8, 15, 12), now).display, "24 天前");
 });
 
 test("formatMessageTime falls back to a plain date beyond 30 days", () => {
-  const now = new Date("2026-10-09T12:00:00.000+08:00");
-  assert.equal(formatMessageTime(new Date("2026-08-01T12:00:00.000+08:00"), now).display, "8月1日");
-  assert.equal(formatMessageTime(new Date("2024-01-05T12:00:00.000+08:00"), now).display, "2024年1月5日");
+  const now = new Date(2026, 9, 9, 12);
+  assert.equal(formatMessageTime(new Date(2026, 7, 1, 12), now).display, "8月1日");
+  assert.equal(formatMessageTime(new Date(2024, 0, 5, 12), now).display, "2024年1月5日");
 });
 
 test("formatMessageTime always exposes an ISO datetime attribute for <time datetime>", () => {
