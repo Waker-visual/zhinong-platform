@@ -73,7 +73,7 @@ public class AgronomyAnalysis {
         && Objects.equals(s.get("protocol"),s.get("SOURCE"))
         && received!=null && received.toInstant().isAfter(now.toInstant().minusSeconds(threshold)));
     });
-    var bucket=store.sql().calendarDate("t.measured_at");
+    var bucket=store.sql().calendarDate("t.measured_at",zone);
     var weather=db.queryForList("SELECT "+bucket+" AS \"date\",t.metric,ROUND(AVG(t.measured_value),2) AS \"average\","
       +"MIN(t.measured_value) AS \"min\",MAX(t.measured_value) AS \"max\",COUNT(*) AS \"samples\" "
       +"FROM telemetry_readings t JOIN devices d ON d.tenant_id=t.tenant_id AND d.id=t.device_id "

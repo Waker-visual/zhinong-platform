@@ -185,7 +185,9 @@ abstract class ResearchScenarioContract {
     var analysis=call(token,"GET","/ai/analysis?farmId="+id,null,200);
     assertEquals(4,analysis.path("conditions").size());assertFalse(analysis.path("weather").isEmpty());
     var days=new java.util.HashSet<String>();analysis.path("weather").forEach(row->days.add(row.path("date").asText()));
-    assertTrue(days.size()<=7);assertTrue(days.contains(LocalDate.now().toString()));
+    var reportDay=OffsetDateTime.parse(analysis.path("generatedAt").asText()).toLocalDate();
+    assertTrue(days.size()<=7, "Weather buckets must use the same seven business dates as the window: " + days);
+    assertTrue(days.contains(reportDay.toString()), "Today's bucket follows the report business zone");
     assertTrue(analysis.at("/production/records").asInt()>30);
     call(login("demo-b","admin"),"GET","/ai/analysis?farmId="+id,null,404);
     String conversation=call(token,"POST","/ai/conversations",Map.of("farmId",id),200).path("id").asText();
@@ -261,6 +263,51 @@ abstract class ResearchScenarioContract {
     }
     var operations=call(token,"GET","/farms/"+id+"/operations?hours=720",null,200);
     assertEquals(16,operations.at("/summary/freshDevices").asInt());
+  }
+
+  @Test @Transactional void agronomyWeatherAndPestBucketsFollowShanghaiMidnightAcrossDatabaseEngines() {
+    String tenant=tenant(),farm=UUID.randomUUID().toString(),plot=UUID.randomUUID().toString();
+    String weather=UUID.randomUUID().toString(),pest=UUID.randomUUID().toString();
+    db.update("INSERT INTO farms(id,tenant_id,name,description) VALUES(?,?,?,?)",farm,tenant,"虚构业务日界农场","时区回归数据");
+    db.update("INSERT INTO plots(id,tenant_id,farm_id,name,area_mu,crop) VALUES(?,?,?,?,1,'水稻')",plot,tenant,farm,"虚构业务日界田");
+    for(String device:List.of(weather,pest)) {
+      String metric=device.equals(weather)?"TEMPERATURE":"PEST_COUNT",type=device.equals(weather)?"WEATHER":"PEST";
+      db.update("INSERT INTO devices(id,tenant_id,farm_id,name,metric,unit,adapter) VALUES(?,?,?,?,?,'','MANUAL')",device,tenant,farm,type,metric);
+      db.update("INSERT INTO asset_profiles(tenant_id,device_id,code,device_type,protocol,plot_id) VALUES(?,?,?,?,'MANUAL',?)",tenant,device,device,type,plot);
+      db.update("INSERT INTO device_channels(tenant_id,device_id,metric) VALUES(?,?,?)",tenant,device,metric);
+    }
+    var zone=ZoneId.of("Asia/Shanghai");
+    var today=LocalDate.now(zone);var day=today.minusDays(2);var first=today.minusDays(6);
+    var at=List.of(first.atTime(0,15),day.minusDays(1).atTime(23,45),day.atTime(0,15),day.atTime(23,45),
+      first.minusDays(1).atTime(23,45),today.plusDays(1).atTime(0,15));
+    int[] temperatures={15,80,10,30,999,999},pests={5,8,1,3,999,999};
+    String insert="INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'MANUAL')";
+    for(int i=0;i<at.size();i++) {
+      var instant=at.get(i).atZone(zone).toOffsetDateTime();
+      db.update(insert,UUID.randomUUID().toString(),tenant,weather,"TEMPERATURE",temperatures[i],instant,instant);
+      db.update(insert,UUID.randomUUID().toString(),tenant,pest,"PEST_COUNT",pests[i],instant,instant);
+    }
+    var identity=new app.zhinong.security.Identity("test-viewer",tenant,"测试租户","viewer","测试观察员","VIEWER");
+    app.zhinong.security.Identity.runAs(identity,()->{
+      var report=json.valueToTree(context.getBean(app.zhinong.ai.AgronomyAnalysis.class).report(farm));
+      var generated=OffsetDateTime.parse(report.path("generatedAt").asText());
+      assertEquals(ZoneOffset.ofHours(8),generated.getOffset());
+      var expectedDays=Set.of(first.toString(),day.minusDays(1).toString(),day.toString());
+      for(String key:List.of("weather","pestHistory")) {
+        var dates=new HashSet<String>();
+        for(var row:report.path(key)) {
+          String date=row.path("date").asText();dates.add(date);
+          assertFalse(LocalDate.parse(date).isBefore(generated.toLocalDate().minusDays(6)));
+          assertFalse(LocalDate.parse(date).isAfter(generated.toLocalDate()));
+          if(date.equals(day.toString())) {
+            assertEquals(2,row.path("samples").asInt(),"Samples on the same Shanghai date must stay together across UTC midnight");
+            assertEquals(key.equals("weather")?20:2,row.path(key.equals("weather")?"average":"averageCount").asDouble(),0.001);
+            assertEquals(key.equals("weather")?30:3,row.path(key.equals("weather")?"max":"peakCount").asDouble(),0.001);
+          }
+        }
+        assertEquals(expectedDays,dates,"The oldest in-window sample and both sides of business midnight must use Shanghai dates");
+      }
+    });
   }
 
   @Test @Transactional void operationsMatrixUsesLocalDaysAtMidnightAcrossDatabaseEngines() {

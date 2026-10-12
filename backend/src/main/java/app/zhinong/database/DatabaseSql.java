@@ -14,6 +14,15 @@ public class DatabaseSql {
     String offset=java.time.OffsetDateTime.now().getOffset().getId();
     return "CAST("+column+(mysql?"":" AT TIME ZONE '"+offset+"'")+" AS DATE)";
   }
+  /** Use the same business zone for date buckets and the caller's time-window boundaries. */
+  public String calendarDate(String column, java.time.ZoneId zone) {
+    String offset=java.time.OffsetDateTime.now(zone).getOffset().getId();
+    if ("Z".equals(offset)) offset="+00:00";
+    return mysql
+      ? "CAST(CONVERT_TZ("+column+",@@session.time_zone,'"+offset+"') AS DATE)"
+      // H2 casts offset timestamps back through the session zone, even after AT TIME ZONE.
+      : "CAST(FORMATDATETIME("+column+",'yyyy-MM-dd','en','"+zone.getId()+"') AS DATE)";
+  }
   public String timestamp(String expression) { return "CAST(" + expression + " AS " + (mysql ? "DATETIME(6)" : "TIMESTAMP WITH TIME ZONE") + ")"; }
   public String bucket(String column, boolean minute) {
     return mysql ? "CAST(DATE_FORMAT(" + column + ",'" + (minute ? "%Y-%m-%d %H:%i:00" : "%Y-%m-%d %H:00:00") + "') AS DATETIME)"
