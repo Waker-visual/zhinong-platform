@@ -239,3 +239,116 @@ export function productionTotal(analytics) {
     .filter((value) => value !== null);
   return values.length ? values.reduce((sum, value) => sum + value, 0) : null;
 }
+
+export function productionDistribution(analytics) {
+  if (
+    !Array.isArray(analytics?.productionTrend) ||
+    !Array.isArray(analytics?.productionByPlot)
+  )
+    return {
+      state: "UNAVAILABLE",
+      rows: [],
+      recordedDays: null,
+      missingPlots: 0,
+      groupedPlots: 0,
+    };
+  // The API groups records by date; this count must never be called a record count.
+  const recordedDays = new Set(
+    analytics.productionTrend.map((row) => row.date).filter(Boolean),
+  ).size;
+  const rows = analytics.productionByPlot
+    .map((row, index) => ({
+      name: row.name || "未命名地块",
+      value: numeric(row.value),
+      key: `plot-${index}`,
+      plots: 1,
+    }))
+    .filter((row) => row.value !== null)
+    .sort((a, b) => b.value - a.value);
+  const missingPlots = analytics.productionByPlot.length - rows.length;
+  // The LEFT JOIN supplies zero for every plot even when there are no records.
+  // Only the dated ledger can distinguish that case from a recorded zero yield.
+  if (!analytics.productionTrend.length)
+    return {
+      state: "EMPTY",
+      rows: [],
+      recordedDays,
+      missingPlots,
+      groupedPlots: 0,
+    };
+  if (!rows.length)
+    return {
+      state: "UNAVAILABLE",
+      rows: [],
+      recordedDays,
+      missingPlots,
+      groupedPlots: 0,
+    };
+  const grouped = rows.length > 4 ? rows.slice(3) : [];
+  return {
+    state: "AVAILABLE",
+    recordedDays,
+    missingPlots,
+    groupedPlots: grouped.length,
+    rows: grouped.length
+      ? [
+          ...rows.slice(0, 3),
+          {
+            key: "other-plots",
+            name: `其他 ${grouped.length} 块`,
+            value: grouped.reduce((sum, row) => sum + row.value, 0),
+            plots: grouped.length,
+          },
+        ]
+      : rows,
+  };
+}
+
+export function productionOption(distribution) {
+  return {
+    backgroundColor: "transparent",
+    color: ["var(--display-leaf)"],
+    textStyle: { color: "var(--text-2)" },
+    grid: { top: 4, bottom: 4, left: 94, right: 72 },
+    tooltip: {
+      trigger: "item",
+      renderMode: "richText",
+      confine: true,
+      formatter: ({ data }) =>
+        `${data.name}\n登记产量 ${numberText(data.value)} kg${data.plots > 1 ? `\n其余 ${data.plots} 个地块合计` : ""}`,
+    },
+    xAxis: { type: "value", show: false },
+    yAxis: {
+      type: "category",
+      inverse: true,
+      data: distribution.rows.map((row) => row.name),
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: {
+        color: "var(--text-2)",
+        fontSize: 11,
+        width: 84,
+        overflow: "truncate",
+        interval: 0,
+      },
+    },
+    series: [
+      {
+        name: "登记采收产量",
+        type: "bar",
+        barMaxWidth: 8,
+        showBackground: true,
+        backgroundStyle: { color: "var(--border)" },
+        itemStyle: { borderRadius: 4 },
+        label: {
+          show: true,
+          position: "right",
+          color: "var(--text)",
+          fontSize: 11,
+          formatter: ({ value }) => `${numberText(value)} kg`,
+        },
+        data: distribution.rows,
+      },
+    ],
+  };
+}

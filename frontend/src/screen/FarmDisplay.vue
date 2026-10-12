@@ -17,6 +17,8 @@ import {
   moisturePoints,
   numberText,
   pendingTasks,
+  productionDistribution,
+  productionOption,
   productionTotal,
   timeText,
 } from "./screen-model.js";
@@ -105,9 +107,20 @@ const pendingCount = computed(
     operations.value?.summary?.openTasks ?? workspace.value?.farm?.pendingTasks,
 );
 const soilOption = computed(() => ({
-  ...moistureOption(operations.value, view.value === "overview"),
+  ...moistureOption(operations.value),
   animation: !reducedMotion.value,
 }));
+const harvest = computed(() =>
+  productionDistribution(workspace.value?.analytics),
+);
+const harvestOption = computed(() => ({
+  ...productionOption(harvest.value),
+  animation: !reducedMotion.value,
+}));
+const harvestDescription = computed(
+  () =>
+    `近30天台账登记采收产量，单位kg。${harvest.value.groupedPlots ? `按产量展示前3个地块，其余${harvest.value.groupedPlots}个地块合并。` : "展示全部地块。"}${harvest.value.rows.map((row) => `${row.name}：${numberText(row.value)} kg`).join("；")}`,
+);
 const hasSoilHistory = computed(() =>
   moisturePoints(operations.value).some((point) => point[1] !== null),
 );
@@ -607,28 +620,39 @@ onBeforeUnmount(() => {
                   }}
                 </div>
               </aside>
-              <section class="display-trend-panel">
+              <section class="display-trend-panel display-production-panel">
                 <div class="display-section-heading">
                   <div>
-                    <h2>近 7 天土壤水分</h2>
-                    <p>时间片采样均值 · 空档保持断线</p>
+                    <h2>近 30 天采收分布</h2>
+                    <p>
+                      台账产量 / kg<template
+                        v-if="harvest.recordedDays !== null"
+                      >
+                        · {{ harvest.recordedDays }} 天有登记</template
+                      >
+                    </p>
                   </div>
-                  <span class="display-tag">历史观测</span>
+                  <button @click="navigate('production')">生产台账</button>
                 </div>
                 <DataChart
-                  v-if="hasSoilHistory"
+                  v-if="harvest.state === 'AVAILABLE'"
                   :key="farmId"
-                  :option="soilOption"
+                  :option="harvestOption"
                   scope="farm-display"
-                  label="近7天土壤水分时间片均值，缺测处断线"
+                  :label="harvestDescription"
                 />
                 <div v-else class="display-empty display-chart-empty">
                   {{
-                    operations
-                      ? "近 7 天暂无土壤水分采样。"
-                      : "土壤水分趋势暂不可用。"
+                    harvest.state === "EMPTY"
+                      ? "近 30 天暂无采收登记。"
+                      : loading
+                        ? "正在读取采收台账"
+                        : "采收分布暂不可用，请刷新重试。"
                   }}
                 </div>
+                <p v-if="harvest.missingPlots" class="display-source-note">
+                  {{ harvest.missingPlots }} 个地块产量缺失，未计入分布。
+                </p>
               </section>
               <section class="display-followup-panel">
                 <div class="display-section-heading">
