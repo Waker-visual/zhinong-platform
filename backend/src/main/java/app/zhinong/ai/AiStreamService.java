@@ -5,6 +5,7 @@ import app.zhinong.ai.AiConversations.FinalizedRun;
 import app.zhinong.ai.AiConversations.PreparedRun;
 import app.zhinong.ai.AiConversations.Question;
 import app.zhinong.ai.LlmGateway.ToolCall;
+import app.zhinong.api.ApiException;
 import app.zhinong.security.Identity;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -13,8 +14,17 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.FutureTask;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -48,39 +58,108 @@ public class AiStreamService {
   private final AiStreamTools tools;
   private final IrrigationService irrigation;
   private final ExecutorService executor;
+  private final ScheduledExecutorService deadlines;
+  private final Semaphore capacity = new Semaphore(8);
+  // Includes preparation, all model/tool rounds and the optional title request.
+  private final long runBudgetMillis;
 
+  @Autowired
   public AiStreamService(
     AiConversations conversations,
     LlmGateway llm,
     AiStreamTools tools,
     IrrigationService irrigation,
-    ExecutorService aiStreamExecutor
+    @Qualifier("aiStreamExecutor") ExecutorService aiStreamExecutor,
+    @Qualifier("aiStreamDeadlineScheduler") ScheduledExecutorService aiStreamDeadlineScheduler
   ) {
+    this(conversations, llm, tools, irrigation, aiStreamExecutor, aiStreamDeadlineScheduler, 65_000L);
+  }
+
+  AiStreamService(AiConversations conversations, LlmGateway llm, AiStreamTools tools,
+      IrrigationService irrigation, ExecutorService executor, ScheduledExecutorService deadlines, long runBudgetMillis) {
     this.conversations = conversations;
     this.llm = llm;
     this.tools = tools;
     this.irrigation = irrigation;
-    this.executor = aiStreamExecutor;
+    this.executor = executor;
+    this.deadlines = deadlines;
+    this.runBudgetMillis = runBudgetMillis;
   }
 
   /** 和同步接口一样的输入校验（@Valid Question）；鉴权/幂等检查发生在这里，仍在请求线程上。 */
   public SseEmitter stream(String id, Question input) {
     Identity identity = Identity.current();
-    PreparedRun prep = conversations.prepareStream(id, input); // throws 403/404/409 before any emitter exists
-    SseEmitter emitter = new SseEmitter(0L); // 不设服务器超时；由模型网关自身的超时与信号量兜底
-    AtomicBoolean disconnected = new AtomicBoolean(false);
-    emitter.onCompletion(() -> disconnected.set(true));
-    emitter.onTimeout(() -> disconnected.set(true));
-    emitter.onError(e -> disconnected.set(true));
-    executor.submit(() -> Identity.runAs(identity, () -> run(id, input, prep, emitter, disconnected)));
-    return emitter;
+    Identity.tenant(); // Platform accounts never reserve a business-data worker.
+    if (!capacity.tryAcquire()) throw new ApiException(503, "AI 助手当前繁忙，请稍后重试");
+    long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(runBudgetMillis);
+    AtomicBoolean released = new AtomicBoolean(false);
+    AtomicReference<ScheduledFuture<?>> timer = new AtomicReference<>();
+    Runnable release = () -> {
+      if (released.compareAndSet(false, true)) {
+        ScheduledFuture<?> scheduled = timer.get();
+        if (scheduled != null) scheduled.cancel(false);
+        capacity.release();
+      }
+    };
+    boolean submitted = false;
+    StreamTask task = null;
+    try {
+      PreparedRun prep = conversations.prepareStream(id, input); // Short transaction; releases its row lock before returning.
+      long remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime());
+      if (remaining <= 0) throw new ApiException(503, "AI 农场资料读取超时，请稍后重试");
+      SseEmitter emitter = new SseEmitter(remaining);
+      AtomicBoolean disconnected = new AtomicBoolean(false), normalCompletion = new AtomicBoolean(false);
+      task = new StreamTask(() -> Identity.runAs(identity, () -> {
+        try { run(id, input, prep, emitter, disconnected, normalCompletion); }
+        finally { completeNormally(emitter, normalCompletion); }
+      }), release);
+      StreamTask accepted = task;
+      AtomicBoolean cancellationRequested = new AtomicBoolean(false);
+      Runnable cancel = () -> {
+        if (normalCompletion.get() || !cancellationRequested.compareAndSet(false, true)) return;
+        disconnected.set(true);
+        accepted.cancel(true);
+        // No error JSON may be written into an established SSE response. The client
+        // treats EOF without a terminal event as a retryable interrupted answer.
+        // A stalled servlet send may hold the emitter monitor. Closing it must not
+        // block the one deadline thread from cancelling other admitted runs.
+        Thread.ofVirtual().start(() -> {
+          try { emitter.complete(); } catch (Exception ignored) { /* already closed */ }
+        });
+      };
+      emitter.onCompletion(cancel);
+      emitter.onTimeout(cancel);
+      emitter.onError(error -> cancel.run());
+      timer.set(deadlines.schedule(cancel, remaining, TimeUnit.MILLISECONDS));
+      executor.execute(task);
+      submitted = true;
+      return emitter;
+    } catch (RejectedExecutionException rejected) {
+      if (task != null) task.cancel(false);
+      throw new ApiException(503, "AI 助手正在停止或繁忙，请稍后重试");
+    } finally {
+      if (!submitted) release.run();
+    }
   }
 
-  private void run(String id, Question input, PreparedRun prep, SseEmitter emitter, AtomicBoolean disconnected) {
+  // FutureTask.done runs on the cancelling thread, potentially before the worker
+  // has unwound. A running task releases its slot only from run's actual finally.
+  static final class StreamTask extends FutureTask<Void> {
+    private final AtomicBoolean started = new AtomicBoolean(false);
+    private final Runnable release;
+    StreamTask(Runnable work, Runnable release) { super(work, null); this.release = release; }
+    @Override public void run() {
+      started.set(true);
+      try { super.run(); } finally { release.run(); }
+    }
+    @Override protected void done() { if (!started.get()) release.run(); }
+  }
+
+  private void run(String id, Question input, PreparedRun prep, SseEmitter emitter, AtomicBoolean disconnected, AtomicBoolean normalCompletion) {
     AtomicInteger sequence = new AtomicInteger(0);
     try {
       if (prep.replay()) {
-        replay(prep, emitter, sequence, disconnected);
+        replay(prep, emitter, sequence, disconnected, normalCompletion);
         return;
       }
       send(emitter, AgentEvent.runStarted(sequence.incrementAndGet()), disconnected);
@@ -190,7 +269,7 @@ public class AiStreamService {
         // 内容和数据库里(本来什么都不会写)完全不一致。规格要求保留已生成正文，报错，允许用同一个
         // requestId 重试；这里不持久化任何东西，下次用相同 requestId 重试会重新完整走一遍。
         send(emitter, AgentEvent.runError(sequence.incrementAndGet(), result.diagnostic(), "回答失败，请重试"), disconnected);
-        completeNormally(emitter);
+        completeNormally(emitter, normalCompletion);
         return;
       }
 
@@ -284,7 +363,7 @@ public class AiStreamService {
           send(emitter, AgentEvent.conversationTitled(sequence.incrementAndGet(), id, modelTitle), disconnected);
         }
       }
-      completeNormally(emitter);
+      completeNormally(emitter, normalCompletion);
     } catch (Exception e) {
       // 已经成功发出 run.error 事件后仍调用 completeWithError 会触发 Spring 的异步异常处理流程，
       // 此时响应已经在发送 SSE 数据，再尝试提交一个错误响应会破坏分块编码，导致客户端读到
@@ -294,7 +373,7 @@ public class AiStreamService {
           send(emitter, AgentEvent.runError(sequence.incrementAndGet(), diagnosticFor(e), "回答失败，请重试"), disconnected);
         }
       } finally {
-        completeNormally(emitter);
+        completeNormally(emitter, normalCompletion);
       }
     }
   }
@@ -438,7 +517,7 @@ public class AiStreamService {
     send(emitter, AgentEvent.messageDelta(sequence.incrementAndGet(), note), disconnected);
   }
 
-  private void replay(PreparedRun prep, SseEmitter emitter, AtomicInteger sequence, AtomicBoolean disconnected) {
+  private void replay(PreparedRun prep, SseEmitter emitter, AtomicInteger sequence, AtomicBoolean disconnected, AtomicBoolean normalCompletion) {
     send(emitter, AgentEvent.runStarted(sequence.incrementAndGet()), disconnected);
     for (Map<String, Object> row : prep.existingActivities()) {
       send(
@@ -462,7 +541,7 @@ public class AiStreamService {
     send(emitter, AgentEvent.messageDelta(sequence.incrementAndGet(), prep.existingAnswer()), disconnected);
     send(emitter, AgentEvent.messageCompleted(sequence.incrementAndGet(), prep.existingMessageId()), disconnected);
     send(emitter, AgentEvent.runCompleted(sequence.incrementAndGet()), disconnected);
-    completeNormally(emitter);
+    completeNormally(emitter, normalCompletion);
   }
 
   private static OffsetDateTime toOffsetDateTime(Object value) {
@@ -497,7 +576,8 @@ public class AiStreamService {
     return e instanceof app.zhinong.api.ApiException api ? String.valueOf(api.status()) : "UNAVAILABLE";
   }
 
-  private void completeNormally(SseEmitter emitter) {
+  private void completeNormally(SseEmitter emitter, AtomicBoolean normalCompletion) {
+    normalCompletion.set(true);
     try {
       emitter.complete();
     } catch (Exception ignored) {

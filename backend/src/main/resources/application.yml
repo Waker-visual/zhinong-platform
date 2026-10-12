@@ -1,19 +1,45 @@
 server:
   address: ${FARM_BIND:127.0.0.1}
   port: ${FARM_PORT:9175}
+  shutdown: graceful
   error:
     include-message: never
 spring:
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
   datasource:
     url: ${FARM_DATABASE_URL:jdbc:h2:file:./data/zhinong;DB_CLOSE_ON_EXIT=FALSE}
     username: ${FARM_DATABASE_USER:sa}
     password: ${FARM_DATABASE_PASSWORD:}
+    hikari:
+      connection-timeout: ${FARM_DATABASE_CONNECTION_TIMEOUT_MS:3000}
+      validation-timeout: 1000
   sql:
     init:
       mode: always
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+management:
+  endpoints:
+    web:
+      base-path: /api/ops
+      exposure:
+        include: health,metrics
+      discovery:
+        enabled: false
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+  metrics:
+    distribution:
+      percentiles:
+        http.server.requests: 0.5,0.95,0.99
 farm:
   demo: ${FARM_DEMO:false}
   demo-rich: ${FARM_DEMO_RICH:true}

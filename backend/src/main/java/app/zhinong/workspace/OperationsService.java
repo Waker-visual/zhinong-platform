@@ -44,7 +44,8 @@ public class OperationsService {
     store.get("farms", farmId);
     String tenant = Identity.tenant();
     var db = store.db();
-    var end = OffsetDateTime.now(ZoneOffset.UTC);
+    // Both supported databases retain microseconds; align bucket boundaries to that precision.
+    var end = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     var start = end.minusHours(hours);
     long sliceSeconds = hours * 3600L / SLICES;
 
@@ -58,32 +59,44 @@ public class OperationsService {
       farmId
     );
     var reports = new HashMap<String, List<Instant>>();
-    // 窗口开始前的最后一次上报，用来判断长期失联的设备
+    // Indexed predecessor lookup: do not scan all retained history before the window.
     db.query(
       """
-      SELECT r.device_id,MAX(r.measured_at) FROM telemetry_readings r
-      JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
-      WHERE r.tenant_id=? AND d.farm_id=? AND r.measured_at<? GROUP BY r.device_id
+      SELECT d.id,(SELECT MAX(r.measured_at) FROM telemetry_readings r
+        WHERE r.tenant_id=d.tenant_id AND r.device_id=d.id AND r.measured_at<?) AS latest
+      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
       """,
-      (RowCallbackHandler) rs ->
-        reports
+      (RowCallbackHandler) rs -> {
+        var latest = rs.getObject(2, java.time.OffsetDateTime.class);
+        if (latest != null) reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
-          .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
+          .add(DatabaseTime.instant(latest));
+      },
+      start,
       tenant,
-      farmId,
-      start
+      farmId
     );
+    // For health at a slice's closing boundary only its last sample matters. Keep
+    // at most 100 timestamps per device instead of every channel's historical rows.
+    // Anchor tenant + farm on devices below so H2 can start with that small indexed
+    // set; the tenant-equal joins then constrain every telemetry/asset read.
     db.query(
       """
-      SELECT DISTINCT r.device_id,r.measured_at FROM telemetry_readings r
+      SELECT r.device_id,MAX(r.measured_at),
+        GREATEST(0,CEILING(TIMESTAMPDIFF(MICROSECOND,?,r.measured_at)/CAST(? AS DECIMAL(20,3)))-1) AS bucket
+      FROM telemetry_readings r
       JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
-      WHERE r.tenant_id=? AND d.farm_id=? AND r.measured_at>=? AND r.measured_at<=?
-      ORDER BY r.measured_at
+      JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE' AND r.measured_at>=? AND r.measured_at<=?
+      GROUP BY r.device_id,bucket ORDER BY MAX(r.measured_at)
       """,
       (RowCallbackHandler) rs ->
         reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
           .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
+      start,
+      sliceSeconds * 1_000_000L,
       tenant,
       farmId,
       start,
@@ -91,21 +104,22 @@ public class OperationsService {
     );
 
     double[] moistureSum = new double[SLICES];
-    int[] moistureCount = new int[SLICES];
+    long[] moistureCount = new long[SLICES];
+    // Return at most 100 aggregates, rather than shipping every retained sample to Java.
     db.query(
       """
-      SELECT r.measured_at,r.measured_value FROM telemetry_readings r
+      SELECT FLOOR(TIMESTAMPDIFF(SECOND,?,r.measured_at)/?) AS bucket,SUM(r.measured_value),COUNT(*) FROM telemetry_readings r
       JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
-      WHERE r.tenant_id=? AND d.farm_id=? AND r.metric=? AND r.measured_at>=? AND r.measured_at<?
+      WHERE d.tenant_id=? AND d.farm_id=? AND r.metric=? AND r.measured_at>=? AND r.measured_at<?
+      GROUP BY bucket
       """,
       (RowCallbackHandler) rs -> {
-        long offset = Duration
-          .between(start.toInstant(), DatabaseTime.instant(rs.getObject(1, java.time.OffsetDateTime.class)))
-          .getSeconds();
-        int index = (int) Math.min(SLICES - 1, Math.max(0, offset / sliceSeconds));
+        int index = Math.min(SLICES - 1, Math.max(0, rs.getInt(1)));
         moistureSum[index] += rs.getBigDecimal(2).doubleValue();
-        moistureCount[index]++;
+        moistureCount[index] += rs.getLong(3);
       },
+      start,
+      sliceSeconds,
       tenant,
       farmId,
       MOISTURE,
@@ -272,41 +286,45 @@ public class OperationsService {
     LocalDate first = today.minusDays(MATRIX_DAYS - 1);
     // plot -> date -> device -> [min, max, lower, upper]
     var readings = new HashMap<String, Map<LocalDate, Map<String, double[]>>>();
+    String dayBucket = store.sql().calendarDate("r.measured_at");
+    if (store.sql().mysql()) {
+      // RDS can use a UTC connection while the farm's calendar remains local.
+      String offset = OffsetDateTime.now(zone).getOffset().getId();
+      if ("Z".equals(offset)) offset = "+00:00";
+      dayBucket = "CAST(CONVERT_TZ(r.measured_at,@@session.time_zone,'" + offset + "') AS DATE)";
+    }
     db.query(
       """
-      SELECT a.plot_id,r.device_id,r.measured_at,r.measured_value,c.lower_limit,c.upper_limit
+      SELECT a.plot_id,r.device_id,%s,MIN(r.measured_value),MAX(r.measured_value),c.lower_limit,c.upper_limit
       FROM telemetry_readings r
       JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
       JOIN asset_profiles a ON a.tenant_id=r.tenant_id AND a.device_id=r.device_id
       LEFT JOIN device_channels c ON c.tenant_id=r.tenant_id AND c.device_id=r.device_id AND c.metric=r.metric
-      WHERE r.tenant_id=? AND d.farm_id=? AND r.metric=? AND a.plot_id IS NOT NULL AND r.measured_at>=?
-      """,
+      WHERE d.tenant_id=? AND d.farm_id=? AND r.metric=? AND a.plot_id IS NOT NULL AND r.measured_at>=? AND r.measured_at<?
+      GROUP BY a.plot_id,r.device_id,%s,c.lower_limit,c.upper_limit
+      """.formatted(dayBucket, dayBucket),
       (RowCallbackHandler) rs -> {
-        LocalDate day = DatabaseTime.instant(rs.getObject(3, java.time.OffsetDateTime.class)).atZone(zone).toLocalDate();
-        if (day.isAfter(today)) return;
-        var lower = rs.getBigDecimal(5);
-        var upper = rs.getBigDecimal(6);
-        var cell = readings
+        LocalDate day = rs.getObject(3, LocalDate.class);
+        var lower = rs.getBigDecimal(6);
+        var upper = rs.getBigDecimal(7);
+        readings
           .computeIfAbsent(rs.getString(1), k -> new HashMap<>())
           .computeIfAbsent(day, k -> new HashMap<>())
-          .computeIfAbsent(
+          .put(
             rs.getString(2),
-            k ->
               new double[] {
-                Double.POSITIVE_INFINITY,
-                Double.NEGATIVE_INFINITY,
+                rs.getBigDecimal(4).doubleValue(),
+                rs.getBigDecimal(5).doubleValue(),
                 lower == null ? Double.NaN : lower.doubleValue(),
                 upper == null ? Double.NaN : upper.doubleValue(),
               }
           );
-        double value = rs.getBigDecimal(4).doubleValue();
-        cell[0] = Math.min(cell[0], value);
-        cell[1] = Math.max(cell[1], value);
       },
       tenant,
       farmId,
       MOISTURE,
-      first.atStartOfDay(zone).toOffsetDateTime()
+      first.atStartOfDay(zone).toOffsetDateTime(),
+      today.plusDays(1).atStartOfDay(zone).toOffsetDateTime()
     );
     // 地块上配置了土壤水分指标的设备数，用来区分“没布设监测”和“有设备但没读数”
     var sensors = new HashMap<String, Integer>();

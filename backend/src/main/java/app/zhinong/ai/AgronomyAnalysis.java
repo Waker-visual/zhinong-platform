@@ -29,24 +29,40 @@ public class AgronomyAnalysis {
       ORDER BY p.name,s.start_date
       """,tenant,farmId,date,date);
     crops.forEach(c -> c.put("daysAfterPlanting",java.time.temporal.ChronoUnit.DAYS.between(LocalDate.parse(c.get("startDate").toString()),date)));
-    // Latest reading per (device,metric) via a single windowed pass over the existing
-    // ix_telemetry_history(tenant_id,device_id,metric,measured_at) index, instead of a
-    // per-row correlated NOT EXISTS that re-scans telemetry_readings for every row and
-    // turns unbounded (demo-length) history into an O(n^2) query.
-    var sensors=db.queryForList("""
-      SELECT "deviceId","deviceName","plotId","plotName",metric,"value","time",source,"protocol","intervalSeconds","lastReceivedAt","readingReceivedAt" FROM (
-        SELECT d.id AS "deviceId",d.name AS "deviceName",a.plot_id AS "plotId",p.name AS "plotName",
-          t.metric,t.measured_value AS "value",t.measured_at AS "time",t.source,
-          a.protocol AS "protocol",a.interval_seconds AS "intervalSeconds",a.last_received_at AS "lastReceivedAt",t.received_at AS "readingReceivedAt",
-          ROW_NUMBER() OVER (PARTITION BY t.device_id,t.metric ORDER BY t.measured_at DESC,t.id DESC) AS rn
-        FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-        JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
-        LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id
-        WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
-          AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
-      ) ranked WHERE rn=1
-      ORDER BY "deviceName",metric
+    // Seek one id per device/known metric inside the database, then batch-fetch
+    // those rows. This avoids both sorting retained history and N remote queries
+    // per device when the primary database is MySQL/RDS.
+    var scopedReadings=db.queryForList("""
+      SELECT d.id AS "deviceId",d.name AS "deviceName",a.plot_id AS "plotId",p.name AS "plotName",
+        a.protocol AS "protocol",a.interval_seconds AS "intervalSeconds",a.last_received_at AS "lastReceivedAt",
+        (SELECT n.id FROM telemetry_readings n
+          WHERE n.tenant_id=d.tenant_id AND n.device_id=d.id AND n.metric=m.metric
+            AND n.measured_at=(SELECT MAX(latest.measured_at) FROM telemetry_readings latest
+              WHERE latest.tenant_id=d.tenant_id AND latest.device_id=d.id AND latest.metric=m.metric)
+          ORDER BY n.id DESC LIMIT 1) AS "readingId"
+      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+      CROSS JOIN (SELECT 'SOIL_MOISTURE' AS metric UNION ALL SELECT 'TEMPERATURE' UNION ALL SELECT 'HUMIDITY'
+        UNION ALL SELECT 'WIND_SPEED' UNION ALL SELECT 'RAINFALL' UNION ALL SELECT 'PEST_COUNT') m
+      LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id
+      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
+      ORDER BY d.name,d.id,m.metric
       """,tenant,farmId);
+    var ids=scopedReadings.stream().map(row -> (String)row.get("readingId")).filter(Objects::nonNull).toList();
+    var readingsById=new HashMap<String,Map<String,Object>>();
+    for(int from=0;from<ids.size();from+=500) {
+      var batch=ids.subList(from,Math.min(ids.size(),from+500));
+      var args=new ArrayList<Object>();args.add(tenant);args.addAll(batch);
+      for(var reading:db.queryForList("""
+        SELECT id AS "readingId",metric,measured_value AS "value",measured_at AS "time",source,received_at AS "readingReceivedAt"
+        FROM telemetry_readings WHERE tenant_id=? AND id IN (%s)
+        """.formatted(String.join(",",Collections.nCopies(batch.size(),"?"))),args.toArray()))
+        readingsById.put((String)reading.remove("readingId"),reading);
+    }
+    var sensors=new ArrayList<Map<String,Object>>();
+    for(var scoped:scopedReadings) {
+      var reading=readingsById.get(scoped.remove("readingId"));
+      if(reading!=null) {var sensor=new LinkedHashMap<String,Object>(scoped);sensor.putAll(reading);sensors.add(sensor);}
+    }
     sensors.forEach(s -> {
       var time=DatabaseTime.offset(s.get("time"));
       var received=DatabaseTime.offset(s.get("lastReceivedAt") == null ? s.get("readingReceivedAt") : s.get("lastReceivedAt"));
@@ -79,10 +95,12 @@ public class AgronomyAnalysis {
       FROM farm_tasks t JOIN plots p ON p.tenant_id=t.tenant_id AND p.id=t.plot_id
       WHERE t.tenant_id=? AND p.farm_id=? AND t.status IN ('PENDING','RUNNING')
       """,date,tenant,farmId);
+    // Keep the tenant predicate on the farm-scoped device set, as in the weather
+    // aggregate, so retained telemetry from other farms is not scanned first.
     var pestHistory=db.queryForList(("""
       SELECT %s AS "date",ROUND(AVG(t.measured_value),2) AS "averageCount",MAX(t.measured_value) AS "peakCount",COUNT(*) AS "samples"
       FROM telemetry_readings t JOIN devices d ON d.tenant_id=t.tenant_id AND d.id=t.device_id
-      WHERE t.tenant_id=? AND d.farm_id=? AND t.metric='PEST_COUNT' AND t.measured_at>=? AND t.measured_at<=?
+      WHERE d.tenant_id=? AND d.farm_id=? AND t.metric='PEST_COUNT' AND t.measured_at>=? AND t.measured_at<=?
       GROUP BY %s ORDER BY %s
       """).formatted(bucket,bucket,bucket),tenant,farmId,since,now);
     var cautions=new ArrayList<String>();

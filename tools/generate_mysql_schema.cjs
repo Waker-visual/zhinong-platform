@@ -28,6 +28,8 @@ const upgrades = [
   ['ai_conversations', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'chk_ai_conversations_title_source', "ADD CONSTRAINT chk_ai_conversations_title_source CHECK(title_source IN ('auto','user'))"],
   ['ai_messages', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'uq_ai_messages_tenant', 'ADD CONSTRAINT uq_ai_messages_tenant UNIQUE(tenant_id,id)'],
   ['ai_irrigation_runs', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'uq_ai_irrigation_run_tenant', 'ADD CONSTRAINT uq_ai_irrigation_run_tenant UNIQUE(tenant_id,id)'],
+  ['telemetry_readings', 'STATISTICS', 'INDEX_NAME', 'ix_telemetry_latest', 'ADD INDEX ix_telemetry_latest(tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC)'],
+  ['telemetry_readings', 'STATISTICS', 'INDEX_NAME', 'ix_telemetry_device_time', 'ADD INDEX ix_telemetry_device_time(tenant_id,device_id,measured_at DESC)'],
 ].map(([table, catalog, field, name, change]) => {
   const statement = `ALTER TABLE ${table} ${change}`.replaceAll("'", "''");
   return `SET @zhinong_ai_upgrade = IF(

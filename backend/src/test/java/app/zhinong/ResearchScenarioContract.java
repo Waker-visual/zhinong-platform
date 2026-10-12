@@ -263,6 +263,30 @@ abstract class ResearchScenarioContract {
     assertEquals(16,operations.at("/summary/freshDevices").asInt());
   }
 
+  @Test @Transactional void operationsMatrixUsesLocalDaysAtMidnightAcrossDatabaseEngines() {
+    String tenant = tenant(), farm = farm(), plot = UUID.randomUUID().toString(), device = UUID.randomUUID().toString();
+    db.update("INSERT INTO plots(id,tenant_id,farm_id,name,area_mu,crop) VALUES(?,?,?,?,1,'水稻')", plot, tenant, farm, "虚构日界测试田");
+    db.update("INSERT INTO devices(id,tenant_id,farm_id,name,metric,unit,adapter) VALUES(?,?,?,'日界探头','SOIL_MOISTURE','%','MANUAL')", device, tenant, farm);
+    db.update("INSERT INTO asset_profiles(tenant_id,device_id,code,device_type,protocol,plot_id) VALUES(?,?,?,'SOIL','MANUAL',?)", tenant, device, device, plot);
+    db.update("INSERT INTO device_channels(tenant_id,device_id,metric,lower_limit,upper_limit) VALUES(?,?,'SOIL_MOISTURE',20,60)", tenant, device);
+    var day = LocalDate.now().minusDays(2);
+    var midnight = day.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+    String insert = "INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'SOIL_MOISTURE',?,?,?,'MANUAL')";
+    db.update(insert, UUID.randomUUID().toString(), tenant, device, 80, midnight.minusMinutes(15), midnight);
+    db.update(insert, UUID.randomUUID().toString(), tenant, device, 10, midnight.plusMinutes(15), midnight);
+    var identity = new app.zhinong.security.Identity("test-viewer", tenant, "测试租户", "viewer", "测试观察员", "VIEWER");
+    app.zhinong.security.Identity.runAs(identity, () -> {
+      var report = json.valueToTree(context.getBean(app.zhinong.workspace.OperationsService.class).overview(farm, 168));
+      JsonNode row = null;
+      for (var candidate : report.at("/matrix/plots")) if (plot.equals(candidate.path("id").asText())) row = candidate;
+      assertNotNull(row);
+      for (int i = 0; i < report.at("/matrix/days").size(); i++) {
+        String date = report.at("/matrix/days").get(i).asText();
+        assertEquals(date.equals(day.minusDays(1).toString()) ? "HIGH" : date.equals(day.toString()) ? "LOW" : "NONE", row.path("cells").get(i).asText());
+      }
+    });
+  }
+
   @Test @Transactional void cameraUpgradeFillsMissingStationsWithoutReplacingConfiguredSources() {
     String tenant=tenant(),farm=farm();
     String original=db.queryForObject("SELECT d.id FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id WHERE d.tenant_id=? AND d.farm_id=? AND a.code='DEMO-CTRL-CAMERA'",String.class,tenant,farm);

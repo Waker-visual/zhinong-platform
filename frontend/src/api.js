@@ -44,10 +44,43 @@ function failure(message, status) {
   return error;
 }
 
+function transportFailure(error, signal, timedOut) {
+  // Switching farms, closing a page or stopping AI is not a service outage.
+  if (signal?.aborted && !timedOut) {
+    const cancelled = new Error("已取消");
+    cancelled.cancelled = true;
+    return cancelled;
+  }
+  connection.state = "offline";
+  return timedOut || error?.name === "AbortError"
+    ? failure("请求超时，请检查本地服务是否运行", 0)
+    : failure("无法连接本地服务，请确认服务已启动后重试", 0);
+}
+
+async function responseJson(response, signal, timedOut) {
+  try {
+    return await response.json();
+  } catch (error) {
+    // Abort can happen after headers arrive, while the JSON body is being read.
+    if (signal?.aborted || timedOut() || error?.name === "AbortError")
+      throw transportFailure(error, signal, timedOut());
+    if (response.ok) throw failure("服务返回了无法识别的内容，请刷新后重试", response.status);
+    return {};
+  }
+}
+
+function expireSession(requestToken) {
+  // A late 401 from an old request must not log out a newly signed-in session.
+  if (token !== requestToken) return;
+  setToken("");
+  window.dispatchEvent(new Event("session-expired"));
+}
+
 // keepalive 用于页面关闭时仍需送达的请求（例如撤销期结束的删除）。
 // signal 可选：传入外部 AbortSignal 时，调用方中止它会真正中断这次请求（例如 AI 助手的停止按钮），
 // 不只是让调用方忽略稍后到达的结果。
 export async function api(path, method = "GET", body, { keepalive = false, timeoutMs = 15000, signal } = {}) {
+  const requestToken = token;
   const controller = new AbortController();
   const onAbort = () => controller.abort();
   if (signal) {
@@ -67,43 +100,29 @@ export async function api(path, method = "GET", body, { keepalive = false, timeo
         method,
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: "Bearer " + token } : {}),
+          ...(requestToken ? { Authorization: "Bearer " + requestToken } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
         signal: controller.signal,
         keepalive,
       });
     } catch (error) {
-      connection.state = "offline";
-      if (error.name === "AbortError" && signal?.aborted && !timedOut) {
-        const cancelled = new Error("已取消");
-        cancelled.cancelled = true;
-        throw cancelled;
-      }
-      throw error.name === "AbortError"
-        ? failure("请求超时，请检查本地服务是否运行", 0)
-        : failure("无法连接本地服务，请确认服务已启动后重试", 0);
+      throw transportFailure(error, signal, timedOut);
     }
     // 开发代理在后端停止时返回 502/503/504
     if ([502, 503, 504].includes(response.status)) {
       connection.state = "offline";
-      const details = await response.json().catch(() => ({}));
-      throw failure(details.message || "服务暂时不可用，请稍后重试", response.status);
+      const details = await responseJson(response, signal, () => timedOut);
+      throw failure(details?.message || "服务暂时不可用，请稍后重试", response.status);
     }
     connection.state = "online";
     connection.lastSync = new Date();
-    let data = {};
-    try {
-      data = await response.json();
-    } catch {
-      if (response.ok) throw failure("服务返回了无法识别的内容，请刷新后重试", response.status);
-    }
+    const data = await responseJson(response, signal, () => timedOut);
     if (!response.ok) {
       if (response.status === 401 && path !== "/auth/login") {
-        setToken("");
-        window.dispatchEvent(new Event("session-expired"));
+        expireSession(requestToken);
       }
-      throw failure(data.message || "操作失败，请重试", response.status);
+      throw failure(data?.message || "操作失败，请重试", response.status);
     }
     return normalize(data);
   } finally {
@@ -118,6 +137,7 @@ export async function api(path, method = "GET", body, { keepalive = false, timeo
 // 与 api() 共用鉴权、超时和错误归一化逻辑，但读取方式不同（流式而非一次性 JSON）。
 // signal 用于真正的取消：调用方中止它会立即中断底层 fetch，不是仅在客户端停止消费事件。
 export async function* streamJson(path, body, { signal, timeoutMs = 70000 } = {}) {
+  const requestToken = token;
   const controller = new AbortController();
   let timedOut = false;
   const onAbort = () => controller.abort();
@@ -140,33 +160,29 @@ export async function* streamJson(path, body, { signal, timeoutMs = 70000 } = {}
           // 同时接受 JSON：鉴权失败、幂等冲突等在建立 SSE 连接前就返回的普通 JSON 错误体，
           // 只接受 text/event-stream 会让服务端内容协商失败，变成无关的 500。
           Accept: "text/event-stream, application/json;q=0.9, */*;q=0.1",
-          ...(token ? { Authorization: "Bearer " + token } : {}),
+          ...(requestToken ? { Authorization: "Bearer " + requestToken } : {}),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
     } catch (error) {
-      connection.state = "offline";
-      if (error.name === "AbortError" && signal?.aborted && !timedOut) return; // 调用方主动取消，不是失败
-      throw error.name === "AbortError"
-        ? failure("请求超时，请检查本地服务是否运行", 0)
-        : failure("无法连接本地服务，请确认服务已启动后重试", 0);
+      if (signal?.aborted && !timedOut) return; // 调用方主动取消，不是失败
+      throw transportFailure(error, signal, timedOut);
     }
     if ([502, 503, 504].includes(response.status)) {
       connection.state = "offline";
-      const details = await response.json().catch(() => ({}));
-      throw failure(details.message || "服务暂时不可用，请稍后重试", response.status);
+      const details = await responseJson(response, signal, () => timedOut);
+      throw failure(details?.message || "服务暂时不可用，请稍后重试", response.status);
     }
     if (response.status === 404 || response.status === 405) {
       throw failure("流式接口不可用", response.status);
     }
     if (!response.ok) {
-      const details = await response.json().catch(() => ({}));
+      const details = await responseJson(response, signal, () => timedOut);
       if (response.status === 401) {
-        setToken("");
-        window.dispatchEvent(new Event("session-expired"));
+        expireSession(requestToken);
       }
-      throw failure(details.message || "操作失败，请重试", response.status);
+      throw failure(details?.message || "操作失败，请重试", response.status);
     }
     connection.state = "online";
     connection.lastSync = new Date();
@@ -181,9 +197,7 @@ export async function* streamJson(path, body, { signal, timeoutMs = 70000 } = {}
           ({ value, done } = await reader.read());
         } catch (error) {
           if (signal?.aborted && !timedOut) return; // 调用方主动取消
-          throw timedOut
-            ? failure("请求超时，请检查本地服务是否运行", 0)
-            : failure("无法连接本地服务，请确认服务已启动后重试", 0);
+          throw transportFailure(error, signal, timedOut);
         }
         if (done) break;
         for (const evt of parser.feed(decoder.decode(value, { stream: true }))) {

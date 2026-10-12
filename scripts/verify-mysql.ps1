@@ -1,4 +1,4 @@
-﻿param()
+﻿param([string]$MavenSettings = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $configPath = Join-Path $projectRoot '.cache/simulation-db.json'
@@ -25,7 +25,9 @@ try {
     $env:FARM_MYSQL_TEST_URL = "jdbc:mysql://127.0.0.1:$($config.port)/${testDb}?sslMode=DISABLED&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true"
     $env:FARM_MYSQL_TEST_USER = $testUser
     $env:FARM_MYSQL_TEST_PASSWORD = $testPassword
-    mvn -B -f backend/pom.xml '-Dtest=MySqlIntegrationTest' test
+    $mavenArgs = @('-B', '-f', 'backend/pom.xml', '-Dtest=MySqlIntegrationTest', 'test')
+    if ($MavenSettings) { $mavenArgs = @('-s', (Resolve-Path -LiteralPath $MavenSettings).Path) + $mavenArgs }
+    mvn @mavenArgs
     if ($LASTEXITCODE -ne 0) { throw 'MySQL 接口和数据回归测试未通过。' }
 } finally {
     if ($created -and $testDb -match '^zhinong_test_[a-f0-9]{12}$' -and $testUser -eq $testDb) {

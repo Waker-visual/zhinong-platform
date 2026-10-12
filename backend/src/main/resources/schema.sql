@@ -137,6 +137,8 @@ CREATE TABLE IF NOT EXISTS demo_scenarios (
  created_at TIMESTAMP WITH TIME ZONE NOT NULL, PRIMARY KEY(tenant_id,scenario)
 );
 CREATE INDEX IF NOT EXISTS ix_telemetry_history ON telemetry_readings(tenant_id,device_id,metric,measured_at);
+CREATE INDEX IF NOT EXISTS ix_telemetry_latest ON telemetry_readings(tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC);
+CREATE INDEX IF NOT EXISTS ix_telemetry_device_time ON telemetry_readings(tenant_id,device_id,measured_at DESC);
 CREATE INDEX IF NOT EXISTS ix_alert_status ON device_alerts(tenant_id,status,opened_at);
 
 CREATE TABLE IF NOT EXISTS member_preferences (

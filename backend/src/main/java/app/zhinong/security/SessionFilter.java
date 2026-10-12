@@ -12,6 +12,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.boot.availability.ApplicationAvailability;
 import org.springframework.boot.availability.ReadinessState;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.dao.TransientDataAccessException;
 
 @Component
 public class SessionFilter extends OncePerRequestFilter {
@@ -37,7 +39,9 @@ public class SessionFilter extends OncePerRequestFilter {
     response.setHeader("Referrer-Policy", "same-origin");
     response.setHeader("X-Frame-Options", "DENY");
     try {
-      String path = request.getRequestURI();
+      // Use the container's decoded servlet path so encoded endpoint names cannot
+      // bypass the same authorization rules that MVC applies after URL decoding.
+      String path = request.getServletPath();
       if (path.startsWith("/api/")) {
         response.setHeader("Cache-Control", "no-store");
         boolean ready = availability.getReadinessState() == ReadinessState.ACCEPTING_TRAFFIC;
@@ -71,6 +75,11 @@ public class SessionFilter extends OncePerRequestFilter {
             }
           }
           Identity.set(identity);
+          // Operational metrics are process-wide, so tenant accounts must not read them.
+          // Only health/metrics endpoints are exposed; environment/configuration dumps stay disabled.
+          if (path.equals("/api/ops") || path.startsWith("/api/ops/")) {
+            Identity.require("PLATFORM_ADMIN");
+          }
           if (
             auth.passwordChangeRequired(identity.memberId()) &&
             !java.util.Set.of(
@@ -92,6 +101,12 @@ public class SessionFilter extends OncePerRequestFilter {
       response.setStatus(e.status());
       response.setContentType("application/json;charset=UTF-8");
       json.writeValue(response.getWriter(), Map.of("message", e.getMessage()));
+    } catch (DataAccessResourceFailureException | TransientDataAccessException e) {
+      // Authentication also borrows a database connection before MVC advice can run.
+      response.setStatus(503);
+      response.setHeader("Retry-After", "2");
+      response.setContentType("application/json;charset=UTF-8");
+      json.writeValue(response.getWriter(), Map.of("message", "数据服务暂时繁忙，请稍后重试"));
     } finally {
       Identity.clear();
     }

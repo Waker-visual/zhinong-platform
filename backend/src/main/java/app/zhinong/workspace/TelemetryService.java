@@ -319,12 +319,27 @@ public class TelemetryService {
 
   @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
   public List<Map<String, Object>> alerts(String farmId, String status) {
+    String tenant = alertScope(farmId, status);
+    monitor.scanFarm(tenant, farmId);
+    return readAlerts(tenant, farmId, status);
+  }
+
+  /** Dashboard reads consume the committed monitor snapshot without spawning farm-wide writes. */
+  @Transactional(readOnly = true)
+  public List<Map<String, Object>> savedAlerts(String farmId, String status) {
+    return readAlerts(alertScope(farmId, status), farmId, status);
+  }
+
+  private String alertScope(String farmId, String status) {
     String tenant = Identity.tenant();
     if (farmId != null && !farmId.isBlank()) store.get("farms", farmId);
     if (
       status != null && !Set.of("OPEN", "ACKNOWLEDGED", "RESOLVED", "ALL").contains(status)
     ) throw new ApiException(400, "告警状态无效");
-    monitor.scanFarm(tenant, farmId);
+    return tenant;
+  }
+
+  private List<Map<String, Object>> readAlerts(String tenant, String farmId, String status) {
     String sql = """
       SELECT a.id AS "id",a.device_id AS "deviceId",d.name AS "deviceName",d.farm_id AS "farmId",
         f.name AS "farmName",a.metric AS "metric",a.measured_value AS "value",a.message AS "message",

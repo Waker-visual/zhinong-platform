@@ -181,7 +181,9 @@ public class AiConversations {
     // fallbackTitle）并通过 conversation.titled 事件广播、随最终回答一起持久化。
     boolean autoTitleEligible) {}
 
-  @Transactional
+  // One cumulative SQL budget for context preparation. Spring checks remaining
+  // transaction TTL at JDBC calls; this is not a hard interrupt of arbitrary Java work.
+  @Transactional(timeout=10)
   PreparedRun prepareStream(String id,Question input) {
     var chat=owned(id,true);String tenant=Identity.tenant();
     var existing=db.queryForList("SELECT id,role,content,mode,diagnostic FROM ai_messages WHERE tenant_id=? AND conversation_id=? AND request_id=?",tenant,id,input.requestId());

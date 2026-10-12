@@ -533,6 +533,47 @@ test("defaultConversationAdapter falls back to the sync adapter when streaming i
   assert.equal(events.find((e) => e.type === "message.delta").delta, "同步回退的回答");
 });
 
+test("SSE rejection and ambiguous network failures never bypass admission control with a second POST", async () => {
+  for (const status of [0, 400, 401, 403, 409, 429, 500, 502, 503, 504]) {
+    let syncCalls = 0;
+    const streamSend = async function* () { throw Object.assign(new Error("本次请求未完成"), { status }); };
+    const syncSend = async () => { syncCalls++; return {}; };
+    const events = [];
+    for await (const event of defaultConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", streamSend, syncSend })) events.push(event);
+    assert.equal(syncCalls, 0, `HTTP ${status} must not trigger another write request`);
+    assert.deepEqual(events.map((event) => event.type), ["run.error"]);
+    assert.equal(events[0].adapter, "stream");
+  }
+});
+
+test("unsupported SSE method 405 retains the explicit compatibility fallback", async () => {
+  const streamSend = async function* () { throw Object.assign(new Error("不支持流式接口"), { status: 405 }); };
+  let calls = 0;
+  const events = [];
+  for await (const event of defaultConversationAdapter({ conversationId: "c1", question: "q", requestId: "r1", streamSend, syncSend: async () => { calls++; return { answer: "同步回答" }; } })) events.push(event);
+  assert.equal(calls, 1);
+  assert.equal(events.at(-1).type, "run.completed");
+});
+
+test("a stream that ends without a terminal event becomes retryable rather than staying running", async () => {
+  for (const partial of [[], [{ type: "run.started" }, { type: "message.delta", delta: "尚未写完" }]]) {
+    const events = [];
+    for await (const event of streamConversationAdapter({ send: () => fakeEventStream(partial) })) events.push(event);
+    assert.equal(events.at(-1).type, "run.error");
+    assert.match(events.at(-1).error, /提前结束/);
+  }
+});
+
+test("user cancellation and a completed answer never acquire a spurious premature-end error", async () => {
+  const controller = new AbortController(); controller.abort();
+  const cancelled = [];
+  for await (const event of streamConversationAdapter({ signal: controller.signal, send: () => fakeEventStream([]) })) cancelled.push(event);
+  assert.deepEqual(cancelled, []);
+  const complete = [];
+  for await (const event of streamConversationAdapter({ send: () => fakeEventStream([{ type: "run.completed" }]) })) complete.push(event);
+  assert.deepEqual(complete, [{ type: "run.completed" }]);
+});
+
 test("defaultConversationAdapter tags every event with which path actually served it (stream vs sync)", async () => {
   // reduceAgentEvent reads this to decide whether "停止" needs to warn that the request might still
   // be running on the server (true only for the sync fallback) or can say plainly "本次回答未保存"

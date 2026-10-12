@@ -8,6 +8,7 @@ import org.springframework.context.annotation.*;
 import org.springframework.jdbc.core.*;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.config.BeanPostProcessor;
+import org.springframework.beans.factory.annotation.Value;
 
 /** Keeps the public row contract identical across H2 and MySQL. */
 @Configuration
@@ -28,7 +29,13 @@ public class DatabaseConfiguration {
       }
     };
   }
-  @Bean public JdbcTemplate jdbcTemplate(DataSource source) { return new PortableJdbcTemplate(source); }
+  @Bean public JdbcTemplate jdbcTemplate(DataSource source,
+      @Value("${farm.database.query-timeout-seconds:10}") int queryTimeoutSeconds) {
+    if (queryTimeoutSeconds < 1) throw new IllegalArgumentException("Database query timeout must be positive");
+    var template = new PortableJdbcTemplate(source);
+    template.setQueryTimeout(queryTimeoutSeconds);
+    return template;
+  }
 
   static class PortableJdbcTemplate extends JdbcTemplate {
     private static final Set<String> BOOLEANS = Set.of("enabled", "demo", "operatingdemo", "controlenabled",

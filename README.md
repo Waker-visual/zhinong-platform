@@ -204,7 +204,9 @@ npm.cmd run dev
 # http://127.0.0.1:4273
 ```
 
-项目根目录运行 `scripts/verify.ps1`，执行后端测试、前端构建、项目检查工具测试、地图坐标回归测试及敏感信息扫描。仓库提供 `docs/ci/verify.example.yml` 作为 GitHub Actions 配置示例；当前未启用自动运行，可在本机运行上述验证脚本。
+项目根目录运行 `scripts/verify.ps1`，执行后端测试、前端构建、请求取消与超时、大屏渐进刷新、瓦片并发队列、地图坐标及项目公开范围检查。`.github/workflows/verify.yml` 在主分支推送和 Pull Request 中运行同一套验证（Windows、Java 21、Node 22）。独立 MySQL 验证仍在已配置的本机环境运行。若个人 Maven 镜像不可达，可通过 `-MavenSettings '绝对路径/settings.xml'` 指定自己的可用 HTTPS 镜像，不必修改全局配置。
+
+大屏与服务的性能基准、故障恢复规则、运行指标和部署边界见 [服务稳定性与性能指南](docs/服务稳定性与性能指南.md)。可重复运行 `node tools/benchmark_runtime.cjs` 比较同一农场和相同并发条件下的接口耗时，默认仅访问本机服务、保存匿名计时结果。
 
 2026-10-12 安全补丁：Vue 及同版本子包从 `3.5.27` 更新至 `3.5.43`，修复 [SSR 属性名校验漏洞](https://github.com/vuejs/core/security/advisories/GHSA-g2v6-rqmx-r4w6)；间接依赖 `source-map-js` 更新至 `1.2.2`，包含 [索引 source map 校验修复](https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2)。另外将 Vite 从 `7.3.6` 更新至 `7.3.7`，纳入其[文件访问边界修复](https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22)。均未跨主要版本，锁文件已同步；运行 `npm.cmd ci --prefix frontend` 后可用 `npm.cmd audit --prefix frontend` 复核当时的完整依赖审计结果（需要联网）。
 

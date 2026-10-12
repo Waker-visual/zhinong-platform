@@ -1,4 +1,5 @@
 import L from "leaflet";
+import { requestMapTile } from "./tile-request.js";
 
 // Requests use the application's authenticated origin, so browser third-party access is not required.
 export const AuthenticatedTileLayer = L.TileLayer.extend({
@@ -23,35 +24,44 @@ export const AuthenticatedTileLayer = L.TileLayer.extend({
     // Allow both bounded upstream attempts plus a short queueing margin.
     const timeout = setTimeout(() => controller.abort(), 30000);
     let settled = false;
+    const releaseImage = () => {
+      if (tile._mapBlob) URL.revokeObjectURL(tile._mapBlob);
+      tile._mapBlob = null;
+    };
     tile._mapCancel = () => {
       settled = true;
       clearTimeout(timeout);
       controller.abort();
+      tile.onload = tile.onerror = null;
+      releaseImage();
     };
     const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      releaseImage();
       done(error, tile);
     };
     tile.onload = () => finish(null);
     tile.onerror = () => finish(new Error("底图图片无法解码"));
-    fetch(this.getTileUrl(coords), {
-      headers: {
-        Authorization:
-          "Bearer " + (sessionStorage.getItem("zhinong-session") || ""),
-      },
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(
-            data.message || "底图请求失败（" + response.status + "）",
-          );
-        }
-        const blob = await response.blob();
-        if (controller.signal.aborted) throw new Error("底图请求已取消");
+    requestMapTile(async () => {
+      const response = await fetch(this.getTileUrl(coords), {
+        headers: {
+          Authorization:
+            "Bearer " + (sessionStorage.getItem("zhinong-session") || ""),
+        },
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(
+          data.message || "底图请求失败（" + response.status + "）",
+        );
+      }
+      return response.blob();
+    }, controller.signal)
+      .then((blob) => {
+        if (controller.signal.aborted || settled) return;
         tile._mapBlob = URL.createObjectURL(blob);
         tile.src = tile._mapBlob;
       })

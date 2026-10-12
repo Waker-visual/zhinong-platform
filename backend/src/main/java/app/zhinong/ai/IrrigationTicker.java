@@ -14,7 +14,7 @@ public class IrrigationTicker {
   private final JdbcTemplate db;private final IrrigationService service;private final ScheduledIdentity identities;private final AssetService assets;
   @Value("${farm.ai.automation-enabled:true}") boolean enabled;
   public IrrigationTicker(JdbcTemplate db,IrrigationService service,ScheduledIdentity identities,AssetService assets) {this.db=db;this.service=service;this.identities=identities;this.assets=assets;}
-  @Scheduled(fixedDelay=5000,initialDelay=15000) public void scheduled() {if(enabled) tick();}
+  @Scheduled(fixedDelay=5000,initialDelay=15000,scheduler="irrigationSafetyScheduler") public void scheduled() {if(enabled) tick();}
   public void tick() {
     for(var tenant:db.queryForList("SELECT id FROM tenants")) tickTenant(tenant.get("ID").toString());
   }

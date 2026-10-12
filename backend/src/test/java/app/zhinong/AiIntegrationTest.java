@@ -215,11 +215,8 @@ class AiIntegrationTest {
     assertEquals(1, call(admin, "GET", "/ai/analysis?farmId=" + farmId, null, 200).path("freshMeasurements").asInt());
   }
 
-  // Regression/benchmark test for the bounded latest-reading rewrite in AgronomyAnalysis.report():
-  // seeds tens of thousands of telemetry rows across several devices/metrics (plus a second
-  // tenant's farm) and checks that the latest value per (device,metric) and its freshness flag
-  // are still computed correctly and tenant/farm-isolated, while logging how long the old
-  // per-row correlated NOT EXISTS query took next to the new windowed query on identical data.
+  // Exercise the HTTP read against retained history, same-time ties and another tenant.
+  // Expected values are known sentinels rather than a copy of the production SQL.
   @Test void latestSensorReadingIsCorrectTenantIsolatedAndFastAtScale() throws Exception {
     String plot = call(admin, "POST", "/plots", Map.of("farmId", farmId, "name", "规模测试地", "crop", "蔬菜", "areaMu", 5), 200).path("ID").asText();
     String weather = createDevice(plot, "WEATHER");
@@ -234,9 +231,7 @@ class AiIntegrationTest {
     // expected.get("<deviceId>|<metric>") = {latestValue, freshFlag(1/0)}
     var expected = new LinkedHashMap<String, double[]>();
     var batch = new ArrayList<Object[]>();
-    // 3 devices * 6 metrics * 400 = 7,200 historical rows: enough to exercise the windowed query and the
-    // equivalence check, small enough that the slow legacy NOT EXISTS query cannot hit H2's statement
-    // timeout on a loaded CI machine (at 27,000 rows it intermittently did).
+    // 3 devices * 6 metrics * 400 = 7,200 historical rows across all supported metrics.
     int rowsPerPair = 400;
     for (String device : devices) {
       for (String metric : metrics) {
@@ -256,7 +251,9 @@ class AiIntegrationTest {
         long secondsAgo = fresh ? 30 : 1000; // stale sentinel is still newer than every noise row (>=2000s) but older than the 900s fresh cutoff
         double value = 900.0 + metrics.indexOf(metric);
         var t = now.minusSeconds(secondsAgo);
-        batch.add(new Object[]{UUID.randomUUID().toString(), tenantId, device, metric, value, t, t});
+        String suffix = UUID.randomUUID().toString().substring(1);
+        batch.add(new Object[]{"0" + suffix, tenantId, device, metric, value - 100, t, t.plusSeconds(5)});
+        batch.add(new Object[]{"f" + suffix, tenantId, device, metric, value, t, t});
         expected.put(device + "|" + metric, new double[]{value, fresh ? 1 : 0});
       }
     }
@@ -276,6 +273,8 @@ class AiIntegrationTest {
     String otherTenantId = db.queryForObject("SELECT id FROM tenants WHERE code='demo-b'", String.class);
     db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",
       UUID.randomUUID().toString(), otherTenantId, otherDevice, "TEMPERATURE", 12345, now.minusSeconds(10), now.minusSeconds(10));
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",
+      UUID.randomUUID().toString(), otherTenantId, otherDevice, "PEST_COUNT", 12345, now.minusSeconds(10), now.minusSeconds(10));
 
     long httpStart = System.nanoTime();
     var report = call(admin, "GET", "/ai/analysis?farmId=" + farmId, null, 200);
@@ -298,51 +297,10 @@ class AiIntegrationTest {
     boolean otherDeviceSeen = false;
     for (var s : otherReport.path("sensors")) if (otherDevice.equals(s.path("deviceId").asText())) otherDeviceSeen = true;
     assertTrue(otherDeviceSeen, "the other tenant's own farm report should still see its own device");
+    assertFalse(report.path("pestHistory").isEmpty());
+    for (var day : report.path("pestHistory"))
+      assertTrue(day.path("peakCount").asDouble() <= 905, "pest history must remain scoped to the selected tenant and farm");
 
-    // Prove semantic equivalence: the original per-row correlated NOT EXISTS query (kept here only
-    // as a literal comparison baseline, not production code) must pick the exact same latest
-    // (device,metric,value) rows on this identical dataset, and we log its elapsed time alongside
-    // the new windowed query run directly against the DB (no HTTP/JSON overhead) for comparison.
-    var oldSql = """
-      SELECT d.id AS "deviceId",t.metric,t.measured_value AS "value"
-      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-      JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
-      LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id
-      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
-        AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
-        AND NOT EXISTS(SELECT 1 FROM telemetry_readings n WHERE n.tenant_id=t.tenant_id AND n.device_id=t.device_id
-          AND n.metric=t.metric AND (n.measured_at>t.measured_at OR (n.measured_at=t.measured_at AND n.id>t.id)))
-      ORDER BY d.name,t.metric
-      """;
-    var newSql = """
-      SELECT "deviceId",metric,"value" FROM (
-        SELECT d.id AS "deviceId",t.metric,t.measured_value AS "value",
-          ROW_NUMBER() OVER (PARTITION BY t.device_id,t.metric ORDER BY t.measured_at DESC,t.id DESC) AS rn
-        FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-        JOIN telemetry_readings t ON t.tenant_id=d.tenant_id AND t.device_id=d.id
-        WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
-          AND t.metric IN ('SOIL_MOISTURE','TEMPERATURE','HUMIDITY','WIND_SPEED','RAINFALL','PEST_COUNT')
-      ) ranked WHERE rn=1
-      ORDER BY "deviceId",metric
-      """;
-
-    long oldStart = System.nanoTime();
-    var oldRows = db.queryForList(oldSql, tenantId, farmId);
-    long oldElapsedMs = (System.nanoTime() - oldStart) / 1_000_000;
-    long newStart = System.nanoTime();
-    var newRows = db.queryForList(newSql, tenantId, farmId);
-    long newElapsedMs = (System.nanoTime() - newStart) / 1_000_000;
-    System.out.println("[perf] direct SQL on " + batch.size() + " rows -- old correlated NOT EXISTS: " + oldElapsedMs
-      + "ms, new windowed query: " + newElapsedMs + "ms");
-
-    java.util.function.Function<List<Map<String, Object>>, Set<String>> toKeySet = rows -> {
-      Set<String> keys = new HashSet<>();
-      for (var r : rows) keys.add(r.get("deviceId") + "|" + r.get("METRIC") + "|" + Math.round(((Number) r.get("value")).doubleValue() * 10000.0));
-      return keys;
-    };
-    assertEquals(toKeySet.apply(oldRows), toKeySet.apply(newRows), "rewritten query must select the exact same latest rows as the original");
-    assertEquals(devices.size() * metrics.size(), oldRows.size());
-    assertEquals(oldRows.size(), newRows.size());
   }
 
   String tenant() {return db.queryForObject("SELECT id FROM tenants WHERE code='demo-a'",String.class);}

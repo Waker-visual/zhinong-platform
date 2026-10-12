@@ -1,12 +1,15 @@
-﻿param([string]$MavenRepository = '')
+﻿param([string]$MavenRepository = '', [string]$MavenSettings = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if ($MavenSettings) { $MavenSettings = (Resolve-Path -LiteralPath $MavenSettings).Path }
 Push-Location $projectRoot
 try {
     Push-Location backend
     try {
-        if ($MavenRepository) { mvn -B "-Dmaven.repo.local=$MavenRepository" test }
-        else { mvn -B test }
+        $mavenArgs = @('-B')
+        if ($MavenRepository) { $mavenArgs += "-Dmaven.repo.local=$MavenRepository" }
+        if ($MavenSettings) { $mavenArgs += @('-s', $MavenSettings) }
+        & mvn @mavenArgs test
         if ($LASTEXITCODE -ne 0) { throw '后端测试未通过' }
     } finally { Pop-Location }
     Push-Location frontend
@@ -19,8 +22,12 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '禾苗助手互动状态测试未通过' }
         node --test src/screen/screen-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '展示大屏数据模型测试未通过' }
+        node --test src/screen/screen-refresh.test.js src/api.test.js
+        if ($LASTEXITCODE -ne 0) { throw '请求取消、超时与大屏渐进刷新测试未通过' }
         node --test src/screen/satellite-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '大屏卫星地图坐标测试未通过' }
+        node --test src/workspace/tile-request.test.js
+        if ($LASTEXITCODE -ne 0) { throw '卫星瓦片并发与取消测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }

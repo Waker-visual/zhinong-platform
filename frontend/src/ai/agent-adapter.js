@@ -76,11 +76,15 @@ export async function* syncConversationAdapter({ farmId, conversationId, questio
 // 一旦已经转发过事件再出错，只能就地发出 run.error，不能再回退（会变成同一个问题发送两次）。
 export async function* streamConversationAdapter({ conversationId, question, requestId, signal, send = defaultStreamSend }) {
   let yielded = false;
+  let terminal = false;
   try {
     for await (const event of send({ conversationId, question, requestId, signal })) {
       yielded = true;
+      if (["run.completed", "run.error"].includes(event.type)) terminal = true;
       yield event;
     }
+    if (!terminal && !signal?.aborted)
+      yield { type: "run.error", error: "回答连接提前结束，请重试", diagnostic: "UNAVAILABLE" };
   } catch (error) {
     if (error?.cancelled) return; // 用户主动停止
     if (!yielded) throw error; // 还没收到任何事件：交给调用方判断是否回退到同步接口
@@ -90,7 +94,7 @@ export async function* streamConversationAdapter({ conversationId, question, req
 }
 
 // 默认适配器：优先走真实流式连接；仅当流式接口在产出任何事件之前就失败
-// （404/405，或网络层面完全连不上）才回退到同步适配器。一旦流式已经产出过事件，
+// （404/405 明确表示该服务不提供流式接口）才回退到同步适配器。一旦流式已经产出过事件，
 // 即使中途失败，也只能原样转发 run.error 并允许用 retry() 携带同一个 requestId 重试，
 // 不能静默切换到同步接口重新发一遍——那会让同一个问题被提交两次。
 // streamSend/syncSend 让测试分别注入两条路径各自的假实现（两者的返回形状完全不同：
@@ -106,6 +110,10 @@ export async function* defaultConversationAdapter({ streamSend, syncSend, ...par
       yield { ...event, adapter: "stream" };
     }
   } catch (error) {
+    if (![404, 405].includes(error?.status)) {
+      yield { type: "run.error", error: errorMessage(error), diagnostic: error?.diagnostic || null, adapter: "stream" };
+      return;
+    }
     for await (const event of syncConversationAdapter({ ...params, send: syncSend })) {
       yield { ...event, adapter: "sync" };
     }

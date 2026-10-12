@@ -37,6 +37,9 @@ class WorkspaceIntegrationTest {
   @Autowired
   WorkspaceData fixtures;
 
+  @Autowired
+  app.zhinong.workspace.AssetService assetService;
+
   final HttpClient client = HttpClient.newHttpClient();
   String a, b, viewer, operator, platform;
 
@@ -245,6 +248,57 @@ class WorkspaceIntegrationTest {
     data(request(b, "GET", "/farms/" + rich + "/operations", null), 404);
     data(request(platform, "GET", "/farms/" + rich + "/operations", null), 403);
     data(request(a, "GET", "/farms/" + rich + "/operations?hours=5", null), 400);
+  }
+
+  @Test
+  void latestReadingMergesBoundedLegacyAndTelemetrySourcesWithDeterministicTies() throws Exception {
+    String farm = farm(a), plot = plot(a, farm);
+    String id = data(request(a, "POST", "/assets", asset(farm, plot, "MANUAL")), 200).path("id").asText();
+    String tenant = db.queryForObject("SELECT tenant_id FROM devices WHERE id=?", String.class, id);
+    var at = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(2);
+    for (int i = 0; i < 2; i++) db.update(
+      "INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'SOIL_MOISTURE',?,?,?,'MANUAL')",
+      UUID.randomUUID().toString(), tenant, id, 30 + i, at, at.plusSeconds(i));
+    var latest = assetService.latest(tenant, id, "SOIL_MOISTURE");
+    assertEquals(31, ((Number)latest.get("value")).intValue(), "same-time telemetry prefers the last receipt");
+    db.update("INSERT INTO observations(id,tenant_id,device_id,measured_value,measured_at,source) VALUES(?,?,?,?,?,'MANUAL')",
+      UUID.randomUUID().toString(), tenant, id, 40, java.sql.Timestamp.from(at.plusSeconds(20).toInstant()));
+    assertEquals(40, ((Number)assetService.latest(tenant, id, "SOIL_MOISTURE").get("value")).intValue(), "newer legacy observation remains visible");
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'SOIL_MOISTURE',?,?,?,'MANUAL')",
+      UUID.randomUUID().toString(), tenant, id, 50, at.plusSeconds(30), at.plusSeconds(30));
+    assertEquals(50, ((Number)assetService.latest(tenant, id, "SOIL_MOISTURE").get("value")).intValue());
+    assertNull(assetService.latest(tenant, id, "TEMPERATURE"), "missing channels cannot borrow another metric's reading");
+    assertNull(assetService.latest(db.queryForObject("SELECT id FROM tenants WHERE code='demo-b'", String.class), id, "SOIL_MOISTURE"));
+  }
+
+  @Test
+  void operationsAggregatesKeepMissingDataPredecessorsAndSampleWeightedMeans() throws Exception {
+    String farm = farm(a), plot = plot(a, farm);
+    String id = data(request(a, "POST", "/assets", asset(farm, plot, "MANUAL")), 200).path("id").asText();
+    String old = data(request(a, "POST", "/assets", asset(farm, plot, "MANUAL")), 200).path("id").asText();
+    data(request(a, "POST", "/assets", asset(farm, plot, "MANUAL")), 200); // No samples yet.
+    String tenant = db.queryForObject("SELECT tenant_id FROM devices WHERE id=?", String.class, id);
+    var now = java.time.OffsetDateTime.now(java.time.ZoneOffset.UTC);
+    String insert = "INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'MANUAL')";
+    db.update(insert, UUID.randomUUID().toString(), tenant, id, "SOIL_MOISTURE", 20, now.minusSeconds(30), now);
+    db.update(insert, UUID.randomUUID().toString(), tenant, id, "SOIL_MOISTURE", 40, now.minusSeconds(31), now);
+    db.update(insert, UUID.randomUUID().toString(), tenant, id, "SOIL_MOISTURE", 1, now.minusHours(25), now);
+    db.update(insert, UUID.randomUUID().toString(), tenant, old, "TEMPERATURE", 99, now.minusHours(25), now);
+    db.update(insert, UUID.randomUUID().toString(), tenant, id, "SOIL_MOISTURE", 99, now.plusDays(2), now);
+    String otherFarm = farm(a), otherPlot = plot(a, otherFarm);
+    String otherDevice = data(request(a, "POST", "/assets", asset(otherFarm, otherPlot, "MANUAL")), 200).path("id").asText();
+    db.update(insert, UUID.randomUUID().toString(), tenant, otherDevice, "SOIL_MOISTURE", 90, now.minusSeconds(30), now);
+    var report = data(request(a, "GET", "/farms/" + farm + "/operations?hours=24", null), 200);
+    assertEquals(3, report.at("/summary/activeDevices").asInt());
+    assertEquals(1, report.at("/summary/freshDevices").asInt());
+    assertEquals(1, report.at("/summary/silentDevices").asInt());
+    for (int i = 0; i < 99; i++) assertTrue(report.path("slices").get(i).path("moisture").isNull());
+    assertEquals(30.0, report.at("/slices/99/moisture").asDouble(), "another farm in the same tenant must not alter the mean");
+    assertEquals(2, report.at("/slices/99/observed").asInt(), "history preceding the window still distinguishes old from unseen devices");
+    assertEquals(50, report.at("/slices/99/health").asInt());
+    assertEquals("OK", report.at("/matrix/plots/0/cells/27").asText());
+    assertEquals(1, report.at("/matrix/plots/0/lowDays").asInt());
+    assertEquals(0, report.at("/matrix/plots/0/highDays").asInt(), "future dates are excluded from the daily matrix");
   }
 
   @Test

@@ -6,6 +6,11 @@ import DataChart from "../workspace/DataChart.vue";
 import AssistantText from "../ai/AssistantText.vue";
 import SatelliteFarmMap from "./SatelliteFarmMap.vue";
 import { satelliteGeometry } from "./satellite-model.js";
+import {
+  createScreenRefresh,
+  screenFreshness,
+  screenResources,
+} from "./screen-refresh.js";
 import { diagnosticLabels } from "../ai/diagnostics";
 import { stateNames } from "../workspace/presentation";
 import {
@@ -47,19 +52,46 @@ const workspace = ref(null),
   geo = ref(null),
   spatial = ref(null);
 const loading = ref(false),
-  failures = ref([]),
-  readAt = ref(null),
+  resourceStates = ref({}),
   clock = ref(Date.now()),
   fullscreen = ref(false),
   fullscreenError = ref(""),
   reducedMotion = ref(false);
-let alive = true,
-  sequence = 0,
-  controller,
-  poll,
-  clockTimer,
-  motionPreference,
-  opener;
+let poll, clockTimer, motionPreference, opener;
+const resourceTargets = {
+  workspace,
+  operations,
+  analysis,
+  briefing,
+  geo,
+  spatial,
+};
+const refreshState = createScreenRefresh({
+  request: (path, options) => api(path, "GET", undefined, options),
+  onUpdate: (state) => {
+    resourceStates.value = state.resources;
+    loading.value = state.loading;
+    for (const [key, target] of Object.entries(resourceTargets))
+      target.value = state.resources[key].data;
+    clock.value = Date.now();
+  },
+});
+const freshness = computed(() => screenFreshness(resourceStates.value));
+const failures = computed(() =>
+  screenResources.flatMap(({ key, label }) => {
+    const state = resourceStates.value[key];
+    return state?.error
+      ? [
+          `${label}：${state.error}${state.readAt ? `（保留 ${timeText(state.readAt, { short: true })} 读取的快照）` : ""}`,
+        ]
+      : [];
+  }),
+);
+const readSummary = computed(() =>
+  screenResources
+    .map(({ key, label }) => `${label}：${resourceTime(key)}`)
+    .join("；"),
+);
 const accessible = computed(() =>
   canReadFarm(props.role, props.farmId, props.farms),
 );
@@ -202,73 +234,24 @@ const nowText = computed(() =>
   }),
 );
 
-function clearData() {
-  workspace.value =
-    operations.value =
-    analysis.value =
-    briefing.value =
-    geo.value =
-    spatial.value =
-      null;
-  selectedPlot.value = "";
-  readAt.value = null;
-  failures.value = [];
+function resourceTime(key) {
+  const state = resourceStates.value[key];
+  if (!state?.readAt) return state?.loading ? "读取中" : "尚未读取";
+  return `${state.error ? "保留快照" : "读取于"} ${timeText(state.readAt, { short: true })}`;
 }
-
-async function refresh({ reset = false } = {}) {
-  controller?.abort();
-  const ticket = ++sequence,
-    farmId = props.farmId;
-  if (reset) clearData();
-  if (!accessible.value) {
-    clearData();
-    loading.value = false;
-    return;
+function refresh({ reset = false, onlyFailed = false } = {}) {
+  if (reset || !accessible.value) {
+    refreshState.reset(accessible.value ? props.farmId : null);
+    selectedPlot.value = "";
   }
-  controller = new AbortController();
-  const signal = controller.signal,
-    id = encodeURIComponent(farmId);
-  loading.value = true;
-  const requests = [
-    ["农场资料", workspace, `/farms/${id}/workspace?days=30`],
-    ["运行趋势", operations, `/farms/${id}/operations?hours=168`],
-    ["智能农情", analysis, `/ai/analysis?farmId=${id}`],
-    ["每日简报", briefing, `/ai/briefings/today?farmId=${id}`],
-    ["地图定位", geo, `/farms/${id}/map-config`],
-    ["田块边界", spatial, `/farms/${id}/field-map`],
-  ];
-  const results = await Promise.allSettled(
-    requests.map(([, , path]) => api(path, "GET", undefined, { signal })),
-  );
-  if (
-    !alive ||
-    ticket !== sequence ||
-    farmId !== props.farmId ||
-    !accessible.value
-  )
-    return;
-  failures.value = [];
-  results.forEach((result, index) => {
-    const [label, target] = requests[index];
-    if (result.status === "fulfilled") target.value = result.value;
-    else {
-      target.value = null;
-      if (!result.reason?.cancelled)
-        failures.value.push(
-          `${label}：${result.reason?.message || "读取失败"}`,
-        );
-    }
-  });
-  readAt.value = results.some((result) => result.status === "fulfilled")
-    ? new Date().toISOString()
-    : null;
-  clock.value = Date.now();
-  loading.value = false;
+  if (!accessible.value || document.hidden) return;
+  return refreshState.refresh(props.farmId, { onlyFailed });
 }
 
 function visible() {
   clock.value = Date.now();
-  if (!document.hidden && !loading.value) refresh();
+  if (document.hidden) refreshState.cancel();
+  else refresh();
 }
 function navigate(page, deviceId) {
   emit("navigate", {
@@ -358,9 +341,7 @@ onMounted(() => {
   }, 10000);
 });
 onBeforeUnmount(() => {
-  alive = false;
-  sequence++;
-  controller?.abort();
+  refreshState.dispose();
   clearInterval(poll);
   clearInterval(clockTimer);
   motionPreference?.removeEventListener("change", motionChanged);
@@ -448,18 +429,20 @@ onBeforeUnmount(() => {
               <AppIcon name="plantings" />智能农情
             </button>
           </nav>
-          <p>
+          <p :title="readSummary">
             <span
               class="display-status-dot"
               :class="{ warning: failures.length }"
             ></span
             >{{
-              readAt
-                ? `最近读取 ${timeText(readAt, { short: true })}`
+              freshness.readAt
+                ? `${freshness.loaded}/${freshness.total} 项已读取 · 最早 ${timeText(freshness.readAt, { short: true })}`
                 : loading
                   ? "正在读取农场数据"
                   : "尚未读取数据"
-            }}<span class="display-refresh-note">每 60 秒更新</span>
+            }}<span class="display-refresh-note">{{
+              loading ? "分项更新中" : "每 60 秒更新"
+            }}</span>
           </p>
         </div>
         <p v-if="fullscreenError" class="display-notice" role="status">
@@ -470,9 +453,11 @@ onBeforeUnmount(() => {
           class="display-notice display-failure"
           role="alert"
         >
-          <strong>部分数据暂不可用</strong>
+          <strong>部分数据更新失败，已有内容保留原读取时间</strong>
           <p v-for="failure in failures" :key="failure">{{ failure }}</p>
-          <button :disabled="loading" @click="refresh()">重新读取</button>
+          <button :disabled="loading" @click="refresh({ onlyFailed: true })">
+            重试失败项
+          </button>
         </div>
         <div v-if="!accessible" class="display-empty display-access">
           请选择当前账号有权访问的农场。
@@ -509,7 +494,11 @@ onBeforeUnmount(() => {
                   :key="farmId"
                   :geometry="map"
                   :selected-plot="selectedPlot"
-                  :loading="loading"
+                  :loading="
+                    resourceStates.workspace?.loading ||
+                    resourceStates.geo?.loading ||
+                    resourceStates.spatial?.loading
+                  "
                   @plot="selectedPlot = $event"
                   @device="navigate('devices', $event)"
                   @configure="navigate('dashboard')"
@@ -546,7 +535,7 @@ onBeforeUnmount(() => {
                 <div class="display-section-heading">
                   <div>
                     <h2>今日经营研判</h2>
-                    <p>每天一份经营快照</p>
+                    <p>每天一份经营快照 · {{ resourceTime("briefing") }}</p>
                   </div>
                   <span v-if="briefing" class="display-tag display-tag-leaf">{{
                     sourceName
@@ -614,7 +603,7 @@ onBeforeUnmount(() => {
                 >
                 <div v-else class="display-empty">
                   {{
-                    loading
+                    resourceStates.briefing?.loading
                       ? "正在读取今日简报"
                       : "今日简报暂不可用，请刷新重试。"
                   }}
@@ -624,7 +613,7 @@ onBeforeUnmount(() => {
                 <div class="display-section-heading">
                   <div>
                     <h2>近 30 天采收分布</h2>
-                    <p>
+                    <p :title="resourceTime('workspace')">
                       台账产量 / kg<template
                         v-if="harvest.recordedDays !== null"
                       >
@@ -645,7 +634,7 @@ onBeforeUnmount(() => {
                   {{
                     harvest.state === "EMPTY"
                       ? "近 30 天暂无采收登记。"
-                      : loading
+                      : resourceStates.workspace?.loading
                         ? "正在读取采收台账"
                         : "采收分布暂不可用，请刷新重试。"
                   }}
@@ -658,7 +647,7 @@ onBeforeUnmount(() => {
                 <div class="display-section-heading">
                   <div>
                     <h2>待跟进事项</h2>
-                    <p>实时读取，与每日简报分别更新</p>
+                    <p>{{ resourceTime("workspace") }} · 与日报分别更新</p>
                   </div>
                   <button @click="emit('alerts', { farmId })">
                     <AppIcon name="bell" />{{ alertCount }}
@@ -782,7 +771,9 @@ onBeforeUnmount(() => {
                 <div class="display-section-heading">
                   <div>
                     <h2>智能农情诊断</h2>
-                    <p>根据监测、种植档案和巡田记录汇总</p>
+                    <p>
+                      监测、种植档案与巡田汇总 · {{ resourceTime("analysis") }}
+                    </p>
                   </div>
                   <span class="display-tag">规则分析</span>
                 </div>
@@ -800,7 +791,11 @@ onBeforeUnmount(() => {
                   </article>
                 </div>
                 <div v-else class="display-empty">
-                  {{ loading ? "正在读取农情诊断" : "农情诊断暂不可用。" }}
+                  {{
+                    resourceStates.analysis?.loading
+                      ? "正在读取农情诊断"
+                      : "农情诊断暂不可用。"
+                  }}
                 </div>
                 <div v-if="analysis?.cautions?.length" class="display-cautions">
                   <strong>需要现场复核的线索</strong>
@@ -816,7 +811,7 @@ onBeforeUnmount(() => {
                 <div class="display-section-heading">
                   <div>
                     <h2>近 7 天土壤水分走势</h2>
-                    <p>只展示已采集记录，不补齐缺测值</p>
+                    <p>缺测处断线 · {{ resourceTime("operations") }}</p>
                   </div>
                   <button @click="navigate('devices')">查看原始读数</button>
                 </div>

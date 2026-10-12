@@ -39,6 +39,22 @@ PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
 EXECUTE zhinong_ai_upgrade_stmt;
 DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
 
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telemetry_readings')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telemetry_readings' AND INDEX_NAME='ix_telemetry_latest'),
+ 'ALTER TABLE telemetry_readings ADD INDEX ix_telemetry_latest(tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC)', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telemetry_readings')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='telemetry_readings' AND INDEX_NAME='ix_telemetry_device_time'),
+ 'ALTER TABLE telemetry_readings ADD INDEX ix_telemetry_device_time(tenant_id,device_id,measured_at DESC)', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
 CREATE TABLE IF NOT EXISTS tenants (
  id VARCHAR(36) PRIMARY KEY, code VARCHAR(40) NOT NULL UNIQUE,
  name VARCHAR(120) NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE
@@ -188,7 +204,9 @@ CREATE TABLE IF NOT EXISTS telemetry_readings (
  source VARCHAR(20) NOT NULL,
  FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
  CHECK(source IN ('MANUAL','SIMULATED','HTTP_PUSH')),
- INDEX ix_telemetry_history(tenant_id,device_id,metric,measured_at)
+ INDEX ix_telemetry_history(tenant_id,device_id,metric,measured_at),
+ INDEX ix_telemetry_latest(tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC),
+ INDEX ix_telemetry_device_time(tenant_id,device_id,measured_at DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS ingestion_batches (

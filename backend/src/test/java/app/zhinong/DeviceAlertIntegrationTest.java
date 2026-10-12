@@ -174,6 +174,28 @@ class DeviceAlertIntegrationTest {
     assertEquals(1, count(id, "OFFLINE", true), "a retry must reuse the existing incident");
   }
 
+  @Test void workspaceOnlyReadsCommittedAlertsAndDoesNotStartMonitoringWrites() throws Exception {
+    var device = device("HTTP_PUSH"); String id = device.get("id"), farm = device.get("farm");
+    age(id, 600);
+    // Remove the baseline to make even first-observation audit writes observable.
+    db.update("DELETE FROM audit_events WHERE tenant_id=? AND resource_id=?", tenant, id);
+    long auditCount = db.queryForObject("SELECT COUNT(*) FROM audit_events WHERE tenant_id=?", Long.class, tenant);
+    var snapshot = call(viewer, "GET", "/farms/" + farm + "/workspace?days=30", null, 200);
+    assertEquals(0, snapshot.path("alerts").size());
+    assertEquals(0, count(id, "OFFLINE", true), "opening a dashboard must not create health incidents");
+    assertEquals(auditCount, db.queryForObject("SELECT COUNT(*) FROM audit_events WHERE tenant_id=?", Long.class, tenant));
+    call(other, "GET", "/farms/" + farm + "/workspace?days=30", null, 404);
+    call(platform, "GET", "/farms/" + farm + "/workspace?days=30", null, 403);
+
+    monitor.scanFarm(tenant, farm);
+    String alertId = call(viewer, "GET", "/farms/" + farm + "/workspace?days=30", null, 200)
+      .path("alerts").get(0).path("id").asText();
+    var updated = db.queryForObject("SELECT updated_at FROM device_alerts WHERE tenant_id=? AND id=?", OffsetDateTime.class, tenant, alertId);
+    call(viewer, "GET", "/farms/" + farm + "/workspace?days=30", null, 200);
+    assertEquals(updated, db.queryForObject("SELECT updated_at FROM device_alerts WHERE tenant_id=? AND id=?", OffsetDateTime.class, tenant, alertId),
+      "reading a saved incident must not rewrite its updated time");
+  }
+
   long count(String id, String metric, boolean history) {
     return db.queryForObject("SELECT COUNT(*) FROM device_alerts WHERE tenant_id=? AND device_id=? AND metric=?" + (history ? "" : " AND status<>'RESOLVED'"), Long.class, tenant, id, metric);
   }

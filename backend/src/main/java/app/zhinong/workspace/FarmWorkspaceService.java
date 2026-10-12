@@ -41,6 +41,13 @@ public class FarmWorkspaceService {
     return cards(false);
   }
   public List<Map<String, Object>> cards(boolean archived) {
+    return cards(archived, null);
+  }
+
+  private List<Map<String, Object>> cards(boolean archived, String farmId) {
+    var args = new ArrayList<Object>();
+    args.add(Identity.tenant());
+    if (farmId != null) args.add(farmId);
     var rows = db.queryForList(
       """
       SELECT f.id AS "id",f.name AS "name",f.description AS "description",
@@ -51,9 +58,9 @@ public class FarmWorkspaceService {
         EXISTS(SELECT 1 FROM demo_research_farms r WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id) AS "researchDemo"
       FROM farms f LEFT JOIN farm_profiles p ON p.tenant_id=f.tenant_id AND p.farm_id=f.id
       WHERE f.tenant_id=? AND %sEXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id=f.tenant_id AND a.farm_id=f.id)
-      ORDER BY COALESCE(p.demo,FALSE) DESC,f.name
-      """.formatted(archived?"":"NOT "),
-      Identity.tenant()
+      %s ORDER BY COALESCE(p.demo,FALSE) DESC,f.name
+      """.formatted(archived?"":"NOT ", farmId == null ? "" : "AND f.id=?"),
+      args.toArray()
     );
     for (var row : rows) {
       row.put("archived",archived);
@@ -130,9 +137,10 @@ public class FarmWorkspaceService {
     return rows;
   }
 
+  @Transactional(readOnly = true)
   public Map<String, Object> workspace(String id, int days) {
     store.get("farms", id);
-    var farm = cards()
+    var farm = cards(false, id)
       .stream()
       .filter(f -> id.equals(f.get("id")))
       .findFirst()
@@ -153,7 +161,7 @@ public class FarmWorkspaceService {
       "analytics",
       analytics(id, days),
       "alerts",
-      telemetry.alerts(id, null),
+      telemetry.savedAlerts(id, null),
       "tasks",
       db.queryForList(
         """
