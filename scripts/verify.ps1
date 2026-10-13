@@ -18,10 +18,14 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Agent 事件模型测试未通过' }
         node --test src/ai/markdown.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
+        node --test src/ai/follow-up-model.test.js src/ai/follow-up-request.test.js
+        if ($LASTEXITCODE -ne 0) { throw '对话引导与异步隔离测试未通过' }
         node --test src/ai/companion-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '禾苗助手互动状态测试未通过' }
         node --test src/screen/screen-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '展示大屏数据模型测试未通过' }
+        node --test src/screen/scene/scene-model.test.js
+        if ($LASTEXITCODE -ne 0) { throw '三维农场场景数据模型测试未通过' }
         node --test src/screen/screen-refresh.test.js src/api.test.js
         if ($LASTEXITCODE -ne 0) { throw '请求取消、超时与大屏渐进刷新测试未通过' }
         node --test src/screen/satellite-model.test.js

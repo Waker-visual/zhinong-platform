@@ -44,26 +44,26 @@ function failure(message, status) {
   return error;
 }
 
-function transportFailure(error, signal, timedOut) {
+function transportFailure(error, signal, timedOut, trackConnection = true) {
   // Switching farms, closing a page or stopping AI is not a service outage.
   if (signal?.aborted && !timedOut) {
     const cancelled = new Error("已取消");
     cancelled.cancelled = true;
     return cancelled;
   }
-  connection.state = "offline";
+  if (trackConnection) connection.state = "offline";
   return timedOut || error?.name === "AbortError"
     ? failure("请求超时，请检查本地服务是否运行", 0)
     : failure("无法连接本地服务，请确认服务已启动后重试", 0);
 }
 
-async function responseJson(response, signal, timedOut) {
+async function responseJson(response, signal, timedOut, trackConnection = true) {
   try {
     return await response.json();
   } catch (error) {
     // Abort can happen after headers arrive, while the JSON body is being read.
     if (signal?.aborted || timedOut() || error?.name === "AbortError")
-      throw transportFailure(error, signal, timedOut());
+      throw transportFailure(error, signal, timedOut(), trackConnection);
     if (response.ok) throw failure("服务返回了无法识别的内容，请刷新后重试", response.status);
     return {};
   }
@@ -79,7 +79,9 @@ function expireSession(requestToken) {
 // keepalive 用于页面关闭时仍需送达的请求（例如撤销期结束的删除）。
 // signal 可选：传入外部 AbortSignal 时，调用方中止它会真正中断这次请求（例如 AI 助手的停止按钮），
 // 不只是让调用方忽略稍后到达的结果。
-export async function api(path, method = "GET", body, { keepalive = false, timeoutMs = 15000, signal } = {}) {
+// Optional background guidance does not determine the main workspace connection state.
+// It still shares authentication, cancellation and bounded response handling.
+export async function api(path, method = "GET", body, { keepalive = false, timeoutMs = 15000, signal, trackConnection = true } = {}) {
   const requestToken = token;
   const controller = new AbortController();
   const onAbort = () => controller.abort();
@@ -92,7 +94,7 @@ export async function api(path, method = "GET", body, { keepalive = false, timeo
     timedOut = true;
     controller.abort();
   }, timeoutMs);
-  connection.inflight++;
+  if (trackConnection) connection.inflight++;
   try {
     let response;
     try {
@@ -107,17 +109,16 @@ export async function api(path, method = "GET", body, { keepalive = false, timeo
         keepalive,
       });
     } catch (error) {
-      throw transportFailure(error, signal, timedOut);
+      throw transportFailure(error, signal, timedOut, trackConnection);
     }
     // 开发代理在后端停止时返回 502/503/504
     if ([502, 503, 504].includes(response.status)) {
-      connection.state = "offline";
-      const details = await responseJson(response, signal, () => timedOut);
+      if (trackConnection) connection.state = "offline";
+      const details = await responseJson(response, signal, () => timedOut, trackConnection);
       throw failure(details?.message || "服务暂时不可用，请稍后重试", response.status);
     }
-    connection.state = "online";
-    connection.lastSync = new Date();
-    const data = await responseJson(response, signal, () => timedOut);
+    if (trackConnection) { connection.state = "online"; connection.lastSync = new Date(); }
+    const data = await responseJson(response, signal, () => timedOut, trackConnection);
     if (!response.ok) {
       if (response.status === 401 && path !== "/auth/login") {
         expireSession(requestToken);
@@ -128,7 +129,7 @@ export async function api(path, method = "GET", body, { keepalive = false, timeo
   } finally {
     clearTimeout(timeout);
     if (signal) signal.removeEventListener("abort", onAbort);
-    connection.inflight--;
+    if (trackConnection) connection.inflight--;
   }
 }
 

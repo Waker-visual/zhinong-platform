@@ -17,6 +17,10 @@ export default defineConfig({
           if (path.includes("/node_modules/leaflet/")) return "maps";
           if (path.includes("/node_modules/echarts/")) return "charts";
           if (path.includes("/node_modules/zrender/")) return "chart-renderer";
+          // 3D 页签才触发加载；核心对象与 WebGL 渲染器分开缓存。
+          if (path.endsWith("/three/build/three.core.js")) return "three-core";
+          if (path.endsWith("/three/build/three.module.js"))
+            return "three-webgl";
         },
       },
     },

@@ -5,6 +5,7 @@ import AppIcon from "../ui/AppIcon.vue";
 import DataChart from "../workspace/DataChart.vue";
 import AssistantText from "../ai/AssistantText.vue";
 import SatelliteFarmMap from "./SatelliteFarmMap.vue";
+import FarmScene3D from "./scene/FarmScene3D.vue";
 import { satelliteGeometry } from "./satellite-model.js";
 import {
   createScreenRefresh,
@@ -367,6 +368,7 @@ onBeforeUnmount(() => {
       :class="{
         'display-overview-stage': view === 'overview',
         'display-agronomy-stage': view === 'agronomy',
+        'display-scene-stage': view === 'scene',
       }"
     >
       <header class="display-header">
@@ -427,6 +429,9 @@ onBeforeUnmount(() => {
               @click="view = 'agronomy'"
             >
               <AppIcon name="plantings" />智能农情
+            </button>
+            <button :aria-pressed="view === 'scene'" @click="view = 'scene'">
+              <AppIcon name="cube" />3D 农场
             </button>
           </nav>
           <p :title="readSummary">
@@ -717,7 +722,7 @@ onBeforeUnmount(() => {
               </section>
             </div>
           </template>
-          <template v-else>
+          <template v-else-if="view === 'agronomy'">
             <section class="display-agronomy-intro">
               <div>
                 <h2>看清农情，再安排今天的行动</h2>
@@ -891,6 +896,19 @@ onBeforeUnmount(() => {
               </section>
             </div>
           </template>
+          <FarmScene3D
+            v-else
+            :key="farmId"
+            :workspace="workspace"
+            :analysis="analysis"
+            :farm-name="farm?.name"
+            :now="clock"
+            :reduced-motion="reducedMotion"
+            :read-at="resourceStates.workspace?.readAt"
+            @navigate="navigate"
+            @ask="ask"
+            @alerts="emit('alerts', { farmId })"
+          />
         </template>
         <footer class="display-footer">
           <span>虚构演示数据 · 农情分析用于辅助判断</span

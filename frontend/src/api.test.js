@@ -34,6 +34,32 @@ function browserSession(t) {
 const abortError = () =>
   new DOMException("The operation was aborted", "AbortError");
 
+test("optional guidance timeout does not mark the whole workspace offline or busy", async (t) => {
+  browserSession(t);
+  t.mock.method(globalThis, "fetch", async (_url, { signal }) => ({
+    status: 200, ok: true,
+    json: () => new Promise((_, reject) => signal.addEventListener("abort", () => reject(abortError()), { once: true })),
+  }));
+  const pending = api("/ai/conversations/chat/follow-ups", "POST", { messageId: "message" }, { timeoutMs: 10, trackConnection: false });
+  assert.equal(connection.inflight, 0);
+  await assert.rejects(pending, (error) => error.status === 0 && /超时/.test(error.message));
+  assert.equal(connection.state, "online"); assert.equal(connection.inflight, 0);
+});
+
+test("optional guidance keeps authentication expiry even without connection tracking", async (t) => {
+  const browser = browserSession(t); setToken("expired-demo-session");
+  t.mock.method(globalThis, "fetch", async () => new Response('{"message":"已过期"}', { status: 401 }));
+  await assert.rejects(api("/ai/conversations/chat/follow-ups", "POST", {}, { trackConnection: false }), (error) => error.status === 401);
+  assert.deepEqual(browser.expired, ["session-expired"]); assert.equal(connection.inflight, 0);
+});
+
+test("an optional route outage does not overwrite the main connection status", async (t) => {
+  browserSession(t);
+  t.mock.method(globalThis, "fetch", async () => new Response('{}', { status: 503 }));
+  await assert.rejects(api("/ai/conversations/chat/follow-ups", "POST", {}, { trackConnection: false }), (error) => error.status === 503);
+  assert.equal(connection.state, "online");
+});
+
 test("cancelling fetch is not reported as a service outage and balances inflight", async (t) => {
   browserSession(t);
   const controller = new AbortController();

@@ -581,6 +581,21 @@ public class LlmGateway {
     } finally { capacity.release(); }
   }
 
+  /** Optional conversation guidance shares the model budget but never queues or retries locally. */
+  public Optional<String> followUpQuestions(List<Map<String, Object>> messages) {
+    // Atomically require two free permits, then immediately give one back for a main answer.
+    // Checking availablePermits() separately would race with another optional request.
+    if (!capacity.tryAcquire(2)) return Optional.empty();
+    capacity.release();
+    try {
+      String endpoint, key, selectedModel;
+      synchronized (this) { endpoint = url; key = apiKey; selectedModel = model; }
+      if (blank(endpoint) || blank(key)) return Optional.empty();
+      return callCompletions(endpoint, key, blank(selectedModel) ? "deepseek-flash" : selectedModel, messages, List.of(), 5, 320)
+        .filter(response -> response.toolCalls().isEmpty()).map(LlmResponse::content);
+    } finally { capacity.release(); }
+  }
+
   private Optional<LlmResponse> callCompletions(
     String base,
     String key,

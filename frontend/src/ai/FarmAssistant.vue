@@ -15,6 +15,8 @@ import AiHistoryMenu from './AiHistoryMenu.vue';
 import AppIcon from '../ui/AppIcon.vue';
 import IrrigationWorkspace from './IrrigationWorkspace.vue';
 import SproutCompanion from './SproutCompanion.vue';
+import AiFollowUps from './AiFollowUps.vue';
+import { followUpContext, prepareFollowUp } from './follow-up-model.js';
 import { companionPresentation, companionTopics, prepareCompanionQuestion } from './companion-model.js';
 import { diagnosticLabels } from './diagnostics';
 const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, companionTarget: String });
@@ -23,7 +25,9 @@ const contextPrepared = ref(false);
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const refreshing = ref(false);
-const refreshBlocked = computed(() => busy.value || sending.value || refreshing.value);
+const messagesLoading = ref(false), followUpNotice = ref('');
+let messageLoadVersion = 0, messageLoadController = null;
+const refreshBlocked = computed(() => busy.value || sending.value || refreshing.value || messagesLoading.value);
 const interactionLocked = computed(() => refreshBlocked.value || props.pageRefreshing);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
 const run = ref(null);
@@ -37,6 +41,8 @@ const companionMessage = computed(() => ['idle', 'done'].includes(companion.valu
 const companionTopic = computed(() => companionTopics[companionTopicIndex.value % companionTopics.length]);
 const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
+const followUp = computed(() => followUpContext(messages.value));
+const guidanceReady = computed(() => !!selected.value && !!followUp.value && !initialLoading.value && !interactionLocked.value && !run.value && !error.value);
 let activeCancel = null;
 // 输入框默认单行，随内容增高到上限后内部滚动；停止后把问题还原回输入框时同样要重新量高。
 const composerInput = ref(null);
@@ -57,6 +63,14 @@ async function suggestCompanionTopic() {
   }
   await nextTick(); resizeComposer(); composerInput.value?.focus();
 }
+async function chooseFollowUp(suggestion) {
+  const result = prepareFollowUp(question.value, suggestion, !guidanceReady.value);
+  if (!guidanceReady.value) return;
+  if (result.changed) { question.value = result.question; contextPrepared.value = false; }
+  followUpNotice.value = result.notice;
+  await nextTick(); resizeComposer(); composerInput.value?.focus();
+}
+function onFollowUpsUpdated() { if (followOutput.value) scrollToLatest(true); }
 // 阶段F：历史栏分组、行内重命名、置顶/删除菜单。
 const historyGroups = computed(() => groupConversationsByDate(conversations.value, new Date(nowTick.value)));
 const renamingId = ref(''), renameValue = ref('');
@@ -92,13 +106,23 @@ async function refresh() {
 }
 async function select(id) {
   if(sending.value) return;
+  const ticket=++messageLoadVersion;
+  messageLoadController?.abort();
+  const controller=new AbortController(); messageLoadController=controller;
+  messagesLoading.value=true; messages.value=[]; followUpNotice.value='';
   companionOutcome.value=''; companionNotice.value='';
   // 一次已经停止/出错的运行只属于它发生时所在的对话；切换到另一个对话后必须清空，
   // 不能让上一个对话的问题、空回答和状态条跟着一起显示出来。
   run.value=null; pendingRequest=null;
   selected.value=id; error.value='';
-  const rows=await api(`/ai/conversations/${id}/messages`);
-  if(alive && selected.value===id) {messages.value=rows; await scrollToLatest(true);}
+  try {
+    const rows=await api(`/ai/conversations/${id}/messages`,'GET',undefined,{signal:controller.signal});
+    if(alive && ticket===messageLoadVersion && selected.value===id) {messages.value=rows; await scrollToLatest(true);}
+  } catch(e) {
+    if(alive && ticket===messageLoadVersion && !controller.signal.aborted) throw e;
+  } finally {
+    if(alive && ticket===messageLoadVersion) {messagesLoading.value=false;messageLoadController=null;}
+  }
 }
 function reducedMotion() { return typeof matchMedia==='function' && matchMedia('(prefers-reduced-motion: reduce)').matches; }
 function handleScroll() {
@@ -112,7 +136,7 @@ async function scrollToLatest(instant=false) {
   el.scrollTo({top:el.scrollHeight, behavior:(instant||reducedMotion())?'auto':'smooth'});
   followOutput.value=true; showJump.value=false;
 }
-async function newChat() {if(sending.value) return;selected.value='';messages.value=[];question.value='';contextPrepared.value=false;pendingRequest=null;run.value=null;companionOutcome.value='';companionNotice.value='';}
+async function newChat() {if(sending.value) return;messageLoadVersion++;messageLoadController?.abort();messagesLoading.value=false;followUpNotice.value='';selected.value='';messages.value=[];question.value='';contextPrepared.value=false;pendingRequest=null;run.value=null;companionOutcome.value='';companionNotice.value='';}
 // 阶段F：删除从历史项的操作菜单发起，不再是选中对话下方的独立链接——可以删除任意一条
 // （不一定是当前选中的那条）。删掉的若恰好是当前对话，行为和原来的 removeChat 一致：回到新建对话。
 async function deleteConversation(id) {
@@ -170,6 +194,7 @@ async function send(text=question.value) {
   text=text.trim(); if(!text || interactionLocked.value || text.length>2000) return;
   companionOutcome.value=''; companionNotice.value='';
   sending.value=true; error.value=''; question.value=''; contextPrepared.value=false;
+  followUpNotice.value='';
   const controller=new AbortController();
   let cancelled=false;
   activeCancel=()=>{if(run.value?.status==='completed') return; cancelled=true; question.value=text; companionOutcome.value='stopped'; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
@@ -270,7 +295,7 @@ watch(()=>props.initialQuestion, async value => {
 }, { immediate: true });
 watch([question,panel],resizeComposer,{flush:'post'});
 timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{await refreshIrrigation();}catch{/* next refresh shows errors */}}},10000);
-onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
+onUnmounted(()=>{alive=false;activeCancel?.();generation++;messageLoadVersion++;messageLoadController?.abort();clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
 </script>
 
 <template>
@@ -312,8 +337,8 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);
       </aside>
       <div class="ai-chat-main">
         <div class="ai-messages-wrap">
-        <div ref="scroller" class="ai-messages" role="log" aria-label="农事对话记录" :aria-busy="!!run || initialLoading" @scroll="handleScroll">
-          <div v-if="initialLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
+        <div ref="scroller" class="ai-messages" role="log" aria-label="农事对话记录" :aria-busy="!!run || initialLoading || messagesLoading" @scroll="handleScroll">
+          <div v-if="initialLoading || messagesLoading" class="ai-message-skeleton" aria-hidden="true"><span class="skeleton"></span><span class="skeleton" style="width:85%"></span><span class="skeleton" style="width:60%"></span></div>
           <template v-else>
             <div v-if="!displayedMessages.length" class="ai-welcome">
               <h3>今天想了解农场的什么？</h3>
@@ -337,6 +362,10 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);
                 <div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
                 <p v-if="m.diagnostic && m.diagnostic!=='OK'" class="ai-diagnostic-note"><AppIcon name="info" />{{diagnosticLabels[m.diagnostic] || '模型暂不可用'}}</p>
                 <AiMessageActions :id="m.id" :text="m.content" :role="m.role" :time="messageTime(m)" :conversation-id="selected" @branched="onBranched" />
+                <AiFollowUps v-if="m.id && m.id===followUp?.messageId" :key="selected+':'+m.id"
+                  :farm-id="farmId" :conversation-id="selected" :message-id="m.id" :messages="messages"
+                  :enabled="guidanceReady" :model-enabled="!!status?.llm && m.mode==='llm'"
+                  @choose="chooseFollowUp" @updated="onFollowUpsUpdated" />
               </template>
             </article>
           </template>
@@ -344,12 +373,13 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;clearInterval(timer);
         <Transition name="ai-jump"><button v-if="showJump" type="button" class="ai-jump-latest" @click="scrollToLatest()"><AppIcon name="arrowDown" />回到最新</button></Transition>
         </div>
         <p v-if="contextPrepared" class="ai-footnote" role="status">已带入简报或预警上下文，可编辑下方问题后发送。</p>
+        <p v-if="followUpNotice" class="ai-footnote" role="status">{{followUpNotice}}</p>
         <form class="ai-composer" @submit.prevent="send()"><label class="sr-only" for="ai-question">农事问题</label><textarea id="ai-question" ref="composerInput" v-model="question" rows="1" maxlength="2000" :disabled="sending" placeholder="询问农事、分析天气，或了解作物生长情况…" @keydown.enter.exact="e=>{if(!e.isComposing){e.preventDefault();send();}}"></textarea>
           <small v-if="question.length>=1800" class="ai-composer-count">{{question.length}}/2000</small>
           <button v-if="sending" type="button" class="ai-composer-send" :disabled="run?.status==='completed'" :aria-label="run?.status==='completed' ? '正在同步回答' : '停止生成'" :title="run?.status==='completed' ? '回答已生成，正在同步对话记录' : '停止生成'" @click="cancel"><AppIcon name="stop" /></button>
           <button v-else class="ai-composer-send" :disabled="interactionLocked || !question.trim()" aria-label="发送"><AppIcon name="arrowUp" /></button>
         </form>
-        <p class="ai-footnote"><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行。</span>发送问题时，当前农场摘要与最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
+        <p class="ai-footnote"><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行。</span>生成回答和追问建议时，当前农场摘要或最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
     </div>
     <div v-else-if="panel==='analysis' && initialLoading" class="ai-analysis ai-panel-skeleton" aria-hidden="true">
