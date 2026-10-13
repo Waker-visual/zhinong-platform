@@ -37,7 +37,7 @@ public class SessionFilter extends OncePerRequestFilter {
     Identity.clear();
     response.setHeader("X-Content-Type-Options", "nosniff");
     response.setHeader("Referrer-Policy", "same-origin");
-    response.setHeader("X-Frame-Options", "DENY");
+    response.setHeader("X-Frame-Options", request.getServletPath().equals("/farm-scene/index.html") ? "SAMEORIGIN" : "DENY");
     try {
       // Use the container's decoded servlet path so encoded endpoint names cannot
       // bypass the same authorization rules that MVC applies after URL decoding.

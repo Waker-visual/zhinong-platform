@@ -1,3 +1,204 @@
+.farm-display .farm-landscape-markers {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.farm-display .farm-landscape-markers button {
+  position: absolute;
+  pointer-events: auto;
+  transform: translate(-50%, -50%);
+  background: var(--display-lake);
+  border-color: var(--display-leaf);
+  font-size: 12px;
+  box-shadow: 0 3px 12px var(--display-map);
+}
+.farm-display .farm-landscape-markers button[aria-pressed="true"] {
+  color: var(--display-gold);
+  border-color: var(--display-gold);
+}
+.farm-display .farm-landscape-markers small {
+  display: block;
+  font-size: 10px;
+  opacity: 0.85;
+}
+.farm-display .farm-landscape-markers .device-poi {
+  border-radius: 16px;
+}
+.farm-display .farm-landscape-markers .running {
+  border-color: var(--display-gold);
+}
+.farm-display .farm-landscape-device {
+  position: absolute;
+  right: 20px;
+  top: 24px;
+  width: min(390px, calc(100% - 40px));
+  max-height: calc(100% - 180px);
+  overflow: auto;
+  padding: 20px;
+  background: var(--display-lake);
+  border: 1px solid var(--display-leaf);
+  border-radius: 10px;
+}
+.farm-display .farm-landscape-device .device-close {
+  float: right;
+}
+.farm-display .farm-landscape-device h3 {
+  margin: 14px 0 8px;
+}
+.farm-display .farm-landscape-device p {
+  color: var(--display-muted);
+  margin-bottom: 12px;
+}
+.farm-display .farm-landscape-plots select {
+  width: 100%;
+  margin-top: 8px;
+}
+.farm-display .farm-landscape {
+  position: relative;
+  min-height: 620px;
+  height: calc(100dvh - 215px);
+  overflow: hidden;
+  border-radius: 10px;
+  background: var(--display-map);
+}
+.farm-display .farm-landscape iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+.farm-display .farm-landscape-heading {
+  position: absolute;
+  top: 24px;
+  left: 28px;
+  padding: 16px 20px;
+  background: var(--display-lake);
+  border-radius: 8px;
+  pointer-events: none;
+}
+.farm-display .farm-landscape-heading h2 {
+  margin-top: 12px;
+  font-size: 26px;
+}
+.farm-display .farm-landscape-heading p {
+  color: var(--display-muted);
+}
+.farm-display .farm-landscape-plots {
+  position: absolute;
+  right: 20px;
+  top: 24px;
+  width: 205px;
+  max-height: 65%;
+  overflow: auto;
+  padding: 16px;
+  display: grid;
+  gap: 8px;
+  background: var(--display-lake);
+  border-radius: 8px;
+}
+.farm-display .farm-landscape-plots button[aria-pressed="true"] {
+  border-color: var(--display-gold);
+  color: var(--display-gold);
+}
+.farm-display .farm-landscape-detail {
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.farm-display .farm-landscape-controls {
+  position: absolute;
+  bottom: 90px;
+  left: 28px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.farm-display .farm-landscape-controls label {
+  background: var(--display-lake);
+  padding-left: 10px;
+  border-radius: 6px;
+}
+.farm-display .farm-landscape-summary {
+  position: absolute;
+  right: 28px;
+  bottom: 90px;
+  display: flex;
+  gap: 8px;
+}
+.farm-display .farm-landscape-summary article {
+  padding: 12px 16px;
+  background: var(--display-lake);
+  border-radius: 6px;
+  min-width: 145px;
+}
+.farm-display .farm-landscape-summary span,
+.farm-display .farm-landscape-summary small {
+  color: var(--display-muted);
+  font-size: 11px;
+}
+.farm-display .farm-landscape-summary strong {
+  font-size: 25px;
+  font-weight: 500;
+  color: var(--display-white);
+}
+@media (max-width: 1100px) {
+  .farm-display .farm-landscape-summary {
+    display: none;
+  }
+}
+.farm-display .farm-landscape-caption {
+  position: absolute;
+  bottom: 20px;
+  left: 28px;
+  right: 28px;
+  padding: 10px 14px;
+  background: var(--display-lake);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--display-muted);
+  pointer-events: none;
+}
+.farm-display .farm-landscape-caption a {
+  color: var(--display-leaf);
+  pointer-events: auto;
+}
+.farm-display .farm-landscape-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--display-map);
+}
+@media (max-width: 760px) {
+  .farm-display .farm-landscape {
+    min-height: 720px;
+  }
+  .farm-display .farm-landscape-heading {
+    top: 16px;
+    left: 16px;
+  }
+  .farm-display .farm-landscape-heading h2 {
+    font-size: 20px;
+  }
+  .farm-display .farm-landscape-plots {
+    top: 155px;
+    right: 16px;
+    width: 150px;
+    max-height: 35%;
+  }
+  .farm-display .farm-landscape-controls {
+    left: 16px;
+    right: 16px;
+    bottom: 120px;
+  }
+  .farm-display .farm-landscape-caption {
+    left: 16px;
+    right: 16px;
+  }
+}
 .farm-display {
   position: fixed;
   inset: 0;

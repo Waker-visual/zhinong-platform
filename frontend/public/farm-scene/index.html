@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>智禾三维农场</title><style>html,body,canvas{margin:0;width:100%;height:100%;display:block;overflow:hidden;background:#b6c6ba}canvas{touch-action:none}</style></head>
+<body><canvas id="farm" tabindex="0" aria-label="三维农田"></canvas><script>
+document.getElementById('farm').addEventListener('contextmenu', event => event.preventDefault());
+let farmInstance, runtimeReady = false;
+const notify = (data) => parent.postMessage(data, location.origin);
+const updateVisibility = () => {
+  if (farmInstance) farmInstance.SendMessage('FarmScene', 'SetVisibility', document.visibilityState);
+  console.info('FarmScene page visibility:', document.visibilityState);
+};
+document.addEventListener('visibilitychange', updateVisibility);
+window.farmPoints = (json) => { const state=JSON.parse(json); notify({ type: 'farm-points', points: state.points, satelliteMapped: state.satelliteMapped === true }); };
+window.farmPlot = (id) => notify({ type: 'farm-plot', id });
+window.farmReady = () => { runtimeReady = true; if (farmInstance) notify({ type: 'farm-ready' }); };
+const methods = new Set(['LoadFarm', 'SelectPlot', 'SetSeason', 'ResetView', 'Zoom', 'SelectDevice', 'UpdateDevices', 'SelectParcel']);
+window.addEventListener('message', (event) => {
+  if (event.source !== parent || event.origin !== location.origin || event.data?.type !== 'farm-command') return;
+  if (farmInstance && methods.has(event.data.method) && typeof event.data.value === 'string') farmInstance.SendMessage('FarmScene', event.data.method, event.data.value);
+});
+const loader = document.createElement('script');
+loader.src = 'Build/farm-scene.loader.js';
+loader.onerror = () => notify({ type: 'farm-error' });
+loader.onload = () => createUnityInstance(document.getElementById('farm'), {
+  dataUrl: 'Build/farm-scene.data', frameworkUrl: 'Build/farm-scene.framework.js', codeUrl: 'Build/farm-scene.wasm',
+  companyName: 'Zhihe', productName: 'FarmScene', productVersion: '1.0', devicePixelRatio: Math.min(devicePixelRatio, 1.5),
+}, (value) => notify({ type: 'farm-progress', value })).then((instance) => { farmInstance = instance; updateVisibility(); if (runtimeReady) notify({ type: 'farm-ready' }); }).catch(() => notify({ type: 'farm-error' }));
+document.body.appendChild(loader);
+</script></body></html>
