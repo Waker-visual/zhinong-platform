@@ -16,6 +16,20 @@ try {
     try {
         node --test src/ai/agent-events.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Agent 事件模型测试未通过' }
+        node --test src/account/scheduled-theme.test.js
+        if ($LASTEXITCODE -ne 0) { throw '日夜与夏令时主题切换测试未通过' }
+        node --test src/account/login-appearance.test.js src/ui/login-daylight.test.js src/ui/login-scene-clock.test.js src/ui/login-sky.test.js src/ui/login-village.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录全天景观、日照与临时主题测试未通过' }
+        node --test src/ui/login-calendar.test.js src/ui/login-season.test.js src/ui/login-festivals.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录四季与节日场景测试未通过' }
+        node --test src/ui/login-year-tour.test.js src/ui/login-year-visuals.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录年度旅程与高速光照融合测试未通过' }
+        node --test src/ui/login-farm-activity.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录场景白天喷灌与无人机错峰动画测试未通过' }
+        node --test src/ui/login-scene-layout.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录田园岸线与字符重采样测试未通过' }
+        node --test src/ui/login-river-motion.test.js
+        if ($LASTEXITCODE -ne 0) { throw '小舟航线与水面动效测试未通过' }
         node --test src/ai/markdown.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
         node --test src/ai/follow-up-model.test.js src/ai/follow-up-request.test.js

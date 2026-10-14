@@ -12,6 +12,8 @@
     "@fontsource/iosevka-aile": "5.3.0",
     "echarts": "6.1.0",
     "leaflet": "1.9.4",
+    "lunar-javascript": "1.7.7",
+    "suncalc": "2.1.1",
     "three": "0.186.1",
     "vue": "3.5.43"
   },

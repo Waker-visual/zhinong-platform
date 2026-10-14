@@ -1,3 +1,68 @@
+.login-panel {
+  --login-panel-bg: #fcfdf9;
+  --login-panel-line: #e0e8da;
+  --login-input-bg: #f4f7f0;
+  --login-input-line: #d9e2d2;
+  --login-muted: #65745f;
+  --login-action: #2c6244;
+  --login-action-hover: #214e35;
+  --login-action-on: #ffffff;
+  --login-focus-soft: #e2ecdc;
+}
+html[data-theme="dark"] .login-panel {
+  --login-panel-bg: #16231c;
+  --login-panel-line: #32473a;
+  --login-input-bg: #1e3025;
+  --login-input-line: #3b5142;
+  --login-muted: #a3b39e;
+  --login-action: #a6c995;
+  --login-action-hover: #b9d8aa;
+  --login-action-on: #17251c;
+  --login-focus-soft: #2c4130;
+}
+.login-story, .login-color-sample[data-palette="day"] {
+  --login-sky: #fbf9ee;
+  --pastoral-haze: #9bbfc4;
+  --pastoral-sun: #e0b537;
+  --pastoral-glint: #b7dedd;
+  --pastoral-machine: #263e35;
+  --pastoral-device-halo: #fbf9ee;
+  --pastoral-spray: #327f99;
+  --pastoral-mist: #d3ece5;
+  --pastoral-patrol: #ba792a;
+  --pastoral-beacon-red: #e32e26;
+  --pastoral-beacon-orange: #ff8a18;
+  --pastoral-harvester-tire: #4d5548;
+  --pastoral-harvester-body: #8ca775;
+  --pastoral-harvester-light: #c2ce94;
+  --pastoral-harvester-glass: #b3d5dc;
+  --pastoral-harvester-metal: #748372;
+  --pastoral-harvester-trim: #f1e5bd;
+  --pastoral-harvester-edge: #617951;
+  --pastoral-harvester-grain: #e1aa28;
+}
+html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] {
+  --login-sky: #12231f;
+  --pastoral-haze: #416660;
+  --pastoral-sun: #e4dab5;
+  --pastoral-glint: #b7d1bf;
+  --pastoral-machine: #bbc9b5;
+  --pastoral-device-halo: #12231f;
+  --pastoral-spray: #90bdc3;
+  --pastoral-mist: #d3e5db;
+  --pastoral-patrol: #d1b27b;
+  --pastoral-beacon-red: #ff6653;
+  --pastoral-beacon-orange: #ffb146;
+  --pastoral-harvester-tire: #283c37;
+  --pastoral-harvester-body: #668f6f;
+  --pastoral-harvester-light: #a8ba79;
+  --pastoral-harvester-glass: #91bcc1;
+  --pastoral-harvester-metal: #8da6a0;
+  --pastoral-harvester-trim: #daca99;
+  --pastoral-harvester-edge: #718d68;
+  --pastoral-harvester-grain: #efd07b;
+}
+
 /* 展示大屏固定采用湖蓝与田野绿；作用域内保持图表和正文同一配色。 */
 .farm-display {
   --display-lake: #0d2534;
@@ -221,9 +286,8 @@ html[data-accent="rose"] {
   --brand-dark-soft: var(--accent-rose-dark-soft);
   --brand-dark-on: var(--accent-rose-dark-on);
 }
-/* 语义别名 · 深色。登录页故事栏、地图面板和大屏模式在两种主题下都使用深色。 */
+/* 语义别名 · 深色。地图面板和大屏模式始终使用深色。 */
 html[data-theme="dark"],
-.login-story,
 .farm-map-panel,
 .farm-workspace.screen-mode {
   color-scheme: dark;
@@ -1074,4 +1138,247 @@ html[data-theme="dark"] .sprout-companion {
   --scene-world-ground-ambient: #8c8465;
   --scene-world-tractor-body: #4b7957;
   --scene-world-selection: #f5e6a8;
+}
+
+/* Reference glyph palette: start */
+.login-story, .login-color-sample[data-palette="day"] {
+  --pastoral-ink-0: #f9e77e;
+  --pastoral-ink-1: #f9df63;
+  --pastoral-ink-2: #f3d964;
+  --pastoral-ink-3: #fbd845;
+  --pastoral-ink-4: #f9d04a;
+  --pastoral-ink-5: #e5cd5c;
+  --pastoral-ink-6: #f9cb2e;
+  --pastoral-ink-7: #f6be30;
+  --pastoral-ink-8: #dfbb42;
+  --pastoral-ink-9: #fabc17;
+  --pastoral-ink-10: #f2b81a;
+  --pastoral-ink-11: #e4ac28;
+  --pastoral-ink-12: #f2ab0e;
+  --pastoral-ink-13: #e49b15;
+  --pastoral-ink-14: #98d3d9;
+  --pastoral-ink-15: #8acad6;
+  --pastoral-ink-16: #9ec59e;
+  --pastoral-ink-17: #baad47;
+  --pastoral-ink-18: #97ab5a;
+  --pastoral-ink-19: #a49737;
+  --pastoral-ink-20: #77c7d3;
+  --pastoral-ink-21: #74bcc7;
+  --pastoral-ink-22: #5dbbca;
+  --pastoral-ink-23: #64a186;
+  --pastoral-ink-24: #359e9c;
+  --pastoral-ink-25: #c4871a;
+  --pastoral-ink-26: #c07016;
+  --pastoral-ink-27: #8b7626;
+  --pastoral-ink-28: #64804c;
+  --pastoral-ink-29: #667d2b;
+  --pastoral-ink-30: #626328;
+  --pastoral-ink-31: #3f8057;
+  --pastoral-ink-32: #3e6c3a;
+  --pastoral-ink-33: #1a8077;
+  --pastoral-ink-34: #186d5e;
+  --pastoral-ink-35: #3b5b2c;
+  --pastoral-ink-36: #175a3f;
+  --pastoral-ink-37: #63451a;
+  --pastoral-ink-38: #3c4220;
+  --pastoral-ink-39: #2a4825;
+  --pastoral-ink-40: #29321d;
+  --pastoral-ink-41: #194929;
+  --pastoral-ink-42: #193a21;
+  --pastoral-ink-43: #182419;
+  --pastoral-ink-44: #0a432c;
+  --pastoral-ink-45: #082f1e;
+  --pastoral-ink-46: #092016;
+  --pastoral-ink-47: #08120f;
+}
+html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] {
+  --pastoral-ink-0: #d5c66f;
+  --pastoral-ink-1: #d4c168;
+  --pastoral-ink-2: #cfbd6a;
+  --pastoral-ink-3: #d4bd5f;
+  --pastoral-ink-4: #d3b861;
+  --pastoral-ink-5: #c6b66d;
+  --pastoral-ink-6: #d1b659;
+  --pastoral-ink-7: #cfae5b;
+  --pastoral-ink-8: #c2ad67;
+  --pastoral-ink-9: #d1ae53;
+  --pastoral-ink-10: #ccac56;
+  --pastoral-ink-11: #c4a65e;
+  --pastoral-ink-12: #cba653;
+  --pastoral-ink-13: #c69e55;
+  --pastoral-ink-14: #87b6bb;
+  --pastoral-ink-15: #82b1ba;
+  --pastoral-ink-16: #90ad90;
+  --pastoral-ink-17: #aea771;
+  --pastoral-ink-18: #9ba57a;
+  --pastoral-ink-19: #aca466;
+  --pastoral-ink-20: #7cb2ba;
+  --pastoral-ink-21: #7eacb3;
+  --pastoral-ink-22: #75adb5;
+  --pastoral-ink-23: #7fa092;
+  --pastoral-ink-24: #64abaa;
+  --pastoral-ink-25: #bf9954;
+  --pastoral-ink-26: #c18c50;
+  --pastoral-ink-27: #ad9b58;
+  --pastoral-ink-28: #859974;
+  --pastoral-ink-29: #91a65c;
+  --pastoral-ink-30: #9b9c5d;
+  --pastoral-ink-31: #6c9e7e;
+  --pastoral-ink-32: #6d976a;
+  --pastoral-ink-33: #4cb1a8;
+  --pastoral-ink-34: #4cab9a;
+  --pastoral-ink-35: #729562;
+  --pastoral-ink-36: #4da380;
+  --pastoral-ink-37: #a5824f;
+  --pastoral-ink-38: #868e5d;
+  --pastoral-ink-39: #678e60;
+  --pastoral-ink-40: #758560;
+  --pastoral-ink-41: #53986a;
+  --pastoral-ink-42: #588f65;
+  --pastoral-ink-43: #627d64;
+  --pastoral-ink-44: #40a57c;
+  --pastoral-ink-45: #409e75;
+  --pastoral-ink-46: #489171;
+  --pastoral-ink-47: #528374;
+}
+/* Reference glyph palette: end */
+
+/* Day-cycle glyphs: both samples remain readable independently of the page theme. */
+.login-story, .login-color-sample[data-palette="day"] {
+  --login-twilight-paper: #b9c5c9;
+  --pastoral-sky-cloud: #459eb5;
+  --pastoral-sky-cloud-shadow: #698f9b;
+  --pastoral-sky-cloud-rim: #79bfcf;
+  --pastoral-sky-cloud-warm: #d58a43;
+  --pastoral-sky-cloud-rose: #b97586;
+  --pastoral-sky-cloud-night: #64859a;
+  --pastoral-sky-sun: #dfa92e;
+  --pastoral-sky-sun-rim: #e4bd5c;
+  --pastoral-sky-moon: #eee7c3;
+  --pastoral-sky-star: #bccfd4;
+  --pastoral-sky-venus: #b07c99;
+  --pastoral-village-smoke: #69766c;
+  --pastoral-village-window: #f0ca76;
+  --pastoral-seal-ink: #b35b43;
+  --pastoral-lettering-ink: #536f5a;
+  --pastoral-water-warm: #dfb482;
+  --pastoral-water-moon: #bfdad6;
+  --pastoral-warm-tint: #df9c65;
+}
+html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] {
+  --login-twilight-paper: #b9c5c9;
+  --pastoral-sky-cloud: #6f929c;
+  --pastoral-sky-cloud-shadow: #506774;
+  --pastoral-sky-cloud-rim: #839d9d;
+  --pastoral-sky-cloud-warm: #b47854;
+  --pastoral-sky-cloud-rose: #986c85;
+  --pastoral-sky-cloud-night: #66838c;
+  --pastoral-sky-sun: #d3a34b;
+  --pastoral-sky-sun-rim: #d5af66;
+  --pastoral-sky-moon: #eee6ba;
+  --pastoral-sky-star: #b2c6cf;
+  --pastoral-sky-venus: #a27a9a;
+  --pastoral-village-smoke: #9eaaa2;
+  --pastoral-village-window: #ffe3a1;
+  --pastoral-seal-ink: #d38c71;
+  --pastoral-lettering-ink: #b1bda1;
+  --pastoral-water-warm: #ba9470;
+  --pastoral-water-moon: #c6dedb;
+  --pastoral-warm-tint: #bf976d;
+}
+
+/* Seasonal inks are sampled into the existing day/night canvas palettes. */
+.login-color-sample[data-palette="day"][data-season="spring"] {
+  --pastoral-season-crop-light: #a8c66b;
+  --pastoral-season-crop-mid: #73994f;
+  --pastoral-season-crop-shade: #496d42;
+  --pastoral-season-leaf: #7aab66;
+  --pastoral-season-soil: #8b805e;
+  --pastoral-season-snow: #edf1ed;
+  --pastoral-season-flower: #d9a0ac;
+  --pastoral-season-firefly: #d8cf68;
+}
+.login-color-sample[data-palette="night"][data-season="spring"] {
+  --pastoral-season-crop-light: #6e8551;
+  --pastoral-season-crop-mid: #506b40;
+  --pastoral-season-crop-shade: #354f36;
+  --pastoral-season-leaf: #547d51;
+  --pastoral-season-soil: #625d48;
+  --pastoral-season-snow: #b4c6c3;
+  --pastoral-season-flower: #aa7a8c;
+  --pastoral-season-firefly: #c2c35f;
+}
+.login-color-sample[data-palette="day"][data-season="summer"] {
+  --pastoral-season-crop-light: #6fa04a;
+  --pastoral-season-crop-mid: #407d43;
+  --pastoral-season-crop-shade: #285b3a;
+  --pastoral-season-leaf: #3e8053;
+  --pastoral-season-soil: #776f4c;
+  --pastoral-season-snow: #edf2ed;
+  --pastoral-season-flower: #e0bf9f;
+  --pastoral-season-firefly: #e0d46c;
+}
+.login-color-sample[data-palette="night"][data-season="summer"] {
+  --pastoral-season-crop-light: #4b743c;
+  --pastoral-season-crop-mid: #305c37;
+  --pastoral-season-crop-shade: #23462f;
+  --pastoral-season-leaf: #326245;
+  --pastoral-season-soil: #54563f;
+  --pastoral-season-snow: #aec3be;
+  --pastoral-season-flower: #a99078;
+  --pastoral-season-firefly: #d3ce65;
+}
+.login-color-sample[data-palette="day"][data-season="autumn"] {
+  --pastoral-season-crop-light: #d5b352;
+  --pastoral-season-crop-mid: #ab8b3e;
+  --pastoral-season-crop-shade: #736637;
+  --pastoral-season-leaf: #b59045;
+  --pastoral-season-soil: #8a7756;
+  --pastoral-season-snow: #f1efdf;
+  --pastoral-season-flower: #cb9a7f;
+  --pastoral-season-firefly: #d9cd69;
+}
+.login-color-sample[data-palette="night"][data-season="autumn"] {
+  --pastoral-season-crop-light: #a38d46;
+  --pastoral-season-crop-mid: #806d36;
+  --pastoral-season-crop-shade: #575332;
+  --pastoral-season-leaf: #8a733d;
+  --pastoral-season-soil: #655b45;
+  --pastoral-season-snow: #c4c7b5;
+  --pastoral-season-flower: #a17c6b;
+  --pastoral-season-firefly: #bbb95e;
+}
+.login-color-sample[data-palette="day"][data-season="winter"] {
+  --pastoral-season-crop-light: #a7ad9b;
+  --pastoral-season-crop-mid: #858c7e;
+  --pastoral-season-crop-shade: #646e64;
+  --pastoral-season-leaf: #858c75;
+  --pastoral-season-soil: #807d6a;
+  --pastoral-season-snow: #e9f0ef;
+  --pastoral-season-flower: #baaaaa;
+  --pastoral-season-firefly: #c6c9a5;
+}
+.login-color-sample[data-palette="night"][data-season="winter"] {
+  --pastoral-season-crop-light: #78877f;
+  --pastoral-season-crop-mid: #5d7069;
+  --pastoral-season-crop-shade: #455a55;
+  --pastoral-season-leaf: #627366;
+  --pastoral-season-soil: #5b675f;
+  --pastoral-season-snow: #b6ccce;
+  --pastoral-season-flower: #89989b;
+  --pastoral-season-firefly: #9eafa4;
+}
+.login-color-sample[data-palette="day"] {
+  --pastoral-festival-red: #b83d2d;
+  --pastoral-festival-gold: #edbd4e;
+  --pastoral-festival-wood: #614936;
+  --pastoral-festival-cloth: #bb6652;
+  --pastoral-festival-ink: #304637;
+}
+.login-color-sample[data-palette="night"] {
+  --pastoral-festival-red: #e08d70;
+  --pastoral-festival-gold: #edce7d;
+  --pastoral-festival-wood: #b8a184;
+  --pastoral-festival-cloth: #cda18a;
+  --pastoral-festival-ink: #a7bca8;
 }
