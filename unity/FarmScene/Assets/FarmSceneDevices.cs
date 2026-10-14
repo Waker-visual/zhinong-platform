@@ -6,16 +6,24 @@ public partial class FarmScene
 {
     [Serializable] public class Device { public string id, kind; public float x,z,opening; public bool known,running,alert; }
     [Serializable] public class DeviceStates { public Device[] devices; public ZoneState[] zones; }
-    class DeviceView { public Device data; public Transform root, gate; public Vector3 gateBase; public Renderer lamp; public readonly List<Transform> rotors=new List<Transform>(); public readonly List<Transform> flow=new List<Transform>(); }
+    class DeviceView {
+        public Device data;
+        public Transform root, gate, cameraHead;
+        public Vector3 gateBase, displayOffset;
+        public float footprint;
+        public Renderer lamp, trap;
+        public LineRenderer anchorLine;
+        public readonly MaterialPropertyBlock glow=new MaterialPropertyBlock();
+        public readonly List<Transform> rotors=new List<Transform>();
+        public readonly List<Transform> flow=new List<Transform>();
+        public readonly List<Transform> signals=new List<Transform>();
+    }
     readonly Dictionary<string,DeviceView> deviceViews=new Dictionary<string,DeviceView>();
     string focusedDevice="";
     void FocusDevice(string id) {
-        focusedDevice=deviceViews.ContainsKey(id)?id:"";
-        deviceViews.TryGetValue(focusedDevice,out var selectedDevice);
-        foreach(var view in deviceViews.Values) {
-            bool overlapping=selectedDevice!=null && view!=selectedDevice && new Vector2(view.data.x-selectedDevice.data.x,view.data.z-selectedDevice.data.z).sqrMagnitude<4;
-            view.root.gameObject.SetActive(!overlapping);
-        }
+        // Closing details must never reveal a second model at the selected model's position.
+        // Layout is stable and independent of selection; registration coordinates stay unchanged.
+        focusedDevice=!string.IsNullOrEmpty(id) && deviceViews.ContainsKey(id)?id:"";
     }
     class CropParcel { public List<Vector3> polygon; public string crop; public int seed; }
     readonly List<CropParcel> cropParcels=new List<CropParcel>();
@@ -50,7 +58,12 @@ public partial class FarmScene
 
     void BuildDevice(Device data)
     {
-        var root=new GameObject("registered "+data.kind).transform;root.SetParent(content);root.position=new Vector3(data.x,0,data.z);
+        if(data==null || string.IsNullOrEmpty(data.id))return;
+        if(deviceViews.TryGetValue(data.id,out var previous)) {
+            previous.root.gameObject.SetActive(false);Destroy(previous.root.gameObject);
+            if(previous.anchorLine){previous.anchorLine.enabled=false;Destroy(previous.anchorLine.gameObject);}
+        }
+        var root=new GameObject("registered "+data.kind+" "+data.id).transform;root.SetParent(content);root.position=new Vector3(data.x,0,data.z);
         var view=new DeviceView {data=data,root=root};deviceViews[data.id]=view;
         var steel=Mat("device steel","#bac5bd",.55f);var dark=Mat("device rubber","#283b3a");var blue=Mat("device enamel","#376f78",.4f);var white=Mat("device housing","#e3e4d7",.2f);
         // Models use metre dimensions, regardless of the farm's boundary size.
@@ -102,8 +115,13 @@ public partial class FarmScene
             if(data.kind=="TRACTOR") for(int i=0;i<5;i++)view.flow.Add(DevicePart("engine exhaust feedback",new Vector3(.6f,3.7f,.55f),Vector3.one*.15f,Mat("exhaust haze","#a0a69c"),root,PrimitiveType.Sphere).transform);
             if(data.kind=="HARVESTER") {
                 DevicePart("grain hopper",new Vector3(-1,3,0),new Vector3(2.5f,1.6f,2.8f),white,root);
-                view.rotors.Add(DevicePart("header reel",new Vector3(3,1,0),new Vector3(1.3f,6.8f,1.3f),blue,root,PrimitiveType.Cylinder).transform);
-                view.rotors[0].Rotate(90,0,0);
+                var reel=new GameObject("header reel assembly").transform;reel.SetParent(root,false);reel.localPosition=new Vector3(3,1,0);reel.localRotation=Quaternion.Euler(90,0,0);
+                DevicePart("header reel hub",Vector3.zero,new Vector3(.22f,6.8f,.22f),blue,reel,PrimitiveType.Cylinder);
+                for(int bar=0;bar<6;bar++) {
+                    float angle=bar*Mathf.PI/3;
+                    DevicePart("header reel bat",new Vector3(Mathf.Cos(angle)*.65f,0,Mathf.Sin(angle)*.65f),new Vector3(.09f,6.7f,.09f),steel,reel);
+                }
+                view.rotors.Add(reel);
                 for(int i=0;i<15;i++)DevicePart("cutter tooth",new Vector3(3.8f,.45f,-3+i*.42f),new Vector3(.8f,.12f,.12f),steel,root);
             }
             if(data.kind=="SPRAYER") {
@@ -113,6 +131,7 @@ public partial class FarmScene
             }
         } else if(data.kind=="WEATHER") {
             var saved=content;content=root;ReferenceAsset("sensor",Vector3.zero,4);content=saved;
+            BuildAnemometer(view,steel,dark);
         } else {
             float height=data.kind=="SOIL"?1.2f:3.2f;
             DevicePart("galvanized mast",new Vector3(0,height/2,0),new Vector3(.10f,height,.10f),steel,root,PrimitiveType.Cylinder);
@@ -122,12 +141,15 @@ public partial class FarmScene
             DevicePart("cabinet latch",new Vector3(.39f,height*.65f,-.16f),new Vector3(.025f,.09f,.025f),dark,root);
             if(data.kind=="CAMERA") {
                 DevicePart("camera bracket",new Vector3(.4f,height,0),new Vector3(.9f,.09f,.09f),steel,root);
-                DevicePart("camera housing",new Vector3(.8f,height,0),new Vector3(.38f,.3f,.65f),white,root);
-                DevicePart("camera lens",new Vector3(.8f,height,-.34f),new Vector3(.23f,.23f,.045f),dark,root,PrimitiveType.Sphere);
+                view.cameraHead=new GameObject("camera pan head").transform;view.cameraHead.SetParent(root,false);view.cameraHead.localPosition=new Vector3(.8f,height,0);
+                DevicePart("camera housing",Vector3.zero,new Vector3(.38f,.3f,.65f),white,view.cameraHead);
+                DevicePart("camera lens",new Vector3(0,0,-.34f),new Vector3(.23f,.23f,.045f),dark,view.cameraHead,PrimitiveType.Sphere);
             } else if(data.kind=="PEST") {
-                DevicePart("insect light trap",new Vector3(0,height,0),new Vector3(.6f,.65f,.6f),Mat("trap glass","#a8a3ca",.5f),root,PrimitiveType.Cylinder);
+                var trapMaterial=Mat("trap glass","#b6b3ed",.5f);trapMaterial.EnableKeyword("_EMISSION");
+                view.trap=DevicePart("insect light trap",new Vector3(0,height,0),new Vector3(.6f,.65f,.6f),trapMaterial,root,PrimitiveType.Cylinder).GetComponent<Renderer>();
                 DevicePart("trap hood",new Vector3(0,height+.7f,0),new Vector3(.9f,.07f,.9f),steel,root,PrimitiveType.Cylinder);
                 for(int i=0;i<8;i++){float a=i*Mathf.PI/4;DevicePart("trap cage",new Vector3(Mathf.Sin(a)*.34f,height,Mathf.Cos(a)*.34f),new Vector3(.025f,1.2f,.025f),steel,root);}
+                for(int i=0;i<5;i++)view.signals.Add(DevicePart("insect flight illustration",new Vector3(.8f,height,0),new Vector3(.055f,.035f,.08f),Mat("insect silhouette","#4a394c"),root,PrimitiveType.Sphere).transform);
             } else if(data.kind=="SOIL" || data.kind=="WATER") {
                 DevicePart("probe conduit",new Vector3(.6f,.4f,0),new Vector3(.06f,.8f,.06f),dark,root,PrimitiveType.Cylinder);
                 DevicePart("probe lead",new Vector3(.35f,.65f,0),new Vector3(.7f,.04f,.04f),dark,root);
@@ -137,27 +159,35 @@ public partial class FarmScene
             DevicePart("solar cells",Vector3.up*.032f,new Vector3(.78f,.012f,.63f),Mat("solar","#203944",.5f),panel);
             for(int cell=1;cell<6;cell++)DevicePart("cell busbar",new Vector3(-.39f+cell*.13f,.04f,0),new Vector3(.006f,.003f,.63f),steel,panel);
             for(int cell=1;cell<3;cell++)DevicePart("cell seam",new Vector3(0,.04f,-.315f+cell*.21f),new Vector3(.78f,.003f,.004f),dark,panel);
+            if(data.kind=="SOIL" || data.kind=="WATER" || data.kind=="GATEWAY")BuildSensorSignals(view);
         }
         view.lamp=DevicePart("feedback lamp",data.kind=="DRONE"?new Vector3(.28f,.98f,-.3f):new Vector3(.45f,1.6f,-.4f),Vector3.one*(data.kind=="DRONE"?.07f:.15f),dark,root,PrimitiveType.Sphere).GetComponent<Renderer>();
+        view.footprint=DeviceFootprint(data.kind);
+        foreach(var renderer in root.GetComponentsInChildren<Renderer>()) {
+            var bounds=renderer.bounds;var offset=bounds.center-root.position;
+            var corner=new Vector2(Mathf.Abs(offset.x)+bounds.extents.x,Mathf.Abs(offset.z)+bounds.extents.z);
+            view.footprint=Mathf.Max(view.footprint,corner.magnitude);
+        }
+        LayoutDevices();
     }
     public void UpdateDevices(string json)
     {
         var states=JsonUtility.FromJson<DeviceStates>(json);if(states.devices==null)return;
         if(states.zones!=null)foreach(var state in states.zones)if(zoneViews.TryGetValue(state.id,out var zone))zone.running=state.running;
         foreach(var state in states.devices)if(deviceViews.TryGetValue(state.id,out var view)) {
-            view.data.x=state.x;view.data.z=state.z;view.root.position=new Vector3(state.x,view.root.position.y,state.z);
+            view.data.x=state.x;view.data.z=state.z;
             view.data.known=state.known;view.data.running=state.running;view.data.opening=state.opening;view.data.alert=state.alert;
             view.lamp.sharedMaterial=Mat(state.alert?"alert":state.known?"feedback online":"feedback unknown",state.alert?"#edac55":state.known?"#98c790":"#67736e");
         }
-        FocusDevice(focusedDevice);
+        LayoutDevices();
     }
     public void SelectDevice(string id) { FocusDevice(id);if(deviceViews.TryGetValue(id,out var view)){target=view.root.position+Vector3.up*1.4f;distance=view.data.kind=="DRONE"?12:16;pitch=view.data.kind=="DRONE"?38:28;} }
     void AnimateDevices()
     {
         AnimateIrrigation();
         foreach(var view in deviceViews.Values) {
-            bool running=view.data.known && view.data.running;
-            foreach(var rotor in view.rotors)if(running)rotor.Rotate(view.data.kind=="DRONE"?Vector3.up:Vector3.forward,Time.deltaTime*720,Space.Self);
+            bool running=deviceDemo || view.data.known && view.data.running;
+            foreach(var rotor in view.rotors)if(running || view.data.kind=="WEATHER" && view.data.known)rotor.Rotate(view.data.kind=="PUMP"?Vector3.forward:Vector3.up,Time.deltaTime*(view.data.kind=="WEATHER"?110:720),Space.Self);
             for(int i=0;i<view.flow.Count;i++) {var flow=view.flow[i];flow.gameObject.SetActive(running);if(running && view.data.kind=="PUMP")flow.localPosition=new Vector3(1.8f+Mathf.Repeat(Time.time*1.5f+i*.15f,1.4f),.9f-Mathf.Repeat(Time.time*1.5f+i*.15f,1.4f)*.4f,1);}
             if(running && view.data.kind=="TRACTOR")for(int i=0;i<view.flow.Count;i++){float rise=Mathf.Repeat(Time.time*.6f+i*.2f,1);view.flow[i].localPosition=new Vector3(.6f+rise*.15f,3.7f+rise,.55f);view.flow[i].localScale=Vector3.one*(.08f+rise*.18f);}
             if(running && view.data.kind=="DRONE")for(int i=0;i<view.flow.Count;i++) {
@@ -165,8 +195,17 @@ public partial class FarmScene
                 view.flow[i].localPosition=new Vector3(side*.65f+Mathf.Sin(i*3.1f)*fall*.3f,.35f-fall*2.7f,Mathf.Sin(i*2.4f)*fall*.30f);
                 view.flow[i].localScale=new Vector3(.05f+fall*.24f,.24f+fall*.9f,.05f+fall*.24f);
             }
-            if(view.gate && view.data.known)view.gate.localPosition=Vector3.MoveTowards(view.gate.localPosition,view.gateBase+Vector3.up*(view.data.opening/100*2),Time.deltaTime);
-            if(view.data.kind=="DRONE")view.root.position=new Vector3(view.data.x,running?2.5f+Mathf.Sin(Time.time)*.08f:0,view.data.z);
+            if(running && view.data.kind=="SPRAYER")for(int i=0;i<view.flow.Count;i++) {
+                float fall=Mathf.Repeat(Time.time*.8f+i*.12f,1);
+                view.flow[i].localPosition=new Vector3(-2,1.25f-fall,-6+i);
+                view.flow[i].localScale=new Vector3(.06f+fall*.12f,.18f+fall*.25f,.06f+fall*.12f);
+            }
+            if(view.gate && (deviceDemo || view.data.known)) {
+                float opening=deviceDemo?45+35*Mathf.Sin(Time.time*.45f):view.data.opening;
+                view.gate.localPosition=Vector3.MoveTowards(view.gate.localPosition,view.gateBase+Vector3.up*(opening/100*2),Time.deltaTime*.55f);
+            }
+            if(view.data.kind=="DRONE")view.root.position=new Vector3(view.data.x+view.displayOffset.x,running?2.5f+Mathf.Sin(Time.time)*.08f:0,view.data.z+view.displayOffset.z);
+            AnimateMonitoringDevice(view);
         }
     }
 }

@@ -10,8 +10,10 @@ public static class FarmBuilder
 {
     public static void Build()
     {
+        FarmDeviceChecks.Validate();
         ReferenceImporter.Import();
         foreach(var imagePath in new[]{"Assets/Resources/SatelliteImagery/region.jpg","Assets/Resources/SatelliteImagery/context.jpg"}) {
+        if(!File.Exists(imagePath)) continue;
         AssetDatabase.ImportAsset(imagePath,ImportAssetOptions.ForceUpdate);
         var imageImporter=AssetImporter.GetAtPath(imagePath) as TextureImporter;
         if(imageImporter) { imageImporter.maxTextureSize=8192;imageImporter.mipmapEnabled=true;imageImporter.anisoLevel=8;imageImporter.wrapMode=TextureWrapMode.Clamp;imageImporter.textureCompression=TextureImporterCompression.CompressedHQ;imageImporter.SaveAndReimport(); }
@@ -19,20 +21,21 @@ public static class FarmBuilder
         var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         new GameObject("FarmScene").AddComponent<FarmScene>();
         var camera = new GameObject("Main Camera").AddComponent<Camera>(); camera.tag = "MainCamera";
-        camera.clearFlags = CameraClearFlags.Skybox; camera.backgroundColor = new Color(.66f,.75f,.78f); camera.fieldOfView = 38; camera.farClipPlane = 1500;
-        var sun = new GameObject("Late afternoon sun").AddComponent<Light>(); sun.type = LightType.Directional; sun.intensity = 1.35f; sun.color = new Color(1,.91f,.74f); sun.shadows = LightShadows.Soft; sun.transform.rotation = Quaternion.Euler(30,-55,0);
+        camera.clearFlags = CameraClearFlags.Skybox; camera.backgroundColor = new Color(.76f,.86f,.91f); camera.fieldOfView = 38; camera.farClipPlane = 1500;
+        // Clear morning light keeps foliage, device silhouettes and shaded field edges legible.
+        var sun = new GameObject("Soft morning sun").AddComponent<Light>(); sun.type = LightType.Directional; sun.intensity = 1.25f; sun.color = new Color(1,.97f,.88f); sun.shadows = LightShadows.Soft; sun.shadowStrength = .6f; sun.transform.rotation = Quaternion.Euler(52,-40,0);
         RenderSettings.sun = sun;
         var sky = AssetDatabase.LoadAssetAtPath<Material>("Assets/FarmSky.mat");
         if (!sky) { sky = new Material(Shader.Find("Skybox/Procedural")); AssetDatabase.CreateAsset(sky,"Assets/FarmSky.mat"); }
         sky.SetFloat("_SunDisk",2); sky.EnableKeyword("_SUNDISK_HIGH_QUALITY");
-        sky.SetFloat("_SunSize",.045f); sky.SetFloat("_AtmosphereThickness",1.15f);
-        sky.SetFloat("_Exposure",1.1f); sky.SetColor("_SkyTint",new Color(.52f,.56f,.63f));
-        sky.SetColor("_GroundColor",new Color(.66f,.75f,.78f));
+        sky.SetFloat("_SunSize",.035f); sky.SetFloat("_AtmosphereThickness",.85f);
+        sky.SetFloat("_Exposure",1.2f); sky.SetColor("_SkyTint",new Color(.57f,.66f,.76f));
+        sky.SetColor("_GroundColor",camera.backgroundColor);
         RenderSettings.skybox = sky; EditorUtility.SetDirty(sky);
         RenderSettings.ambientMode = AmbientMode.Trilight;
-        RenderSettings.ambientSkyColor = new Color(.48f,.61f,.75f);
-        RenderSettings.ambientEquatorColor = new Color(.45f,.49f,.42f);
-        RenderSettings.ambientGroundColor = new Color(.22f,.25f,.17f);
+        RenderSettings.ambientSkyColor = new Color(.74f,.83f,.92f);
+        RenderSettings.ambientEquatorColor = new Color(.67f,.73f,.62f);
+        RenderSettings.ambientGroundColor = new Color(.43f,.49f,.34f);
         RenderSettings.fog = true; RenderSettings.fogColor = camera.backgroundColor; RenderSettings.fogMode = FogMode.Linear; RenderSettings.fogStartDistance = 170; RenderSettings.fogEndDistance = 570;
         QualitySettings.shadowDistance = 320; QualitySettings.shadows = ShadowQuality.All; QualitySettings.antiAliasing = 4; QualitySettings.shadowResolution = ShadowResolution.High; QualitySettings.shadowCascades = 4;
         PlayerSettings.colorSpace = ColorSpace.Linear;

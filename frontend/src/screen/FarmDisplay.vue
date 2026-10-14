@@ -6,6 +6,7 @@ import DataChart from "../workspace/DataChart.vue";
 import AssistantText from "../ai/AssistantText.vue";
 import SatelliteFarmMap from "./SatelliteFarmMap.vue";
 import FarmScene from "./FarmScene.vue";
+import SceneAmbience from "./SceneAmbience.vue";
 import FarmScene3D from "./scene/FarmScene3D.vue";
 import { satelliteGeometry } from "./satellite-model.js";
 import {
@@ -404,6 +405,35 @@ onBeforeUnmount(() => {
           </select></label
         >
         <div class="display-header-tools">
+          <SceneAmbience />
+          <details
+            class="display-about"
+            @keydown.esc.stop.prevent="$event.currentTarget.open = false"
+          >
+            <summary aria-label="大屏来源说明" title="来源说明">
+              <AppIcon name="info" />
+            </summary>
+            <div class="display-about-content">
+              <strong>来源说明</strong>
+              <p>
+                虚构演示数据。田块、设备和管网来自当前农场登记资料；模型高度和环境设施为示意，非实景测绘。
+              </p>
+              <p>
+                卫星影像 © Esri, Vantor, Earthstar Geographics, GIS User
+                Community。
+              </p>
+              <a
+                href="https://virtual.cleverfarm.ag/"
+                target="_blank"
+                rel="noopener noreferrer"
+                >模型参考：CleverFarm</a
+              >
+              <p>
+                农情分析用于辅助判断；日报为当日快照，监测按采样时效显示。时间
+                UTC+8。
+              </p>
+            </div>
+          </details>
           <time>{{ nowText }}</time
           ><button
             type="button"
@@ -954,10 +984,6 @@ onBeforeUnmount(() => {
             @alerts="emit('alerts', { farmId })"
           />
         </template>
-        <footer class="display-footer">
-          <span>虚构演示数据 · 农情分析用于辅助判断</span
-          ><span>日报为当日快照，监测按采样时效显示 · 时间 UTC+8</span>
-        </footer>
       </main>
     </div>
   </dialog>

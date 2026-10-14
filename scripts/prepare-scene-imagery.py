@@ -3,12 +3,25 @@ import base64
 import io
 import json
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageChops, ImageStat
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / '.cache/map-tiles'
 OUT = ROOT / 'unity/FarmScene/Assets/Resources/SatelliteImagery'
 Z, X, Y, WIDTH, HEIGHT, SCALE = 15, 28463, 11489, 1536, 1024, 4
+
+def read_tile(path):
+    data = json.loads(path.read_text(encoding='utf-8'))
+    tile = Image.open(io.BytesIO(base64.b64decode(data['bytes']))).convert('RGB')
+    # Esri's gray "Map data not yet available" tiles are valid JPEGs, but must
+    # not cover real imagery from a lower zoom. Inspect before resampling.
+    sample = tile.resize((32, 32))
+    r, g, b = sample.split()
+    chroma = (ImageStat.Stat(ImageChops.difference(r, g)).mean[0]
+              + ImageStat.Stat(ImageChops.difference(g, b)).mean[0])
+    if chroma < 0.1 and ImageStat.Stat(sample).stddev[0] < 15:
+        return None
+    return tile
 
 def build():
     result = Image.new('RGB', (WIDTH*SCALE, HEIGHT*SCALE), (64, 75, 52))
@@ -21,8 +34,9 @@ def build():
         left, top, size = (x/k-X)*256*SCALE, (y/k-Y)*256*SCALE, 256*SCALE/k
         if left+size<=0 or top+size<=0 or left>=result.width or top>=result.height:
             continue
-        data = json.loads(p.read_text(encoding='utf-8'))
-        tile = Image.open(io.BytesIO(base64.b64decode(data['bytes']))).convert('RGB')
+        tile = read_tile(p)
+        if tile is None:
+            continue
         box = (round(left), round(top))
         result.paste(tile.resize((round(size), round(size)), Image.Resampling.LANCZOS), box)
         coverage.paste(255, (round(left), round(top), round(left+size), round(top+size)))
@@ -36,8 +50,9 @@ def build():
     for x in range(7114, 7118):
         for y in range(2871, 2875):
             path = CACHE / f'SATELLITE-13-{x}-{y}.json'
-            data = json.loads(path.read_text(encoding='utf-8'))
-            tile = Image.open(io.BytesIO(base64.b64decode(data['bytes']))).convert('RGB')
+            tile = read_tile(path)
+            if tile is None:
+                raise RuntimeError(f'Context base tile has no imagery: {path.name}')
             context.paste(tile.resize((512,512),Image.Resampling.LANCZOS), ((x-7114)*512, (y-2871)*512))
             if path.name not in used:
                 used.append(path.name)
@@ -52,8 +67,9 @@ def build():
         left,top,size=(x/k-7114)*512,(y/k-2871)*512,512/k
         if left+size<=0 or top+size<=0 or left>=context.width or top>=context.height:
             continue
-        data=json.loads(p.read_text(encoding='utf-8'))
-        tile=Image.open(io.BytesIO(base64.b64decode(data['bytes']))).convert('RGB')
+        tile = read_tile(p)
+        if tile is None:
+            continue
         context.paste(tile.resize((round(size),round(size)),Image.Resampling.LANCZOS),(round(left),round(top)))
         if p.name not in used:
             used.append(p.name)

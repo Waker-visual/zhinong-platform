@@ -24,8 +24,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '禾苗助手互动状态测试未通过' }
         node --test src/screen/screen-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '展示大屏数据模型测试未通过' }
-        node --test src/screen/scene-model.test.js
+        node --test src/screen/scene-model.test.js src/screen/scene-markers.test.js
         if ($LASTEXITCODE -ne 0) { throw '三维农场数据转换测试未通过' }
+        node --test src/screen/scene-ambience.test.js
+        if ($LASTEXITCODE -ne 0) { throw '三维农场音乐生命周期测试未通过' }
         node --test src/screen/scene/scene-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '三维农场场景数据模型测试未通过' }
         node --test src/screen/screen-refresh.test.js src/api.test.js

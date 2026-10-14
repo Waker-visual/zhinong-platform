@@ -1,5 +1,11 @@
 /* 展示大屏固定采用湖蓝与田野绿；作用域内保持图表和正文同一配色。 */
 .farm-display {
+  --scene-parcel-paper: #f3f8e9;
+  --scene-parcel-ink: #244b38;
+  --scene-parcel-border: #84a887;
+  --scene-parcel-shadow: #173b3530;
+  --scene-parcel-selected: #fff0af;
+  --scene-parcel-selected-border: #bc8c25;
   --display-lake: #0d2534;
   --display-teal: #123f49;
   --display-leaf: #82c5a0;

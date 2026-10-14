@@ -12,6 +12,10 @@ public partial class FarmScene : MonoBehaviour
     [Serializable] public class Marker { public string id, kind; public float x,y; public bool visible; }
     [Serializable] public class Projection { public Marker[] points; public bool satelliteMapped; }
     float nextProjection;
+    Vector3 projectedCameraPosition;
+    Quaternion projectedCameraRotation;
+    int projectedWidth, projectedHeight;
+    string lastProjection;
     float validationAfter;
     bool validationReported;
     bool sceneVisible=true;
@@ -64,7 +68,7 @@ public partial class FarmScene : MonoBehaviour
 #if UNITY_WEBGL && !UNITY_EDITOR
         WebGLInput.captureAllKeyboardInput = false;
 #endif
-        crops = Mat("crops", "#7d973b"); earth = Mat("earth", "#766443"); selected = Mat("selected", "#c7b56c");
+        crops = Mat("crops", "#8eae4d"); earth = Mat("earth", "#96815c"); selected = Mat("selected", "#f4d77c");
         cameraView = Camera.main;
         ResetView("");
     }
@@ -97,6 +101,7 @@ public partial class FarmScene : MonoBehaviour
         imageTreeMeshes.Clear();
         validationAfter=Time.unscaledTime+5;validationReported=false;validationFrames.Clear();
         satelliteMapped=false;
+        lastProjection=null; nextProjection=0;
         if (farm.plots == null || farm.plots.Length == 0) return;
         farmBounds = new Bounds(new Vector3(farm.plots[0].points[0].x,0,farm.plots[0].points[0].z),Vector3.zero);
         foreach(var parcel in farm.plots) foreach(var point in parcel.points) farmBounds.Encapsulate(new Vector3(point.x,0,point.z));
@@ -108,7 +113,7 @@ public partial class FarmScene : MonoBehaviour
         RenderSettings.fogEndDistance = maxDistance * 2.6f;
         cameraView.farClipPlane = environmentRadius * 3;
         ResetView("");
-        Material grass = Mat("grass", "#727951"), road = Mat("road", "#9b8b66"), water = Mat("water", "#537f87", .7f);
+        Material grass = Mat("grass", "#8a9d64"), road = Mat("road", "#bca777"), water = Mat("water", "#659fbc", .7f);
         BuildSatellite(farm);
         Landscape(grass);
         if(!satelliteMapped) {
@@ -441,7 +446,7 @@ public partial class FarmScene : MonoBehaviour
         obj.transform.localScale=Vector3.one*(height/Mathf.Max(.01f,prefab.GetComponent<MeshFilter>().sharedMesh.bounds.size.y));
         return true;
     }
-    public void SetSeason(string value) { season = value; ColorUtility.TryParseHtmlString(value == "autumn" ? "#c5a24f" : value == "spring" ? "#6b9e54" : "#879e43", out var color); crops.color = color; foreach(var entry in materials) { if(entry.Key.StartsWith("field ") && entry.Key!="field vegetable")entry.Value.color=color*.88f; if(entry.Key.StartsWith("crop cover ") && entry.Key!="crop cover vegetable")entry.Value.color=color; } }
+    public void SetSeason(string value) { season = value; ColorUtility.TryParseHtmlString(value == "autumn" ? "#d8b960" : value == "spring" ? "#8cbb65" : "#95af51", out var color); crops.color = color; foreach(var entry in materials) { if(entry.Key.StartsWith("field ") && entry.Key!="field vegetable")entry.Value.color=color*.94f; if(entry.Key.StartsWith("crop cover ") && entry.Key!="crop cover vegetable")entry.Value.color=color; } }
     public void SelectPlot(string id)
     {
         FocusDevice("");
@@ -515,13 +520,18 @@ public partial class FarmScene : MonoBehaviour
         cameraView.transform.position = target + Quaternion.Euler(pitch,yaw,0) * new Vector3(0,0,-distance);
         cameraView.transform.LookAt(target);
 #if UNITY_WEBGL && !UNITY_EDITOR
-        if(Time.unscaledTime >= nextProjection) {
-            nextProjection=Time.unscaledTime+.12f;
+        bool projectionMoved=(cameraView.transform.position-projectedCameraPosition).sqrMagnitude>.0001f || Quaternion.Angle(cameraView.transform.rotation,projectedCameraRotation)>.001f || Screen.width!=projectedWidth || Screen.height!=projectedHeight;
+        if(sceneVisible && (projectionMoved || Time.unscaledTime >= nextProjection)) {
+            // Camera movement is published in the rendered frame. Idle updates still
+            // track animated devices, but unchanged payloads never cross the bridge.
+            nextProjection=Time.unscaledTime+1f/30f;
+            projectedCameraPosition=cameraView.transform.position;projectedCameraRotation=cameraView.transform.rotation;
+            projectedWidth=Screen.width;projectedHeight=Screen.height;
             var points=new List<Marker>();var seen=new HashSet<string>();
             foreach(var parcel in parcels) {
                 if(!seen.Add(parcel.parcelId))continue;
                 var screen=cameraView.WorldToViewportPoint(parcel.center+Vector3.up*2);
-                points.Add(new Marker { id=parcel.parcelId,kind="parcel",x=screen.x,y=1-screen.y,visible=screen.z>0 && screen.x>.02f && screen.x<.98f && screen.y>.04f && screen.y<.96f });
+                points.Add(new Marker { id=parcel.parcelId,kind="parcel",x=screen.x,y=1-screen.y,visible=screen.z>0 && screen.x>=0 && screen.x<=1 && screen.y>=0 && screen.y<=1 });
             }
             foreach(var view in deviceViews.Values) {
                 if(!view.root.gameObject.activeSelf)continue;
@@ -532,7 +542,8 @@ public partial class FarmScene : MonoBehaviour
                 var screen=cameraView.WorldToViewportPoint(zone.anchor+Vector3.up*1.5f);
                 points.Add(new Marker { id=zone.data.id,kind="zone",x=screen.x,y=1-screen.y,visible=distance<180 && screen.z>0 && screen.x>.02f && screen.x<.98f && screen.y>.04f && screen.y<.96f });
             }
-            FarmPoints(JsonUtility.ToJson(new Projection { points=points.ToArray(),satelliteMapped=satelliteMapped }));
+            var projection=JsonUtility.ToJson(new Projection { points=points.ToArray(),satelliteMapped=satelliteMapped });
+            if(projection!=lastProjection) { FarmPoints(projection);lastProjection=projection; }
         }
 #endif
     }

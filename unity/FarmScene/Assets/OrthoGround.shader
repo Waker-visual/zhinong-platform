@@ -18,7 +18,11 @@ Shader "Farm/OrthoGround" {
         void surf(Input IN, inout SurfaceOutputStandard o) {
             float2 uv=(IN.worldPos.xz-_WorldRect.xy)/_WorldRect.zw;
             fixed3 groundColor=tex2D(_MainTex,uv).rgb;
+            // The photograph already includes shadows. Lift its deepest tones instead of
+            // multiplying those baked shadows by a second fully dark lighting pass.
+            groundColor=lerp(groundColor,sqrt(max(groundColor,0)),.24);
             o.Albedo=groundColor*_Color.rgb;
+            o.Emission=groundColor*_Color.rgb*.12;
             o.Smoothness=_Glossiness;
             o.Occlusion=1;
         }

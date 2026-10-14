@@ -1,4 +1,4 @@
-﻿param([switch]$SkipBuild)
+﻿param([switch]$SkipBuild, [switch]$UseSystemProxy)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $SkipBuild) {
@@ -47,4 +47,4 @@ Write-Host '智禾农场：http://127.0.0.1:9175'
 Write-Host '首次初始化演示账号口令（已有数据库时账号口令不变）：'
 Write-Host $env:FARM_BOOTSTRAP_PASSWORD
 Push-Location (Join-Path $projectRoot 'backend')
-try { java '-Djava.net.useSystemProxies=true' -jar target/zhinong-platform-0.3.0.jar } finally { Pop-Location }
+try { java ("-Djava.net.useSystemProxies=" + $UseSystemProxy.IsPresent.ToString().ToLowerInvariant()) -jar target/zhinong-platform-0.3.0.jar } finally { Pop-Location }

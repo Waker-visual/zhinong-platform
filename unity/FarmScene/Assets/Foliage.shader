@@ -21,7 +21,7 @@ Shader "Farm/Foliage" {
             clip(lerp(1,fade,_Detail)-dither-.001);
             o.Albedo = _Color.rgb * i.color.rgb;
             o.Smoothness = .18;
-            o.Occlusion = lerp(.65,1,i.color.a);
+            o.Occlusion = lerp(.82,1,i.color.a);
         }
         ENDCG
     }

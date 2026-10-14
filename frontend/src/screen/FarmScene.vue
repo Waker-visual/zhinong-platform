@@ -1,7 +1,17 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  onUpdated,
+  ref,
+  shallowRef,
+  watch,
+} from "vue";
 import DeviceControl from "../workspace/DeviceControl.vue";
+import AppIcon from "../ui/AppIcon.vue";
 import { typeNames } from "../workspace/presentation.js";
+import { layoutSceneMarkers, sceneMarkerIndex } from "./scene-markers.js";
 import {
   sceneDeviceState,
   sceneGeometry,
@@ -23,11 +33,16 @@ const frame = ref(null),
   progress = ref(0),
   error = ref(""),
   season = ref("summer"),
-  projections = ref([]),
+  projections = shallowRef([]),
   satelliteMapped = ref(false),
   selectedDevice = ref(""),
   selectedParcel = ref(""),
   clock = ref(Date.now());
+const viewport = shallowRef({ width: 1000, height: 700 });
+const deviceDemo = ref(
+  !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+);
+const markerOffsets = new Map();
 const device = computed(() =>
   props.geometry.devices.find((d) => String(d.id) === selectedDevice.value),
 );
@@ -90,66 +105,18 @@ const overlappingDevices = computed(() => {
     )
   );
 });
-const markers = computed(() => {
-  const candidates = projections.value.flatMap((point) => {
-    const item =
-      point.kind === "device"
-        ? props.geometry.devices.find((d) => String(d.id) === point.id)
-        : point.kind === "zone"
-          ? props.zones.find((z) => String(z.id) === point.id)
-          : props.geometry.shapes.find(
-              (p) => String(p.id || p.plotId) === point.id,
-            );
-    const state =
-      point.kind === "zone"
-        ? zoneStates.value.find((z) => z.id === point.id)
-        : states.value.find((d) => d.id === point.id);
-    return item &&
-      point.visible &&
-      Number.isFinite(point.x) &&
-      Number.isFinite(point.y) &&
-      point.x >= 0 &&
-      point.x <= 1 &&
-      point.y >= 0 &&
-      point.y <= 1
-      ? [
-          {
-            ...point,
-            name: item.name,
-            label:
-              point.kind === "device"
-                ? state?.label
-                : point.kind === "zone"
-                  ? state?.running
-                    ? "分区供水中"
-                    : "模拟管网"
-                  : "",
-            running: state?.running,
-          },
-        ]
-      : [];
-  });
-  const priority = (p) =>
-    p.id === selectedDevice.value
-      ? 4
-      : p.running
-        ? 3
-        : p.kind === "parcel"
-          ? 2
-          : 1;
-  const visible = [];
-  for (const point of candidates.sort((a, b) => priority(b) - priority(a))) {
-    if (
-      visible.length < 7 &&
-      !visible.some(
-        (p) =>
-          Math.abs(p.x - point.x) < 0.16 && Math.abs(p.y - point.y) < 0.075,
-      )
-    )
-      visible.push(point);
-  }
-  return visible;
-});
+const markerIndex = computed(() =>
+  sceneMarkerIndex(props.geometry, props.zones, states.value, zoneStates.value),
+);
+const markers = computed(() =>
+  layoutSceneMarkers(
+    projections.value,
+    markerIndex.value,
+    viewport.value,
+    selectedDevice.value,
+    markerOffsets,
+  ),
+);
 const scene = computed(() =>
   sceneGeometry(props.geometry, props.plots, props.zones),
 );
@@ -158,7 +125,56 @@ const visiblePlots = computed(() =>
     scene.value.plots.some((shape) => shape.id === plot.id),
   ),
 );
-let timeout, ticker;
+let timeout,
+  ticker,
+  resizeObserver,
+  projectionFrame = 0,
+  pendingProjection;
+const observedPanels = new Set();
+function measureViewport() {
+  if (!frame.value) return;
+  const bounds = frame.value.getBoundingClientRect();
+  const obstacles = [
+    ...frame.value.parentElement.querySelectorAll(
+      ".farm-landscape-heading, .farm-landscape-plots, .farm-landscape-device, .farm-landscape-controls, .farm-landscape-summary, .farm-landscape-caption",
+    ),
+  ]
+    .filter((element) => element.getClientRects().length)
+    .map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.left - bounds.left + rect.width / 2,
+        y: rect.top - bounds.top + rect.height / 2,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+  const next = { width: bounds.width, height: bounds.height, obstacles };
+  if (JSON.stringify(next) !== JSON.stringify(viewport.value))
+    viewport.value = next;
+}
+onUpdated(() => {
+  if (!resizeObserver || !frame.value) return;
+  const panels = new Set(
+    frame.value.parentElement.querySelectorAll(
+      ".farm-landscape-heading, .farm-landscape-plots, .farm-landscape-device, .farm-landscape-controls, .farm-landscape-summary, .farm-landscape-caption",
+    ),
+  );
+  let changed = false;
+  for (const panel of observedPanels)
+    if (!panels.has(panel)) {
+      resizeObserver.unobserve(panel);
+      observedPanels.delete(panel);
+      changed = true;
+    }
+  for (const panel of panels)
+    if (!observedPanels.has(panel)) {
+      resizeObserver.observe(panel);
+      observedPanels.add(panel);
+      changed = true;
+    }
+  if (changed) measureViewport();
+});
 function send(method, value = "") {
   if (ready.value)
     frame.value?.contentWindow?.postMessage(
@@ -190,15 +206,26 @@ function receive(event) {
     clearTimeout(timeout);
     sync();
     send("SetSeason", season.value);
+    send("SetDeviceDemo", deviceDemo.value ? "on" : "off");
   }
   if (message?.type === "farm-points" && Array.isArray(message.points)) {
-    projections.value = message.points;
+    pendingProjection = message.points;
+    if (!projectionFrame)
+      projectionFrame = requestAnimationFrame(() => {
+        projectionFrame = 0;
+        projections.value = pendingProjection;
+      });
     satelliteMapped.value = message.satelliteMapped === true;
   }
   if (message?.type === "farm-progress")
     progress.value = Math.round(message.value * 100);
   if (message?.type === "farm-error") {
-    error.value = "三维场景暂时无法加载，请重试或查看卫星图。";
+    error.value =
+      message.reason === "graphics-context"
+        ? "浏览器释放了三维画面，请点击重新加载恢复。"
+        : "三维场景暂时无法加载，请重试或查看卫星图。";
+    ready.value = false;
+    projections.value = [];
     clearTimeout(timeout);
   }
   if (
@@ -208,10 +235,15 @@ function receive(event) {
     emit("plot", message.id);
 }
 function retry() {
+  frame.value?.contentWindow?.disposeFarmScene?.();
   error.value = "";
   ready.value = false;
   progress.value = 0;
-  frame.value.src = "/farm-scene/index.html?v=satellite-20261013-2";
+  projections.value = [];
+  markerOffsets.clear();
+  cancelAnimationFrame(projectionFrame);
+  projectionFrame = 0;
+  frame.value.src = "/farm-scene/index.html?v=daylight-20261014-2";
   startTimeout();
 }
 function startTimeout() {
@@ -244,16 +276,22 @@ watch(
   },
 );
 watch(season, (value) => send("SetSeason", value));
+watch(deviceDemo, (value) => send("SetDeviceDemo", value ? "on" : "off"));
 onMounted(() => {
   window.addEventListener("message", receive);
+  resizeObserver = new ResizeObserver(measureViewport);
+  resizeObserver.observe(frame.value);
   startTimeout();
   ticker = setInterval(() => {
     clock.value = Date.now();
   }, 1000);
 });
 onBeforeUnmount(() => {
+  frame.value?.contentWindow?.disposeFarmScene?.();
   clearTimeout(timeout);
   clearInterval(ticker);
+  cancelAnimationFrame(projectionFrame);
+  resizeObserver?.disconnect();
   window.removeEventListener("message", receive);
 });
 </script>
@@ -262,7 +300,7 @@ onBeforeUnmount(() => {
   <section class="farm-landscape" aria-label="交互式三维农场">
     <iframe
       ref="frame"
-      src="/farm-scene/index.html?v=satellite-20261013-2"
+      src="/farm-scene/index.html?v=daylight-20261014-2"
       title="三维农田：左键旋转，右键平移，滚轮缩放，点击田块"
     />
     <div
@@ -270,20 +308,36 @@ onBeforeUnmount(() => {
       class="farm-landscape-markers"
       aria-label="田块位置标记"
     >
+      <svg class="farm-landscape-marker-lines" aria-hidden="true">
+        <line
+          v-for="marker in markers.filter((item) => item.displaced)"
+          :key="marker.key"
+          :x1="marker.anchorX"
+          :y1="marker.anchorY"
+          :x2="marker.x"
+          :y2="marker.y"
+        />
+      </svg>
       <button
         v-for="marker in markers"
         :key="`${marker.kind}:${marker.id}`"
         :class="{
           'device-poi': marker.kind === 'device',
+          'parcel-poi': marker.kind === 'parcel',
           running: marker.running,
         }"
         :aria-label="`定位${marker.name}`"
+        :title="marker.name"
         :aria-pressed="
           marker.kind === 'device'
             ? selectedDevice === marker.id
             : selectedParcel === marker.id
         "
-        :style="{ left: `${marker.x * 100}%`, top: `${marker.y * 100}%` }"
+        :style="{
+          width: `${marker.width}px`,
+          height: `${marker.height}px`,
+          transform: `translate3d(${marker.x}px, ${marker.y}px, 0) translate(-50%, -50%)`,
+        }"
         @click="
           marker.kind === 'device'
             ? locateDevice(marker.id)
@@ -294,8 +348,8 @@ onBeforeUnmount(() => {
               : locateParcel(marker.id)
         "
       >
-        ＋ {{ marker.name
-        }}<small v-if="marker.label">{{ marker.label }}</small>
+        <span>{{ marker.name }}</span
+        ><small v-if="marker.label">{{ marker.label }}</small>
       </button>
     </div>
     <div class="farm-landscape-heading">
@@ -306,6 +360,9 @@ onBeforeUnmount(() => {
       <p>
         边界跨度 {{ Math.round(scene.width || 0) }} ×
         {{ Math.round(scene.depth || 0) }} 米
+      </p>
+      <p v-if="geometry.missingPlots">
+        {{ geometry.missingPlots }} 个地块缺少有效边界
       </p>
     </div>
     <div v-if="!ready || error" class="farm-landscape-loading" role="status">
@@ -392,9 +449,9 @@ onBeforeUnmount(() => {
         :role="role"
         @changed="emit('refresh')"
       />
-      <p v-else>模型位置来自设备定位；运动效果随有效采样更新。</p>
+      <p>动画为演示，设备状态以采样为准。</p>
       <p v-if="overlappingDevices">
-        同点设备已临时隐藏，关闭详情后恢复；登记坐标未改变。
+        同点设备模型已错位展示，细线指向登记位置；登记坐标未改变。
       </p>
       <p v-if="zones.some((z) => z.pumpId === device.id)">
         地图供水节点 · 关联
@@ -402,51 +459,62 @@ onBeforeUnmount(() => {
         个灌溉分区。分区出水效果还需对应地图灌溉任务处于运行中。
       </p>
     </aside>
-    <div class="farm-landscape-controls">
-      <label
-        >作物外观
-        <select v-model="season" :disabled="!ready">
-          <option value="spring">苗期示意</option>
-          <option value="summer">生长期示意</option>
-          <option value="autumn">成熟期示意</option>
-        </select></label
+    <div class="farm-landscape-dock">
+      <div
+        class="farm-landscape-controls"
+        role="group"
+        aria-label="三维场景操作"
       >
-      <button
-        :disabled="!ready"
-        aria-label="放大场景"
-        @click="send('Zoom', 'in')"
+        <label
+          ><AppIcon name="plantings" /><span>作物</span>
+          <select v-model="season" :disabled="!ready">
+            <option value="spring">苗期示意</option>
+            <option value="summer">生长期示意</option>
+            <option value="autumn">成熟期示意</option>
+          </select></label
+        >
+        <div class="farm-landscape-zoom" role="group" aria-label="场景缩放">
+          <button
+            :disabled="!ready"
+            aria-label="放大场景"
+            @click="send('Zoom', 'in')"
+          >
+            ＋
+          </button>
+          <button
+            :disabled="!ready"
+            aria-label="缩小场景"
+            @click="send('Zoom', 'out')"
+          >
+            −
+          </button>
+        </div>
+        <button :disabled="!ready" @click="resetView">
+          <AppIcon name="refresh" />复位视角
+        </button>
+        <button
+          :disabled="!ready"
+          :aria-pressed="deviceDemo"
+          @click="deviceDemo = !deviceDemo"
+        >
+          <span class="scene-motion-dot" aria-hidden="true"></span>
+          {{ deviceDemo ? "动画已开" : "动画已关" }}
+        </button>
+        <button @click="emit('satellite')">
+          <AppIcon name="overview" />卫星实景
+        </button>
+      </div>
+      <div
+        v-if="ready && !error && !device"
+        class="farm-landscape-summary"
+        aria-label="农场数据摘要"
       >
-        ＋
-      </button>
-      <button
-        :disabled="!ready"
-        aria-label="缩小场景"
-        @click="send('Zoom', 'out')"
-      >
-        −
-      </button>
-      <button :disabled="!ready" @click="resetView">复位视角</button>
-      <button @click="emit('satellite')">卫星实景</button>
-    </div>
-    <div v-if="ready && !error && !device" class="farm-landscape-summary">
-      <slot name="summary" />
+        <slot name="summary" />
+      </div>
     </div>
     <p class="farm-landscape-caption">
-      左键旋转 · 右键平移 · 滚轮缩放 · 点选田块<br />虚构演示数据；田块、设备和管网与平面图同源。{{
-        satelliteMapped
-          ? "地表与道路林带参考固定卫星影像，树高及建筑高度为推定。影像 © Esri, Vantor, Earthstar Geographics, GIS User Community。"
-          : "地形、建筑为环境示意，非现场实测。"
-      }}{{
-        geometry.missingPlots
-          ? `${geometry.missingPlots} 个地块缺少有效边界。`
-          : ""
-      }}
-      <a
-        href="https://virtual.cleverfarm.ag/"
-        target="_blank"
-        rel="noopener noreferrer"
-        >模型参考：CleverFarm</a
-      >
+      <span>左键旋转</span><span>右键平移</span><span>滚轮缩放</span
+      ><span>点选田块</span>
     </p>
   </section>
 </template>
