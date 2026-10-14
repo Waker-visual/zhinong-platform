@@ -65,7 +65,7 @@ export function createScreenRefresh({ request, onUpdate, now = Date.now }) {
     );
     publish();
   }
-  function refresh(farmId, { onlyFailed = false } = {}) {
+  function refresh(farmId, { onlyFailed = false, liveOnly = false } = {}) {
     if (disposed) return Promise.resolve();
     if (!farmId) {
       reset();
@@ -74,7 +74,9 @@ export function createScreenRefresh({ request, onUpdate, now = Date.now }) {
     if (farmId !== scope) reset(farmId);
     if (active) return active.promise;
     const selected = screenResources.filter(
-      ({ key }) => !onlyFailed || resources[key].error,
+      ({ key }) =>
+        (!onlyFailed || resources[key].error) &&
+        (!liveOnly || ["workspace", "spatial"].includes(key)),
     );
     if (!selected.length) return Promise.resolve();
     const controller = new AbortController(),

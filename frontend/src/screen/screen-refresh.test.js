@@ -179,3 +179,18 @@ test("initial freshness never invents a last-read time", () => {
     failed: 0,
   });
 });
+
+test("live refresh reads device feedback and map jobs without repeating report requests", async () => {
+  const f = fixture(),
+    first = f.refresh.refresh("farm-a");
+  f.finish();
+  await first;
+  const report = f.state().resources.briefing;
+  const live = f.refresh.refresh("farm-a", { liveOnly: true });
+  assert.equal(f.calls.length, 8);
+  assert.ok(f.calls[6].path.includes("workspace"));
+  assert.ok(f.calls[7].path.includes("field-map"));
+  f.finish(6);
+  await live;
+  assert.deepEqual(f.state().resources.briefing, report);
+});

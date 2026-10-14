@@ -5,6 +5,7 @@ import AppIcon from "../ui/AppIcon.vue";
 import DataChart from "../workspace/DataChart.vue";
 import AssistantText from "../ai/AssistantText.vue";
 import SatelliteFarmMap from "./SatelliteFarmMap.vue";
+import FarmScene from "./FarmScene.vue";
 import FarmScene3D from "./scene/FarmScene3D.vue";
 import { satelliteGeometry } from "./satellite-model.js";
 import {
@@ -44,7 +45,7 @@ const emit = defineEmits([
 ]);
 const dialog = ref(null),
   screen = ref(null),
-  view = ref("overview"),
+  view = ref("scene"),
   selectedPlot = ref("");
 const workspace = ref(null),
   operations = ref(null),
@@ -240,13 +241,13 @@ function resourceTime(key) {
   if (!state?.readAt) return state?.loading ? "读取中" : "尚未读取";
   return `${state.error ? "保留快照" : "读取于"} ${timeText(state.readAt, { short: true })}`;
 }
-function refresh({ reset = false, onlyFailed = false } = {}) {
+function refresh({ reset = false, onlyFailed = false, liveOnly = false } = {}) {
   if (reset || !accessible.value) {
     refreshState.reset(accessible.value ? props.farmId : null);
     selectedPlot.value = "";
   }
   if (!accessible.value || document.hidden) return;
-  return refreshState.refresh(props.farmId, { onlyFailed });
+  return refreshState.refresh(props.farmId, { onlyFailed, liveOnly });
 }
 
 function visible() {
@@ -334,9 +335,16 @@ onMounted(() => {
   dialog.value?.showModal();
   document.addEventListener("visibilitychange", visible);
   document.addEventListener("fullscreenchange", fullscreenChanged);
+  let pollTick = 0;
   poll = setInterval(() => {
-    if (!document.hidden && !loading.value) refresh();
-  }, 60000);
+    pollTick++;
+    if (
+      !document.hidden &&
+      !loading.value &&
+      (view.value === "scene" || pollTick % 12 === 0)
+    )
+      refresh({ liveOnly: pollTick % 12 !== 0 });
+  }, 5000);
   clockTimer = setInterval(() => {
     if (!document.hidden) clock.value = Date.now();
   }, 10000);
@@ -368,7 +376,7 @@ onBeforeUnmount(() => {
       :class="{
         'display-overview-stage': view === 'overview',
         'display-agronomy-stage': view === 'agronomy',
-        'display-scene-stage': view === 'scene',
+        'display-scene-stage': view === 'tour',
       }"
     >
       <header class="display-header">
@@ -419,6 +427,9 @@ onBeforeUnmount(() => {
       <main class="display-content" :aria-busy="loading">
         <div class="display-view-bar">
           <nav aria-label="大屏视图">
+            <button :aria-pressed="view === 'scene'" @click="view = 'scene'">
+              <AppIcon name="plantings" />三维农场
+            </button>
             <button
               :aria-pressed="view === 'overview'"
               @click="view = 'overview'"
@@ -430,8 +441,8 @@ onBeforeUnmount(() => {
             >
               <AppIcon name="plantings" />智能农情
             </button>
-            <button :aria-pressed="view === 'scene'" @click="view = 'scene'">
-              <AppIcon name="cube" />3D 农场
+            <button :aria-pressed="view === 'tour'" @click="view = 'tour'">
+              <AppIcon name="cube" />农场导览
             </button>
           </nav>
           <p :title="readSummary">
@@ -446,7 +457,7 @@ onBeforeUnmount(() => {
                   ? "正在读取农场数据"
                   : "尚未读取数据"
             }}<span class="display-refresh-note">{{
-              loading ? "分项更新中" : "每 60 秒更新"
+              loading ? "分项更新中" : "三维设备 5 秒 / 其他 60 秒更新"
             }}</span>
           </p>
         </div>
@@ -468,7 +479,40 @@ onBeforeUnmount(() => {
           请选择当前账号有权访问的农场。
         </div>
         <template v-else>
-          <template v-if="view === 'overview'">
+          <FarmScene
+            v-if="view === 'scene'"
+            :key="farmId"
+            :geometry="map"
+            :zones="spatial?.zones || []"
+            :jobs="spatial?.jobs || []"
+            :spatial-read-at="resourceStates.spatial?.readAt || ''"
+            :role="role"
+            @refresh="refresh()"
+            :plots="workspace?.plots || []"
+            :farm-name="farm?.name"
+            :selected-plot="selectedPlot"
+            @plot="selectedPlot = $event"
+            @satellite="view = 'overview'"
+          >
+            <template #summary>
+              <article v-for="fact in facts.slice(0, 3)" :key="fact.title">
+                <span>{{ fact.title }}</span>
+                <p>
+                  <strong>{{ numberText(fact.value) }}</strong> {{ fact.unit }}
+                </p>
+                <small>{{ fact.note }}</small>
+              </article>
+            </template>
+            <div v-if="plot" class="farm-landscape-detail">
+              <strong>{{ plot.name }}</strong>
+              <p>
+                {{ plot.crop || "未填写作物" }} /
+                {{ numberText(plot.areaMu) }} 亩
+              </p>
+              <button @click="navigate('plots')">查看地块资料</button>
+            </div>
+          </FarmScene>
+          <template v-else-if="view === 'overview'">
             <section class="display-facts" aria-label="农场关键数据">
               <article v-for="fact in facts" :key="fact.title">
                 <div>
