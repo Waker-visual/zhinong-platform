@@ -4,7 +4,9 @@ Unity 6000.6.5f1，Built-in Render Pipeline，WebGL 2。生成入口：`Assets/E
 
 `FarmScene.cs` 创建裁剪到登记边界的作物行、田埂、起伏远景、灌渠、围栏和温室。场景使用米制比例（1 单位 = 1 米），由登记经纬度换算，无实测高程，不用于测绘。环境建筑不对应经营资产登记。
 
-本机预览还从用户提供的 CleverFarm 捕获包恢复树木、拖拉机、仓库、粮仓和气象站网格及材质，以便对照原站质量。来源：https://virtual.cleverfarm.ag/ ，捕获日期 2026-10-13。原模型版权归原权利人，捕获包未附授权许可；恢复数据、材质和构建产物均不提交 Git。`ReferenceImporter` 仅在本机存在 `private-materials/_reference-models/manifest.json` 时导入；缺少参考模型时使用程序化示意资产。公开发布前需替换为自有/获授权模型或取得原模型的发布授权。
+本机预览还从用户提供的 CleverFarm 捕获包恢复树木、拖拉机、仓库、粮仓和气象站网格及材质，以便对照原站质量。来源：https://virtual.cleverfarm.ag/ ，捕获日期 2026-10-13。原模型版权归原权利人，原始捕获包未附授权文本；2026-10-14 项目维护者确认已取得模型及卫星纹理的公开分发授权。恢复数据、材质和构建产物不提交 Git，当前已编译开发包通过 Release 附件提供；来源和授权依据见 [WebGL资产来源说明](../../docs/WebGL资产来源说明.md)。`ReferenceImporter` 仅在本机存在 `private-materials/_reference-models/manifest.json` 时导入；缺少参考模型时使用程序化示意资产。
+
+无需 Unity 的协作者可下载完整 WebGL Build，校验后解压到仓库，再正常构建前后端。下载与启动步骤见 [WebGL开发包使用指南](../../docs/WebGL开发包使用指南.md)。
 
 恢复步骤：使用安装了 UnityPy 的 Python 环境运行 `scripts/extract-farm-reference.py --source '<解压后的 UnityWebData 路径>'`，再运行场景构建。模型生成在被忽略的 `Assets/Resources/ReferenceFarm` 中，来源记录随模型保存。程序不会上传捕获材料，也不复用参考网站的商标与业务文本。
 

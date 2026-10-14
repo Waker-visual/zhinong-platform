@@ -51,5 +51,6 @@ unity/FarmScene/Assets/Resources/ReferenceFarm/
 unity/FarmScene/Assets/Resources/ReferenceFarm.meta
 frontend/public/farm-scene/Build/
 frontend/public/farm-scene/TemplateData/
+/farm-scene-manifest.json
 unity/FarmScene/Assets/Resources/SatelliteImagery/
 unity/FarmScene/Assets/Resources/SatelliteImagery.meta
