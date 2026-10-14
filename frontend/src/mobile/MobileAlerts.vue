@@ -1,7 +1,7 @@
 <script setup>
-import { computed, ref, watch } from "vue";
 import AppIcon from "../ui/AppIcon.vue";
 import { time } from "./client.mjs";
+import { useAlertState } from "./alert-state.mjs";
 
 const props = defineProps({
   alerts: { type: Array, default: () => [] },
@@ -11,48 +11,8 @@ const props = defineProps({
   locked: Boolean,
 });
 const emit = defineEmits(["close", "changed", "device"]);
-const selectedId = ref("");
-const note = ref("");
-const busy = ref(false);
-const error = ref("");
-const canHandle = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
-const selected = computed(() => props.alerts.find((alert) => alert.id === selectedId.value) || null);
-
-function syncSelection(alerts = props.alerts) {
-  if (props.initialId && alerts.some((alert) => alert.id === props.initialId)) {
-    selectedId.value = props.initialId;
-  } else if (!alerts.some((alert) => alert.id === selectedId.value)) {
-    selectedId.value = alerts[0]?.id || "";
-  }
-}
-watch(() => props.alerts, syncSelection, { immediate: true });
-watch(() => props.initialId, () => syncSelection());
-
-function select(alert) {
-  selectedId.value = alert.id;
-  note.value = "";
-  error.value = "";
-}
-
-async function handle(status) {
-  if (!selected.value || busy.value || props.locked || !canHandle.value) return;
-  const text = note.value.trim();
-  if (!text) {
-    error.value = status === "RESOLVED" ? "请先写明处理结果，再关闭告警。" : "请补充确认说明，方便电脑端继续跟进。";
-    return;
-  }
-  busy.value = true;
-  error.value = "";
-  try {
-    await props.client.request(`/alerts/${selected.value.id}`, "PATCH", { status, note: text });
-    note.value = "";
-    emit("changed");
-  } catch (e) {
-    if (!e.stale) error.value = e.message;
-  } finally {
-    busy.value = false;
-  }
-}
+const { selectedId, selected, note, busy, error, canHandle, select, handle } =
+  useAlertState(props, () => emit("changed"));
 </script>
 
 <template>
@@ -72,7 +32,7 @@ async function handle(status) {
       </p>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <div v-if="alerts.length" class="alert-list" aria-label="告警列表">
-        <button v-for="alert in alerts" :key="alert.id" class="alert-item" type="button" :aria-pressed="selectedId === alert.id" @click="select(alert)">
+        <button v-for="alert in alerts" :key="alert.id" class="alert-item" type="button" :aria-pressed="selectedId === alert.id" :disabled="busy" @click="select(alert)">
           <span class="alert-severity" aria-hidden="true"></span>
           <span class="alert-copy">
             <strong>{{ alert.deviceName || "设备告警" }}</strong>
@@ -100,7 +60,7 @@ async function handle(status) {
         <template v-if="canHandle">
           <label class="alert-note">
             处理说明
-            <textarea v-model="note" rows="3" maxlength="300" placeholder="例如：已通知田间人员前往查看"></textarea>
+            <textarea v-model="note" rows="3" maxlength="300" :disabled="busy" placeholder="例如：已通知田间人员前往查看"></textarea>
           </label>
           <div class="button-row">
             <button type="button" :disabled="busy || locked" @click="handle('ACKNOWLEDGED')">{{ busy ? "保存中…" : "确认告警" }}</button>

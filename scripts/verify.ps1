@@ -34,6 +34,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '大屏卫星地图坐标测试未通过' }
         node --test src/workspace/tile-request.test.js
         if ($LASTEXITCODE -ne 0) { throw '卫星瓦片并发与取消测试未通过' }
+        node --test src/mobile/alert-state.test.js
+        if ($LASTEXITCODE -ne 0) { throw '手机告警选择与异步保存测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }
