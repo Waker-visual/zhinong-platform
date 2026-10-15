@@ -503,7 +503,7 @@ public class FarmService {
           "measured_value",
           value,
           "measured_at",
-          store.dialect().mysql() ? time.atZone(java.time.ZoneId.systemDefault()).withZoneSameInstant(java.time.ZoneOffset.UTC).toLocalDateTime() : time,
+          store.sql().mysql() ? time.atZone(java.time.ZoneId.systemDefault()).withZoneSameInstant(java.time.ZoneOffset.UTC).toLocalDateTime() : time,
           "source",
           source
         )

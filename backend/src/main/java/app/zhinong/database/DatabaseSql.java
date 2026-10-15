@@ -4,11 +4,15 @@ import java.util.*;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
-/** Only identifiers owned by application code may be passed to these helpers. */
+/** The SQL that differs between H2 and MySQL 8. Only identifiers owned by application code may be passed to these helpers. */
 @Component
 public class DatabaseSql {
   private final boolean mysql;
-  public DatabaseSql(Environment env) { mysql = env.getProperty("spring.datasource.url", "").startsWith("jdbc:mysql:"); }
+  public DatabaseSql(Environment env) {
+    String url = env.getProperty("spring.datasource.url", "");
+    mysql = url.startsWith("jdbc:mysql:");
+    if (!mysql && !url.startsWith("jdbc:h2:")) throw new IllegalArgumentException("仅支持 H2 或 MySQL 8 数据库");
+  }
   public boolean mysql() { return mysql; }
   /** Use the same business zone (FarmClock) for date buckets and the caller's time-window boundaries. */
   public String calendarDate(String column, java.time.ZoneId zone) {
