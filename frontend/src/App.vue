@@ -1063,6 +1063,10 @@ onUnmounted(() => {
           无法连接本地服务，页面上的数据可能不是最新的。
           <button class="text-button" :disabled="refreshDisabled" @click="refreshActive">重新连接</button>
         </p>
+        <p v-else-if="connection.state === 'slow'" role="status" class="connection-slow">
+          本地服务响应超时，可能仍在处理；页面上的部分数据可能未更新。
+          <button class="text-button" :disabled="refreshDisabled" @click="refreshActive">重新读取</button>
+        </p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <FarmBriefing
           v-if="!platform && ['daily', 'operations'].includes(page)"

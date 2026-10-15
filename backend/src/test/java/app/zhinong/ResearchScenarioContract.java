@@ -202,6 +202,29 @@ abstract class ResearchScenarioContract {
     assertFalse(call(token,"GET","/ai/irrigation?farmId="+id,null,200).path("policies").isEmpty());
   }
 
+  @Test void counterCheckStillReportsAResetAndStaysWithinTheFarm() throws Exception {
+    String token=login("demo-a","admin"),id=farm(),t=tenant();
+    String pump=db.queryForObject("""
+      SELECT d.id FROM devices d JOIN device_channels c ON c.tenant_id=d.tenant_id AND c.device_id=d.id
+      WHERE d.tenant_id=? AND d.farm_id=? AND c.metric='ENERGY' ORDER BY d.id LIMIT 1
+      """,String.class,t,id);
+    String reading=UUID.randomUUID().toString();var at=OffsetDateTime.now(ZoneOffset.UTC).withNano(0);
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'ENERGY',0,?,?,'SIMULATED')",
+      reading,t,pump,at,at);
+    try {
+      var report=call(token,"GET","/farms/"+id+"/research-data",null,200);
+      assertEquals(1,report.at("/checks/decreasingCounters").asInt(),report.toString());
+      assertFalse(report.path("consistent").asBoolean());
+      for(var other:call(token,"GET","/farm-workspaces",null,200)) if(!other.path("id").asText().equals(id)) {
+        var neighbour=call(token,"GET","/farms/"+other.path("id").asText()+"/research-data",null,200);
+        if(neighbour.path("available").asBoolean()) assertEquals(0,neighbour.at("/checks/decreasingCounters").asInt(),"a reset is counted only on its own farm");
+      }
+    } finally {
+      db.update("DELETE FROM telemetry_readings WHERE tenant_id=? AND id=?",t,reading);
+    }
+    assertTrue(call(token,"GET","/farms/"+id+"/research-data",null,200).path("consistent").asBoolean());
+  }
+
   @Test void startupReadinessPreventsPrematureEmptyBusinessResponses() throws Exception {
     assertTrue(call(null,"GET","/health",null,200).path("ready").asBoolean());
     org.springframework.boot.availability.AvailabilityChangeEvent.publish(context,org.springframework.boot.availability.ReadinessState.REFUSING_TRAFFIC);

@@ -37,4 +37,14 @@ public class DatabaseSql {
     return base + " ON DUPLICATE KEY UPDATE " + Arrays.stream(names).filter(n -> !keySet.contains(n))
       .map(n -> n + "=VALUES(" + n + ")").collect(java.util.stream.Collectors.joining(","));
   }
+  /**
+   * H2 2.2 picks the two-column foreign-key index for telemetry even when a longer index
+   * matches every equality column, then reads and sorts a device's whole history. Pinning
+   * the index and spelling out its column order lets H2 seek the first row. MySQL plans
+   * these lookups itself, so it gets no hint.
+   */
+  public String useIndex(String index) {
+    if (!index.matches("[a-z_]+")) throw new IllegalArgumentException("Invalid SQL identifier");
+    return mysql ? "" : " USE INDEX (" + index + ")";
+  }
 }

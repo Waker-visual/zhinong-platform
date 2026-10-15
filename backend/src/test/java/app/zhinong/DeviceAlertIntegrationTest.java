@@ -196,6 +196,35 @@ class DeviceAlertIntegrationTest {
       "reading a saved incident must not rewrite its updated time");
   }
 
+  @Test void alertReadsAreSideEffectFreeForFarmAndTenantScopes() throws Exception {
+    var device = device("HTTP_PUSH"); String id = device.get("id"), farm = device.get("farm");
+    age(id, 600);
+    // Without a baseline the old read-triggered scan also wrote a first-observation audit row.
+    db.update("DELETE FROM audit_events WHERE tenant_id=? AND resource_id=?", tenant, id);
+    long before = audits();
+    assertEquals(0, saved(farm).size(), "reading must not run the health scan");
+    call(admin, "GET", "/alerts", null, 200);
+    call(viewer, "GET", "/alerts?status=ALL", null, 200);
+    call(viewer, "GET", "/alerts?farmId=" + farm + "&status=OPEN", null, 200);
+    assertEquals(0, count(id, "OFFLINE", true), "a GET must not open incidents");
+    assertEquals(before, audits(), "a GET must not write monitor audit rows");
+
+    monitor.scanTenant(tenant); // DeviceAlertTicker's entry point
+    var opened = saved(farm);
+    assertEquals(1, opened.size());
+    assertEquals("OFFLINE", opened.get(0).path("kind").asText());
+    String alertId = opened.get(0).path("id").asText();
+    var updated = db.queryForObject("SELECT updated_at FROM device_alerts WHERE tenant_id=? AND id=?", OffsetDateTime.class, tenant, alertId);
+    long after = audits();
+    assertTrue(call(admin, "GET", "/alerts", null, 200).findValuesAsText("id").contains(alertId), "tenant-wide reads return saved incidents");
+    saved(farm);
+    assertEquals(updated, db.queryForObject("SELECT updated_at FROM device_alerts WHERE tenant_id=? AND id=?", OffsetDateTime.class, tenant, alertId),
+      "reading a saved incident must not refresh it");
+    assertEquals(after, audits());
+    call(other, "GET", "/alerts?farmId=" + farm, null, 404);
+    assertFalse(call(other, "GET", "/alerts", null, 200).findValuesAsText("id").contains(alertId), "another tenant never sees the incident");
+  }
+
   long count(String id, String metric, boolean history) {
     return db.queryForObject("SELECT COUNT(*) FROM device_alerts WHERE tenant_id=? AND device_id=? AND metric=?" + (history ? "" : " AND status<>'RESOLVED'"), Long.class, tenant, id, metric);
   }
@@ -203,7 +232,10 @@ class DeviceAlertIntegrationTest {
     db.update("UPDATE asset_profiles SET last_received_at=? WHERE tenant_id=? AND device_id=?", OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(seconds), tenant, id);
     db.update("UPDATE audit_events SET occurred_at=? WHERE tenant_id=? AND resource_id=? AND action='SAVE_ASSET'", java.sql.Timestamp.from(Instant.now().minusSeconds(seconds)), tenant, id);
   }
-  JsonNode alerts(String farm) throws Exception { return call(admin, "GET", "/alerts?farmId=" + farm, null, 200); }
+  /** Production order: the scheduled health scan saves incidents, then GET only reads them. */
+  JsonNode alerts(String farm) throws Exception { monitor.scanFarm(tenant, farm); return saved(farm); }
+  JsonNode saved(String farm) throws Exception { return call(admin, "GET", "/alerts?farmId=" + farm, null, 200); }
+  long audits() { return db.queryForObject("SELECT COUNT(*) FROM audit_events WHERE tenant_id=?", Long.class, tenant); }
   Map<String, Object> reading(String metric, int value) { return Map.of("metric", metric, "value", value); }
   void ingest(String id, Instant at, List<Map<String, Object>> readings) throws Exception {
     String key = call(admin, "POST", "/assets/" + id + "/credentials", null, 200).path("key").asText();

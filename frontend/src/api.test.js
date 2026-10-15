@@ -123,6 +123,41 @@ test("the request timeout also bounds a stalled response body", async (t) => {
     (error) =>
       error.status === 0 && /超时/.test(error.message) && !error.cancelled,
   );
+  // Headers arrived, so the service is up; a slow body is a timeout, not an outage.
+  assert.equal(connection.state, "slow");
+  assert.equal(connection.inflight, 0);
+});
+
+test("a slow request is reported as a timeout, never as offline", async (t) => {
+  browserSession(t);
+  t.mock.method(globalThis, "fetch", async (_url, { signal }) =>
+    new Promise((_, reject) =>
+      signal.addEventListener("abort", () => reject(abortError()), { once: true }),
+    ),
+  );
+  await assert.rejects(
+    api("/alerts", "GET", undefined, { timeoutMs: 10 }),
+    (error) => error.status === 0 && /超时/.test(error.message) && !/无法连接/.test(error.message),
+  );
+  assert.equal(connection.state, "slow");
+  assert.equal(connection.inflight, 0);
+
+  t.mock.method(globalThis, "fetch", async () => ({ status: 200, ok: true, json: async () => [] }));
+  assert.deepEqual(await api("/alerts"), []);
+  assert.equal(connection.state, "online", "the next response clears the timeout state");
+});
+
+test("a refused connection or gateway outage is still offline", async (t) => {
+  browserSession(t);
+  t.mock.method(globalThis, "fetch", async () => {
+    throw new TypeError("Failed to fetch");
+  });
+  await assert.rejects(api("/alerts"), (error) => error.status === 0 && /无法连接/.test(error.message));
+  assert.equal(connection.state, "offline");
+
+  connection.state = "online";
+  t.mock.method(globalThis, "fetch", async () => ({ status: 504, ok: false, json: async () => ({}) }));
+  await assert.rejects(api("/alerts"), (error) => error.status === 504);
   assert.equal(connection.state, "offline");
   assert.equal(connection.inflight, 0);
 });

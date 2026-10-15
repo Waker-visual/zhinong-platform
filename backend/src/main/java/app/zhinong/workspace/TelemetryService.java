@@ -61,8 +61,10 @@ public class TelemetryService {
       db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE", tenant, id);
       // Recheck scope and user edits after taking the same lock as device mutations.
       if (db.queryForList(eligible + " AND d.id=?", String.class, tenant, farm, id).isEmpty()) continue;
-      var latest = db.queryForObject("SELECT MAX(measured_at) FROM telemetry_readings WHERE tenant_id=? AND device_id=?",
-        OffsetDateTime.class, tenant, id);
+      // An index seek, not MAX() over the device history: this runs every minute while holding the device lock.
+      var latest = db.queryForList("SELECT measured_at FROM telemetry_readings" + store.sql().useIndex("ix_telemetry_device_time")
+        + " WHERE tenant_id=? AND device_id=? ORDER BY tenant_id,device_id,measured_at DESC LIMIT 1",
+        OffsetDateTime.class, tenant, id).stream().findFirst().orElse(null);
       if (latest != null && latest.toInstant().isAfter(Instant.now().minusSeconds(55))) continue;
       write(tenant, id, Instant.now(), simulatedReadings(tenant, id), "SIMULATED", "DEMO_SIMULATOR");
     }
@@ -321,11 +323,13 @@ public class TelemetryService {
     }
   }
 
-  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+  /**
+   * GET is side-effect free: device writes and DeviceAlertTicker maintain the committed incidents.
+   * A tenant-wide scan here took longer than the browser timeout and contended for device locks.
+   */
+  @Transactional(readOnly = true)
   public List<Map<String, Object>> alerts(String farmId, String status) {
-    String tenant = alertScope(farmId, status);
-    monitor.scanFarm(tenant, farmId);
-    return readAlerts(tenant, farmId, status);
+    return readAlerts(alertScope(farmId, status), farmId, status);
   }
 
   /** Dashboard reads consume the committed monitor snapshot without spawning farm-wide writes. */

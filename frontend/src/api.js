@@ -4,7 +4,8 @@ import { createSseParser } from "./ai/sse-parser.js";
 // Node 中的适配器测试不提供浏览器存储；导入模块本身不应要求浏览器环境。
 let token = typeof sessionStorage === "undefined" ? "" : sessionStorage.getItem("zhinong-session") || "";
 
-// 与本地服务的真实连接状态，供顶栏状态胶囊显示：收到任何 HTTP 响应即视为在线
+// 与本地服务的真实连接状态，供顶栏状态胶囊显示：收到任何 HTTP 响应即视为在线；
+// 连接失败或网关 502/503/504 为 offline，请求超时为 slow（服务可能仍在处理，不等于离线）
 export const connection = reactive({
   state: "unknown",
   lastSync: null,
@@ -51,9 +52,11 @@ function transportFailure(error, signal, timedOut, trackConnection = true) {
     cancelled.cancelled = true;
     return cancelled;
   }
-  if (trackConnection) connection.state = "offline";
+  // A timeout only says this request took too long; the service may still be working on it.
+  // Showing it as offline told users to restart a healthy service during slow reads.
+  if (trackConnection) connection.state = timedOut ? "slow" : "offline";
   return timedOut || error?.name === "AbortError"
-    ? failure("请求超时，请检查本地服务是否运行", 0)
+    ? failure("请求超时，本地服务可能仍在处理，请稍后重试", 0)
     : failure("无法连接本地服务，请确认服务已启动后重试", 0);
 }
 
