@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.OffsetDateTime;
 import java.util.*;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -16,15 +17,25 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/ai")
 public class AiConversations {
   private final Store store; private final JdbcTemplate db; private final LlmGateway llm;
-  private final AgronomyAnalysis analysis; private final ObjectMapper json;
-  public AiConversations(Store store,JdbcTemplate db,LlmGateway llm,AgronomyAnalysis analysis,ObjectMapper json) {
-    this.store=store;this.db=db;this.llm=llm;this.analysis=analysis;this.json=json;
+  private final AgronomyAnalysis analysis; private final ObjectMapper json; private final AiContextSnapshotResolver snapshots;
+  @Autowired
+  public AiConversations(Store store,JdbcTemplate db,LlmGateway llm,AgronomyAnalysis analysis,ObjectMapper json,AiContextSnapshotResolver snapshots) {
+    this.store=store;this.db=db;this.llm=llm;this.analysis=analysis;this.json=json;this.snapshots=snapshots;
   }
-  public record NewChat(@NotBlank String farmId) {}
+  AiConversations(Store store,JdbcTemplate db,LlmGateway llm,AgronomyAnalysis analysis,ObjectMapper json) {
+    this(store,db,llm,analysis,json,new AiContextSnapshotResolver(store,db));
+  }
+  public record NewChat(@NotBlank String farmId,@Pattern(regexp="floating") String surface) {
+    public NewChat(String farmId) { this(farmId,null); }
+  }
   public record BranchRequest(@NotBlank String messageId) {}
   public record RenameRequest(@NotBlank @Size(max=40) String title) {}
   public record PinRequest(boolean pinned) {}
-  public record Question(@NotBlank @Size(max=2000) String question,@NotBlank @Pattern(regexp="[A-Za-z0-9_.:-]{1,80}") String requestId) {}
+  public record Question(@NotBlank @Size(max=2000) String question,@NotBlank @Pattern(regexp="[A-Za-z0-9_.:-]{1,80}") String requestId,
+    @Pattern(regexp="daily|operations|dashboard|cameras|devices|plots|plantings|tasks|production|ai|display|simulation") String pageId,
+    @Pattern(regexp="device|plot|task|camera") String focusType,@Size(max=80) String focusId) {
+    public Question(String question,String requestId) { this(question,requestId,null,null,null); }
+  }
   // Safe, already-completed activity summary; never raw prompts, tool arguments or credentials.
   public record ActivitySummary(@NotBlank @Size(max=80) String activityId,int sequenceNo,
     @NotBlank @Pattern(regexp="context|tool|source|approval|task") String kind,
@@ -37,17 +48,28 @@ public class AiConversations {
   @GetMapping("/conversations") public List<Map<String,Object>> list(@RequestParam String farmId) {
     store.get("farms",farmId);
     return db.queryForList(
-      "SELECT id AS \"id\",title AS \"title\",title_source AS \"titleSource\",pinned_at AS \"pinnedAt\",created_at AS \"createdAt\",updated_at AS \"updatedAt\" "
+      "SELECT id AS \"id\",title AS \"title\",title_source AS \"titleSource\",pinned_at AS \"pinnedAt\",surface AS \"surface\",created_at AS \"createdAt\",updated_at AS \"updatedAt\" "
       +"FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? "
       +"ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,pinned_at DESC,updated_at DESC LIMIT 50",
       Identity.tenant(),Identity.current().memberId(),farmId);
   }
   @PostMapping("/conversations") @Transactional public Map<String,Object> create(@RequestBody @Valid NewChat input) {
     store.lock("farms",input.farmId());
-    if (list(input.farmId()).size()>=50) throw new ApiException(409,"每个农场最多保留50个对话，请先删除旧对话");
+    String tenant=Identity.tenant(), member=Identity.current().memberId();
+    if (input.surface()!=null) {
+      var existing=db.queryForList("SELECT id AS \"id\",title AS \"title\",surface AS \"surface\" FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? AND surface=?",tenant,member,input.farmId(),input.surface());
+      if (!existing.isEmpty()) return existing.getFirst();
+    } else if (list(input.farmId()).stream().filter(row -> row.get("surface")==null).count() + 1 > 50) {
+      throw new ApiException(409,"每个农场最多保留50个对话，请先删除旧对话");
+    }
     String id=UUID.randomUUID().toString(); var now=OffsetDateTime.now();
-    db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,title_source,created_at,updated_at) VALUES(?,?,?,?,?,'auto',?,?)",id,Identity.tenant(),Identity.current().memberId(),input.farmId(),"新的农事对话",now,now);
-    return Map.of("id",id,"title","新的农事对话");
+    try {
+      db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,surface,title_source,created_at,updated_at) VALUES(?,?,?,?,?,?,\'auto\',?,?)",id,tenant,member,input.farmId(),"新的农事对话",input.surface(),now,now);
+    } catch (org.springframework.dao.DataIntegrityViolationException duplicate) {
+      if (input.surface()!=null) return db.queryForMap("SELECT id AS \"id\",title AS \"title\",surface AS \"surface\" FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? AND surface=?",tenant,member,input.farmId(),input.surface());
+      throw duplicate;
+    }
+    return Map.of("id",id,"title","新的农事对话","surface",input.surface()==null?"":input.surface());
   }
   // 重命名：行内编辑提交后调用，1–40字（@Size 已校验最大长度，这里再拦截 trim 后的空标题）；
   // title_source 切到 'user'，之后自动标题（阶段F新对话首问）永远不会再覆盖它。
@@ -115,8 +137,8 @@ public class AiConversations {
     String newId=UUID.randomUUID().toString();var now=OffsetDateTime.now();
     String original=chat.get("TITLE").toString();String suffix="（分支）";
     String newTitle=original.length()+suffix.length()>80?original.substring(0,80-suffix.length())+suffix:original+suffix;
-    db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
-      newId,tenant,Identity.current().memberId(),chat.get("FARM_ID"),newTitle,now,now);
+    db.update("INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,surface,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+      newId,tenant,Identity.current().memberId(),chat.get("FARM_ID"),newTitle,null,now,now);
     var newMessageId=new LinkedHashMap<String,String>();
     for(var m:toCopy) {
       String copyId=UUID.randomUUID().toString();
@@ -147,7 +169,8 @@ public class AiConversations {
     var history=messages(id);
     if(history.size()>=200) throw new ApiException(409,"此对话已达100轮，请新建对话");
     var report=analysis.report(chat.get("FARM_ID").toString());
-    var context=buildContext(report,history,input.question());
+    var snapshot=snapshots.resolve(chat.get("FARM_ID").toString(),input.pageId(),input.focusType(),input.focusId());
+    var context=buildContext(report,history,input.question(),snapshot);
     var completion=llm.complete(context,List.of()).filter(r -> r.content()!=null && !r.content().isBlank());
     String mode=completion.isPresent()?"llm":"rule";
     String answer=completion.map(LlmGateway.LlmResponse::content).orElseGet(() -> fallback(report));
@@ -198,7 +221,8 @@ public class AiConversations {
     var history=messages(id);
     if(history.size()>=200) throw new ApiException(409,"此对话已达100轮，请新建对话");
     var report=analysis.report(chat.get("FARM_ID").toString());
-    var context=buildContext(report,history,input.question());
+    var snapshot=snapshots.resolve(chat.get("FARM_ID").toString(),input.pageId(),input.focusType(),input.focusId());
+    var context=buildContext(report,history,input.question(),snapshot);
     boolean firstMessage=history.isEmpty();
     String fallbackTitle=firstMessage?input.question().strip().substring(0,Math.min(16,input.question().strip().length())):null;
     boolean autoTitleEligible=firstMessage && "auto".equals(String.valueOf(chat.get("TITLE_SOURCE")));
@@ -251,8 +275,12 @@ public class AiConversations {
   /** Same rule-fallback text as the sync path; exposed so the stream path marks mode=rule identically. */
   String fallbackAnswer(Map<String,Object> report) { return fallback(report); }
 
-  private List<Map<String,Object>> buildContext(Map<String,Object> report,List<Map<String,Object>> history,String question) {
+  private List<Map<String,Object>> buildContext(Map<String,Object> report,List<Map<String,Object>> history,String question,AiContextSnapshotResolver.Snapshot snapshot) {
     var modelContext=new LinkedHashMap<>(report);
+    if (snapshot != null) {
+      modelContext.put("pageContext", snapshot.facts());
+      modelContext.put("pageContextNotice", snapshot.summary());
+    }
     // A counter's reset semantics are unknown. Exclude it from generative interpretation entirely.
     modelContext.put("weather",withoutRainCounter(report.get("weather")));
     modelContext.put("sensors",withoutRainCounter(report.get("sensors")));

@@ -10,6 +10,7 @@ import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import FarmAssistant from "./ai/FarmAssistant.vue";
+import FloatingAssistant from "./ai/FloatingAssistant.vue";
 import FarmBriefing from "./ai/FarmBriefing.vue";
 import AlertCenter from "./workspace/AlertCenter.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
@@ -78,8 +79,15 @@ const error = ref("");
 const busy = ref(false);
 const loading = ref(false);
 const farmAssistant = ref(null);
+const floatingAssistant = ref(null);
 const alertCenter = ref(null);
 const assistantQuestion = ref("");
+const assistantConversationId = ref("");
+const assistantFocus = computed(() => page.value === "devices"
+  ? { type: "device", id: ledgerFocus.value.deviceId }
+  : page.value === "cameras"
+    ? { type: "device", id: cameraFocus.value }
+    : {});
 const screenOpen = ref(false), screenOpening = ref(false), screenComponent = shallowRef(null);
 let displayOpener;
 const refreshingPage = ref(false);
@@ -415,6 +423,19 @@ async function dailyNavigate({ page: target, farmId, create }) {
   await navigate(target);
   if (create && canCreate.value) openForm();
 }
+async function openFullAssistant({ conversationId = "", question = "" } = {}) {
+  assistantConversationId.value = conversationId;
+  assistantQuestion.value = question;
+  await navigate({ page: "ai", farmId: farmScope.value });
+}
+async function openAssistantIrrigation(target = null) {
+  await navigate({ page: "ai", farmId: farmScope.value });
+  if (target?.type === "irrigation-run" && farmAssistant.value?.viewApproval) {
+    await farmAssistant.value.viewApproval(target);
+  } else if (farmAssistant.value) {
+    farmAssistant.value.openIrrigation();
+  }
+}
 async function askFromInsight({ farmId, question }) {
   if (farmAssistant.value?.sending) {
     toast("请先等待当前 AI 回答完成，或停止生成后再带入排查问题。");
@@ -592,6 +613,7 @@ function expire() {
   captureDevice.value = null;
   paletteOpen.value = false;
   assistantQuestion.value = "";
+  assistantConversationId.value = "";
   loading.value = false;
   ++loadSequence;
 }
@@ -1008,7 +1030,7 @@ onUnmounted(() => {
           @farm="launchFarm"
           @notice="message"
         />
-        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :page-refreshing="refreshingPage" @farm="launchFarm" @question-prepared="assistantQuestion = ''" />
+        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" :page-id="page" :focus="assistantFocus" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :initial-conversation-id="assistantConversationId" :page-refreshing="refreshingPage" @farm="launchFarm" @question-prepared="assistantQuestion = ''" @conversation-selected="assistantConversationId = ''" />
         <FieldCameras v-else-if="page === 'cameras'" :key="farmScope" :farm-id="farmScope" :initial-device-id="cameraFocus" :revision="moduleRevision" @manage="navigate({ page: 'devices', ...$event, cameraOnly: true })" />
         <OperationsOverview
           v-else-if="page === 'operations'"
@@ -1320,6 +1342,16 @@ onUnmounted(() => {
         <AppIcon name="more" /><span>更多</span>
       </button>
     </nav>
+    <FloatingAssistant
+      v-if="!platform && account && !account.mustChangePassword && farmScope"
+      :farm-id="farmScope"
+      :farm-name="farmRows.find(f => f.id === farmScope)?.name"
+      :page-id="page"
+      :focus="assistantFocus"
+      :role="role"
+      @open-full="openFullAssistant"
+      @irrigation="openAssistantIrrigation"
+    />
     <ConfirmDialog />
     <component
       :is="screenComponent"

@@ -8,8 +8,9 @@ const props = defineProps({
   compact: Boolean,
   disabled: Boolean,
   suggestedLabel: { type: String, default: '' },
+  interactive: { type: Boolean, default: true },
 });
-const emit = defineEmits(['suggest']);
+const emit = defineEmits(['suggest', 'activate']);
 const bubbleId = useId();
 const character = ref(null);
 const expanded = ref(true), playing = ref(false), greeting = ref('');
@@ -34,6 +35,11 @@ const words = computed(() => currentState.value === 'idle' && greeting.value
 const busy = computed(() => ['loading', 'thinking', 'answering'].includes(currentState.value));
 let greetingIndex = 0, playTimer, greetingTimer, alive = true;
 
+function handleCharacterClick() {
+  if (!props.interactive) return;
+  greet();
+  emit('activate');
+}
 async function greet() {
   expanded.value = true;
   clearTimeout(playTimer);
@@ -68,8 +74,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="sprout-companion" :class="{ 'is-compact': compact, 'is-playing': playing, 'is-folded': !expanded, 'is-busy': busy }" :data-state="currentState" aria-label="小禾农场助手">
-    <button ref="character" class="sprout-character" type="button" aria-label="和小禾打个招呼" :aria-expanded="expanded" :aria-controls="bubbleId" title="点点小禾，打个招呼" @click="greet">
+  <component :is="interactive ? 'section' : 'span'" class="sprout-companion" :class="{ 'is-compact': compact, 'is-playing': playing, 'is-folded': !expanded, 'is-busy': busy }" :data-state="currentState" :aria-label="interactive ? '小禾农场助手' : undefined" :aria-hidden="interactive ? undefined : 'true'">
+    <component :is="interactive ? 'button' : 'span'" ref="character" class="sprout-character" :type="interactive ? 'button' : undefined" :tabindex="interactive ? undefined : -1" :aria-label="interactive ? '和小禾打个招呼' : undefined" :aria-expanded="interactive ? expanded : undefined" :aria-controls="interactive ? bubbleId : undefined" :title="interactive ? '点点小禾，打个招呼' : undefined" :aria-hidden="interactive ? undefined : 'true'" @click="handleCharacterClick">
       <svg class="sprout-art" viewBox="0 0 150 168" aria-hidden="true" focusable="false">
         <ellipse class="sprout-ground" cx="76" cy="154" rx="33" ry="5" />
         <g class="sprout-figure">
@@ -100,9 +106,9 @@ onUnmounted(() => {
         </g>
       </svg>
       <span v-if="!compact" class="sprout-touch-hint">点点我，打个招呼</span>
-    </button>
+    </component>
 
-    <div v-if="expanded" :id="bubbleId" class="sprout-bubble">
+    <div v-if="interactive && expanded" :id="bubbleId" class="sprout-bubble">
       <div class="sprout-bubble-heading">
         <span class="sprout-name">小禾 <span>· 农场小助手</span></span>
         <button class="sprout-fold" type="button" aria-label="收起小禾对话框" :aria-controls="bubbleId" aria-expanded="true" title="收起对话框" @click="toggleBubble">
@@ -115,6 +121,6 @@ onUnmounted(() => {
         {{ suggestedLabel }}
       </button>
     </div>
-    <button v-else class="sprout-unfold" type="button" :aria-controls="bubbleId" aria-expanded="false" @click="toggleBubble">听小禾说 <span aria-hidden="true">···</span></button>
-  </section>
+    <button v-else-if="interactive" class="sprout-unfold" type="button" :aria-controls="bubbleId" aria-expanded="false" @click="toggleBubble">听小禾说 <span aria-hidden="true">···</span></button>
+  </component>
 </template>

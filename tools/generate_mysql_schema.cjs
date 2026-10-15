@@ -25,7 +25,10 @@ for (const raw of input.split(';').map(s=>s.trim()).filter(Boolean)) {
 const upgrades = [
   ['ai_conversations', 'COLUMNS', 'COLUMN_NAME', 'pinned_at', 'ADD COLUMN pinned_at TIMESTAMP(6) NULL'],
   ['ai_conversations', 'COLUMNS', 'COLUMN_NAME', 'title_source', "ADD COLUMN title_source VARCHAR(10) NOT NULL DEFAULT 'auto'"],
+  ['ai_conversations', 'COLUMNS', 'COLUMN_NAME', 'surface', 'ADD COLUMN surface VARCHAR(16) NULL'],
   ['ai_conversations', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'chk_ai_conversations_title_source', "ADD CONSTRAINT chk_ai_conversations_title_source CHECK(title_source IN ('auto','user'))"],
+  ['ai_conversations', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'chk_ai_conversations_surface', "ADD CONSTRAINT chk_ai_conversations_surface CHECK(surface IS NULL OR surface='floating')"],
+  ['ai_conversations', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'uq_ai_conversations_surface', 'ADD CONSTRAINT uq_ai_conversations_surface UNIQUE(tenant_id,member_id,farm_id,surface)'],
   ['ai_messages', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'uq_ai_messages_tenant', 'ADD CONSTRAINT uq_ai_messages_tenant UNIQUE(tenant_id,id)'],
   ['ai_irrigation_runs', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'uq_ai_irrigation_run_tenant', 'ADD CONSTRAINT uq_ai_irrigation_run_tenant UNIQUE(tenant_id,id)'],
   ['telemetry_readings', 'STATISTICS', 'INDEX_NAME', 'ix_telemetry_latest', 'ADD INDEX ix_telemetry_latest(tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC)'],

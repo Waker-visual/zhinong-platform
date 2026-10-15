@@ -19,8 +19,8 @@ import AiFollowUps from './AiFollowUps.vue';
 import { followUpContext, prepareFollowUp } from './follow-up-model.js';
 import { companionPresentation, companionTopics, prepareCompanionQuestion } from './companion-model.js';
 import { diagnosticLabels } from './diagnostics';
-const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, companionTarget: String });
-const emit = defineEmits(['farm', 'question-prepared']);
+const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, initialConversationId: String, pageId: String, focus: { type: Object, default: () => ({}) }, companionTarget: String });
+const emit = defineEmits(['farm', 'question-prepared', 'conversation-selected']);
 const contextPrepared = ref(false);
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
@@ -199,12 +199,15 @@ async function send(text=question.value) {
   let cancelled=false;
   activeCancel=()=>{if(run.value?.status==='completed') return; cancelled=true; question.value=text; companionOutcome.value='stopped'; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
   try {
-    if(!selected.value) {const c=await api('/ai/conversations','POST',{farmId:props.farmId});selected.value=c.id;addConversationRow(c);}
+    if(!selected.value) {
+      const c=await api('/ai/conversations','POST',{farmId:props.farmId});
+      selected.value=c.id; addConversationRow(c);
+    }
     const id=selected.value;
     if(!pendingRequest || pendingRequest.text!==text || pendingRequest.id!==id) pendingRequest={text,id,requestId:crypto.randomUUID()};
     run.value=createAgentRun(text,pendingRequest.requestId);
     await scrollToLatest();
-    for await (const event of defaultConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId,signal:controller.signal})) {
+    for await (const event of defaultConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId,pageId:props.pageId,focusType:props.focus?.type,focusId:props.focus?.id,signal:controller.signal})) {
       if(!alive || cancelled) break;
       if(event.type==='conversation.titled') { applyFreshTitle(event.conversationId,event.title); continue; }
       run.value=reduceAgentEvent(run.value,event);
@@ -285,8 +288,14 @@ const weatherCharts=computed(()=>[
   return {metric,label,unit,rows,latest:values.at(-1),delta:values.length>1?(values.at(-1)-values[0]).toFixed(1):null,
     points:values.map((v,i)=>`${10+i*260/Math.max(1,values.length-1)},${72-(v-lo)*50/range}`).join(' ')};
 }));
-defineExpose({refresh, refreshing, refreshBlocked, sending});
+defineExpose({ refresh, refreshing, refreshBlocked, sending, openIrrigation: () => { panel.value = 'irrigation'; } , viewApproval: onViewApproval });
 watch(()=>props.farmId,refresh,{immediate:true});
+watch(()=>props.initialConversationId, async value => {
+  if (!value || sending.value) return;
+  panel.value = 'chat';
+  await select(value);
+  emit('conversation-selected');
+}, { immediate: true });
 watch(()=>props.initialQuestion, async value => {
   if (!value || sending.value) return;
   panel.value = 'chat'; question.value = value.slice(0, 2000); contextPrepared.value = true;
@@ -325,7 +334,7 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;messageLoadVersion++;
                 @blur="commitRename(c.id)" @click.stop />
               <button v-else :disabled="interactionLocked" :aria-current="selected===c.id?'true':undefined" :title="`创建于 ${time(c.createdAt)}`"
                 @click="perform(()=>select(c.id))">
-                <span class="ai-history-title" :class="{fresh:freshlyTitledId===c.id}">{{c.title}}</span>
+                <span class="ai-history-title" :class="{fresh:freshlyTitledId===c.id}">{{c.title}}</span><span v-if="c.surface === 'floating'" class="ai-history-surface">小窗</span>
               </button>
               <AiHistoryMenu v-if="renamingId!==c.id" :pinned="!!c.pinnedAt" :label="`“${c.title}”的更多操作`"
                 @rename="onHistoryMenuAction(c,'rename')" @pin="onHistoryMenuAction(c,'pin')" @delete="onHistoryMenuAction(c,'delete')"
