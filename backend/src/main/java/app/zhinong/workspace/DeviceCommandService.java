@@ -148,7 +148,7 @@ public class DeviceCommandService {
       if (latest == null || !asset.get("protocol").equals(latest.get("source"))
           || !app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant().isAfter(Instant.now().minusSeconds(tolerance))
           || !bindings.isEmpty() && !app.zhinong.database.DatabaseTime.offset(latest.get("receivedAt")).toInstant()
-            .isAfter(app.zhinong.business.DatabaseTime.instant(bindings.getFirst().get("UPDATED_AT")))) {
+            .isAfter(app.zhinong.database.DatabaseTime.instant(bindings.getFirst().get("UPDATED_AT")))) {
         throw new ApiException(409, "缺少新鲜的" + MetricCatalog.get(metric).name() + "，请先采集确认；停止指令仍可提交");
       }
       int value = ((Number) latest.get("value")).intValue();
@@ -240,7 +240,7 @@ public class DeviceCommandService {
     var commands = rows.stream().map(row -> {
       var result = new LinkedHashMap<String, Object>();
       for (String field : List.of("id", "action", "value")) result.put(field, row.get(field));
-      for (String field : List.of("createdAt", "expiresAt")) result.put(field, app.zhinong.business.DatabaseTime.utc(row.get(field)));
+      for (String field : List.of("createdAt", "expiresAt")) result.put(field, app.zhinong.database.DatabaseTime.utc(row.get(field)));
       return result;
     }).toList();
     return Map.of("commands", commands);
