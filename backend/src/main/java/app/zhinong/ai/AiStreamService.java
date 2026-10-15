@@ -206,6 +206,23 @@ public class AiStreamService {
       );
       if (disconnected.get()) return;
 
+      // 页面资料来源：服务端已按当前农场重新解析页面范围（prepareStream），这里只把安全的标签与摘要
+      // 作为一条 source 活动发出并随回答落库，前端据此在回答下方显示“参考页面：……”。
+      ActivitySummary pageSource = null;
+      if (prep.pageSource() != null) {
+        activitySeq[0]++;
+        pageSource = AiConversations.sourceActivity(prep.pageSource(), activitySeq[0], contextStartedAt, contextFinishedAt);
+        send(
+          emitter,
+          AgentEvent.activityCompleted(
+            sequence.incrementAndGet(),
+            new AgentEvent.Activity(pageSource.activityId(), "source", pageSource.label(), "completed", null, pageSource.resultSummary(), contextStartedAt, contextFinishedAt)
+          ),
+          disconnected
+        );
+        if (disconnected.get()) return;
+      }
+
       // 新增一个贯穿“工具调用轮 + 最终生成轮”的任务活动，让“生成回答”本身的耗时和上面的
       // 读取资料耗时、下面每个工具查询各自的耗时区分开，摘要里的“用时”才有意义。
       OffsetDateTime answerStartedAt = OffsetDateTime.now();
@@ -307,6 +324,7 @@ public class AiStreamService {
       activities.add(
         new ActivitySummary(CONTEXT_ACTIVITY_ID, 1, "context", "读取当前农场资料", "completed", null, contextSummary, contextStartedAt, contextFinishedAt)
       );
+      if (pageSource != null) activities.add(pageSource);
       activities.addAll(toolActivities);
       activitySeq[0]++;
       activities.add(

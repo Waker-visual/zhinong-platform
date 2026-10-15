@@ -3,6 +3,7 @@ package app.zhinong.ai;
 import app.zhinong.api.ApiException;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -57,8 +58,7 @@ public class AiContextSnapshotResolver {
     if ("display".equals(pageId) || "simulation".equals(pageId)) {
       facts.remove("farm");
     }
-    String summary = focusId == null ? "已读取当前页面的限量资料" : "已读取当前页面及所选对象的限量资料";
-    return new Snapshot(facts, summary);
+    return new Snapshot("参考页面：" + PAGE_LABELS.get(pageId), facts, sourceSummary(facts));
   }
 
   private Map<String, Object> resolveFocus(String farmId, String pageId, String focusType, String focusId) {
@@ -77,5 +77,19 @@ public class AiContextSnapshotResolver {
     throw new ApiException(400, "当前页面不支持对象定位");
   }
 
-  public record Snapshot(Map<String, Object> facts, String summary) {}
+  /**
+   * 来源记录摘要：随回答持久化、在小窗和完整页回答下方展示，所以只写对象名称和计数，
+   * 不写读数、参数或任何原始快照字段。
+   */
+  private static String sourceSummary(Map<String, Object> facts) {
+    var parts = new ArrayList<String>();
+    if (facts.get("focus") instanceof Map<?, ?> focus && focus.get("NAME") != null) parts.add("已定位「" + focus.get("NAME") + "」");
+    if (facts.containsKey("openTasks")) parts.add("未完成任务 " + facts.get("openTasks") + " 项");
+    if (facts.containsKey("openIssues")) parts.add("待处理问题 " + facts.get("openIssues") + " 项");
+    String text = parts.isEmpty() ? "已读取当前页面的限量资料" : String.join("，", parts);
+    return text.length() > 200 ? text.substring(0, 200) : text;
+  }
+
+  /** label/summary 是可展示、可持久化的来源记录；facts 只进入本次模型请求，不落库。 */
+  public record Snapshot(String label, Map<String, Object> facts, String summary) {}
 }

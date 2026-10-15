@@ -341,6 +341,17 @@ test("cancelAgentRun marks pending/running activities as error, not completed", 
   assert.notEqual(cancelled.activities[0].status, "completed");
 });
 
+test("visibleMessages hides already-persisted rows of the same request while that run is still shown", () => {
+  const history = [
+    { id: "m1", role: "user", content: "之前的问题", requestId: "req-1" },
+    { id: "m2", role: "assistant", content: "之前的回答", requestId: "req-1" },
+    { id: "m3", role: "user", content: "新的问题", requestId: "req-9" },
+    { id: "m4", role: "assistant", content: "已落库的回答", requestId: "req-9" },
+  ];
+  const visible = visibleMessages(history, createAgentRun("新的问题", "req-9"));
+  assert.deepEqual(visible.map(m => m.id || (m.pending ? "run" : "question")), ["m1", "m2", "question", "run"]);
+});
+
 test("visibleMessages appends temporary user message and streaming placeholder without mutating history", () => {
   const history = [{ id: "m1", role: "user", content: "之前的问题" }, { id: "m2", role: "assistant", content: "之前的回答" }];
   const frozenHistory = JSON.parse(JSON.stringify(history));

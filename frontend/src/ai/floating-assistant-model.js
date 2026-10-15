@@ -26,6 +26,25 @@ export function prepareFloatingQuestion(draft, topic) {
   return { question: topic.question, changed: true };
 }
 
+// 发送前的“本次参考”文案：只描述意图范围；对象名称由服务端解析后写进来源记录，不在浏览器猜测。
+export function sourceScopeLabel(pageLabel, context = {}) {
+  const page = pageLabel || "当前页面";
+  return context.focusId ? `${page} · 当前所选对象` : page;
+}
+
+// 已保存回答里的页面资料来源记录（kind=source）。只取服务端写入的安全标签与摘要，
+// 老消息没有来源记录时返回空数组，界面不显示来源行。
+export function pageSources(activities) {
+  return (Array.isArray(activities) ? activities : [])
+    .filter(activity => (activity?.kind ?? activity?.KIND) === "source")
+    .map(activity => ({
+      id: String(activity.activityId ?? activity.ACTIVITY_ID ?? activity.id ?? "source"),
+      label: String(activity.label ?? activity.LABEL ?? ""),
+      summary: String(activity.resultSummary ?? activity.RESULT_SUMMARY ?? ""),
+    }))
+    .filter(source => source.label);
+}
+
 export function floatingSurfaceLabel(surface) {
   return surface === "floating" ? "小窗" : "";
 }

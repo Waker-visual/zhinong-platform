@@ -11,6 +11,7 @@ import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import FarmAssistant from "./ai/FarmAssistant.vue";
 import FloatingAssistant from "./ai/FloatingAssistant.vue";
+import { aiSession } from "./ai/ai-session.js";
 import FarmBriefing from "./ai/FarmBriefing.vue";
 import AlertCenter from "./workspace/AlertCenter.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
@@ -48,6 +49,8 @@ function readFarmScope() {
   try { return sessionStorage.getItem("zhinong-farm-scope") || ""; } catch { return ""; }
 }
 watch(farmScope, id => {
+  // 切换农场：中止共享 AI 会话里正在生成的回答并清空待重试请求，旧农场的回答不会落到新农场视图。
+  aiSession.reset();
   try { if(id) sessionStorage.setItem("zhinong-farm-scope",id); else sessionStorage.removeItem("zhinong-farm-scope"); } catch { /* Session storage is optional. */ }
 });
 const scopedPage = computed(() =>
@@ -438,7 +441,7 @@ async function openAssistantIrrigation(target = null) {
   }
 }
 async function askFromInsight({ farmId, question }) {
-  if (farmAssistant.value?.sending) {
+  if (aiSession.state.sending) {
     toast("请先等待当前 AI 回答完成，或停止生成后再带入排查问题。");
     return;
   }
@@ -598,6 +601,7 @@ async function signOut() {
   });
 }
 function expire() {
+  aiSession.reset();
   screenOpen.value = false;
   resetFeedback();
   setToken("");
@@ -1050,7 +1054,7 @@ onUnmounted(() => {
           @farm="launchFarm"
           @notice="message"
         />
-        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" :page-id="page" :focus="assistantFocus" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :initial-conversation-id="assistantConversationId" :page-refreshing="refreshingPage" @farm="launchFarm" @question-prepared="assistantQuestion = ''" @conversation-selected="assistantConversationId = ''" />
+        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :initial-conversation-id="assistantConversationId" :page-refreshing="refreshingPage" @farm="launchFarm" @question-prepared="assistantQuestion = ''" @conversation-selected="assistantConversationId = ''" />
         <FieldCameras v-else-if="page === 'cameras'" :key="farmScope" :farm-id="farmScope" :initial-device-id="cameraFocus" :revision="moduleRevision" @manage="navigate({ page: 'devices', ...$event, cameraOnly: true })" />
         <OperationsOverview
           v-else-if="page === 'operations'"
@@ -1364,6 +1368,7 @@ onUnmounted(() => {
     </nav>
     <FloatingAssistant
       v-if="!platform && account && !account.mustChangePassword && farmScope"
+      v-show="page !== 'ai'"
       :farm-id="farmScope"
       :farm-name="farmRows.find(f => f.id === farmScope)?.name"
       :page-id="page"

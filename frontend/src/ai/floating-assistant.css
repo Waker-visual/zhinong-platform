@@ -45,6 +45,7 @@
 .floating-assistant-notice { margin: 0 16px 5px; color: var(--label-fg); font-size: 11px; }
 .floating-assistant-composer { display: grid; grid-template-columns: minmax(0, 1fr) 34px; align-items: end; gap: 6px; margin: 0 12px; padding: 5px 5px 5px 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--input-bg); }
 .floating-assistant-composer:focus-within { border-color: var(--focus-ring); box-shadow: 0 0 0 2px var(--focus-ring); }
+.floating-assistant-composer textarea:focus-visible { outline: none; }
 .floating-assistant-composer textarea { width: 100%; min-height: 30px; max-height: 150px; padding: 5px 0; border: 0; outline: 0; resize: none; background: transparent; color: var(--text); font-size: 13px; line-height: 20px; }
 .floating-assistant-send { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--text); color: var(--surface); }
 .floating-assistant-send:disabled { background: var(--border-strong); }
@@ -56,11 +57,19 @@
 @media (max-width: 760px) {
   .floating-assistant { right: 12px; bottom: calc(76px + env(safe-area-inset-bottom)); }
   .floating-assistant-trigger { width: 48px; height: 48px; }
-  .floating-assistant-backdrop { position: fixed; inset: 0; display: block; background: rgb(12 20 16 / 42%); z-index: 0; }
+  .floating-assistant-backdrop { position: fixed; inset: 0; display: block; background: var(--backdrop); z-index: 0; }
   .floating-assistant-panel { position: fixed; right: 0; bottom: 0; z-index: 1; width: 100%; height: min(78dvh, 680px); height: min(78vh, 680px); max-height: calc(100dvh - 8px); max-height: calc(100vh - 8px); border-radius: var(--radius-lg) var(--radius-lg) 0 0; padding-bottom: env(safe-area-inset-bottom); }
   .floating-assistant-panel { height: min(var(--floating-viewport-height, 78dvh), 680px); max-height: calc(var(--floating-viewport-height, 100dvh) - 8px); }
   .floating-assistant-messages { padding: 14px; }
+  .floating-assistant-icon { width: 44px; height: 44px; }
+  .floating-assistant-context { min-height: 44px; }
+  .floating-assistant-footer { flex-wrap: wrap; padding-bottom: 8px; }
+  .floating-assistant-footer button { min-height: 44px; padding: 0 2px; font-size: 12px; }
+  .floating-assistant-send { width: 44px; height: 44px; }
+  .floating-assistant-composer { grid-template-columns: minmax(0, 1fr) 44px; }
+  .floating-assistant-composer textarea { min-height: 44px; padding: 12px 0; font-size: 16px; }
 }
+.floating-assistant-dot.is-error { background: var(--danger); }
 @media (prefers-reduced-motion: reduce) {
   .floating-assistant-backdrop { transition: none; }
 }

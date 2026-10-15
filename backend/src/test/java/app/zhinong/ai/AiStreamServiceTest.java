@@ -26,7 +26,7 @@ class AiStreamServiceTest {
   private static final AiConversations.Question QUESTION = new AiConversations.Question("今日农事", "test-request");
   private static AiConversations.PreparedRun replay() {
     return new AiConversations.PreparedRun("tenant", "farm", null, null, null, true,
-      "message", "已保存的回答", "rule", "NOT_CONFIGURED", List.of(), false);
+      "message", "已保存的回答", "rule", "NOT_CONFIGURED", List.of(), false, null);
   }
 
   private static final class QueuedExecutor extends AbstractExecutorService {

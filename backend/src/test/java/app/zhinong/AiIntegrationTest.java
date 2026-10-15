@@ -679,6 +679,79 @@ class AiIntegrationTest {
     assertFalse(replayedActivity.path("activity").path("resultSummary").asText().isBlank());
   }
 
+  @Test void floatingShortcutIsReusedPerMemberAndFarmWhileNormalChatsStayMultiple() throws Exception {
+    String shortcut = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200).path("id").asText();
+    assertEquals(shortcut, call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200).path("id").asText());
+    String operatorShortcut = call(operator, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200).path("id").asText();
+    assertNotEquals(shortcut, operatorShortcut, "different members never share a shortcut");
+    call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "sidebar"), 400);
+    String normalA = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    String normalB = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+    assertNotEquals(normalA, normalB);
+    var rows = call(admin, "GET", "/ai/conversations?farmId=" + farmId, null, 200);
+    long floating = 0;
+    for (JsonNode row : rows) if ("floating".equals(row.path("surface").asText())) floating++;
+    assertEquals(1, floating);
+
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("小窗回答。", List.of()));
+    call(admin, "POST", "/ai/conversations/" + shortcut + "/messages", Map.of("question", "小窗问题", "requestId", "floating-1"), 200);
+    String assistantId = call(admin, "GET", "/ai/conversations/" + shortcut + "/messages", null, 200).get(1).path("ID").asText();
+    String branched = call(admin, "POST", "/ai/conversations/" + shortcut + "/branch", Map.of("messageId", assistantId), 200).path("id").asText();
+    assertNull(db.queryForObject("SELECT surface FROM ai_conversations WHERE id=?", String.class, branched), "a branch is a normal conversation");
+    assertEquals(shortcut, call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200).path("id").asText());
+  }
+
+  @Test void pageSourceIsResolvedOnTheServerPersistedForBothPathsAndScopedToTheFarm() throws Exception {
+    String plot = call(admin, "POST", "/plots", Map.of("farmId", farmId, "name", "来源验收地", "crop", "番茄", "areaMu", 3), 200).path("ID").asText();
+    String otherFarm = call(otherAdmin, "POST", "/farms", Map.of("name", "其他租户农场-" + UUID.randomUUID(), "description", "虚构测试数据"), 200).path("ID").asText();
+    String foreignPlot = call(otherAdmin, "POST", "/plots", Map.of("farmId", otherFarm, "name", "其他租户地块", "crop", "蔬菜", "areaMu", 1), 200).path("ID").asText();
+    String sameTenantFarm = call(admin, "POST", "/farms", Map.of("name", "同租户另一农场-" + UUID.randomUUID(), "description", "虚构测试数据"), 200).path("ID").asText();
+    String otherFarmPlot = call(admin, "POST", "/plots", Map.of("farmId", sameTenantFarm, "name", "另一农场地块", "crop", "蔬菜", "areaMu", 1), 200).path("ID").asText();
+    String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200).path("id").asText();
+    llm.answer = Optional.of(new LlmGateway.LlmResponse("参考地块后的回答。", List.of()));
+
+    var events = streamEvents(admin, id, Map.of("question", "这块地要不要灌溉", "requestId", "source-stream-1", "pageId", "plots", "focusType", "plot", "focusId", plot), 200);
+    JsonNode source = java.util.Arrays.stream(events)
+      .filter(e -> "activity.completed".equals(e.path("type").asText()) && "source".equals(e.path("activity").path("kind").asText()))
+      .findFirst().orElseThrow();
+    assertEquals("参考页面：地块管理", source.path("activity").path("label").asText());
+    assertTrue(source.path("activity").path("resultSummary").asText().contains("来源验收地"));
+    assertTrue(llm.lastMessages.getFirst().get("content").toString().contains("来源验收地"), "model receives the server-resolved focus");
+    var persisted = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).get(1).path("activities");
+    JsonNode savedSource = null;
+    for (JsonNode a : persisted) if ("source".equals(a.path("KIND").asText())) savedSource = a;
+    assertNotNull(savedSource, "the stream path persists the page source record");
+    assertEquals("page-source", savedSource.path("ACTIVITY_ID").asText());
+    assertFalse(savedSource.path("RESULT_SUMMARY").asText().contains("areaMu"), "the source record never stores raw snapshot fields");
+
+    // Retrying the same requestId replays the stored source record without another model call.
+    int callsBefore = llm.calls.get();
+    var replay = streamEvents(admin, id, Map.of("question", "这块地要不要灌溉", "requestId", "source-stream-1", "pageId", "plots", "focusType", "plot", "focusId", plot), 200);
+    assertEquals(callsBefore, llm.calls.get());
+    assertTrue(java.util.Arrays.stream(replay).anyMatch(e -> "source".equals(e.path("activity").path("kind").asText())));
+
+    // Sync path writes the same record shape.
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "今天先做什么", "requestId", "source-sync-1", "pageId", "daily"), 200);
+    var syncActivities = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200).get(3).path("activities");
+    assertEquals(1, syncActivities.size());
+    assertEquals("参考页面：今日农场", syncActivities.get(0).path("LABEL").asText());
+    assertTrue(syncActivities.get(0).path("RESULT_SUMMARY").asText().contains("未完成任务"));
+
+    // Foreign or invalid focus never reaches the model.
+    int callsBeforeRejects = llm.calls.get();
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "越权", "requestId", "source-foreign", "pageId", "plots", "focusType", "plot", "focusId", foreignPlot), 404);
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "跨农场", "requestId", "source-cross-farm", "pageId", "plots", "focusType", "plot", "focusId", otherFarmPlot), 404);
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "未知页", "requestId", "source-unknown", "pageId", "settings"), 400);
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "不完整", "requestId", "source-partial", "pageId", "plots", "focusType", "plot"), 400);
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "错配", "requestId", "source-mismatch", "pageId", "devices", "focusType", "plot", "focusId", plot), 400);
+    assertEquals(callsBeforeRejects, llm.calls.get());
+
+    // Old clients (no page intent) keep the previous behaviour: no source record.
+    call(admin, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "普通问题", "requestId", "source-none"), 200);
+    var all = call(admin, "GET", "/ai/conversations/" + id + "/messages", null, 200);
+    assertTrue(all.get(all.size() - 1).path("activities").isEmpty());
+  }
+
   @Test void streamRuleFallbackWhenModelUnavailableIsPersistedAndMarked() throws Exception {
     String id = call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
     // llm.answer stays Optional.empty() from @BeforeEach -> model "unavailable", same as the sync rule fallback path.

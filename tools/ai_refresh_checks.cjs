@@ -31,7 +31,7 @@ async function holdResponse(page, pattern) {
 }
 
 async function waitRefreshIdle(page) {
-  await page.waitForFunction(() => document.querySelector('.page-heading > button')?.disabled === false);
+  await page.waitForFunction(() => document.querySelector('.page-heading-actions > button')?.disabled === false);
 }
 
 async function dismissSuccess(page) {
@@ -41,7 +41,7 @@ async function dismissSuccess(page) {
 
 async function verifyRefresh(page) {
   await waitRefreshIdle(page);
-  const button = page.locator('.page-heading > button');
+  const button = page.locator('.page-heading-actions > button');
   assert.equal(await page.getByRole('heading', { name: '农场 AI 助手', exact: true }).count(), 1);
   assert.equal(await page.getByRole('button', { name: '刷新数据', exact: true }).count(), 1);
   assert.equal(await page.getByText('让每一次农事，都有数据依据。', { exact: true }).count(), 0);
@@ -106,7 +106,7 @@ async function verifyRefresh(page) {
 }
 
 async function verifyAnswerProtection(page) {
-  const button = page.locator('.page-heading > button');
+  const button = page.locator('.page-heading-actions > button');
   await page.getByRole('button', { name: '停止生成', exact: true }).waitFor();
   assert.equal(await button.isDisabled(), true);
   assert.match(await button.getAttribute('title'), /回答生成中/);

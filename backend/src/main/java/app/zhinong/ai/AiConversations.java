@@ -97,7 +97,7 @@ public class AiConversations {
   @GetMapping("/conversations/{id}/messages") public List<Map<String,Object>> messages(@PathVariable String id) {
     owned(id,false);
     String tenant=Identity.tenant();
-    var rows=db.queryForList("SELECT id,role,content,mode,diagnostic,created_at AS \"createdAt\" FROM ai_messages WHERE tenant_id=? AND conversation_id=? ORDER BY created_at,id",tenant,id);
+    var rows=db.queryForList("SELECT id,role,content,mode,diagnostic,request_id AS \"requestId\",created_at AS \"createdAt\" FROM ai_messages WHERE tenant_id=? AND conversation_id=? ORDER BY created_at,id",tenant,id);
     var activitiesByMessage=new LinkedHashMap<String,List<Map<String,Object>>>();
     for(var row:db.queryForList("SELECT message_id,activity_id,sequence_no,kind,label,status,detail,result_summary,started_at,finished_at FROM ai_message_activities WHERE tenant_id=? AND conversation_id=? ORDER BY sequence_no",tenant,id)) {
       activitiesByMessage.computeIfAbsent(row.remove("MESSAGE_ID").toString(),k -> new ArrayList<>()).add(row);
@@ -178,6 +178,10 @@ public class AiConversations {
     var now=OffsetDateTime.now();
     insert(id,input.requestId(),"user",input.question().strip(),"user","",now);
     insert(id,input.requestId(),"assistant",answer,mode,completion.isPresent()?"OK":llm.diagnostic(),now.plusNanos(1000000));
+    if(snapshot!=null) {
+      String assistantId=db.queryForObject("SELECT id FROM ai_messages WHERE tenant_id=? AND conversation_id=? AND request_id=? AND role='assistant'",String.class,tenant,id,input.requestId());
+      saveActivities(tenant,id,assistantId,List.of(sourceActivity(snapshot,1,now,now)));
+    }
     db.update("UPDATE ai_conversations SET updated_at=? WHERE tenant_id=? AND member_id=? AND id=?",now,tenant,Identity.current().memberId(),id);
     // 同步接口（旧 /messages）没有阶段F的模型标题生成（那只在流式路径上做），首次提问时只用问题前
     // 16字作为回退标题，并且和流式路径一样绝不覆盖用户已经手动重命名过的标题（title_source='user'）。
@@ -202,7 +206,9 @@ public class AiConversations {
     // 阶段F：仅当这是该会话的第一条消息且标题还没被用户手动重命名过（title_source='auto'）时才为
     // true——只有这种情况下，AiStreamService 才会用模型生成一次短标题（或在模型不可用时回退到
     // fallbackTitle）并通过 conversation.titled 事件广播、随最终回答一起持久化。
-    boolean autoTitleEligible) {}
+    boolean autoTitleEligible,
+    // 本次请求解析出的页面资料来源；null 表示请求没有带页面范围（完整 AI 页、老客户端）。
+    AiContextSnapshotResolver.Snapshot pageSource) {}
 
   // One cumulative SQL budget for context preparation. Spring checks remaining
   // transaction TTL at JDBC calls; this is not a hard interrupt of arbitrary Java work.
@@ -216,7 +222,7 @@ public class AiConversations {
       String assistantId=asst.get("ID").toString();
       var activities=db.queryForList("SELECT activity_id,kind,label,status,detail,result_summary,started_at,finished_at FROM ai_message_activities WHERE tenant_id=? AND message_id=? ORDER BY sequence_no",tenant,assistantId);
       return new PreparedRun(tenant,chat.get("FARM_ID").toString(),null,null,null,
-        true,assistantId,asst.get("CONTENT").toString(),asst.get("MODE").toString(),String.valueOf(asst.get("DIAGNOSTIC")),activities,false);
+        true,assistantId,asst.get("CONTENT").toString(),asst.get("MODE").toString(),String.valueOf(asst.get("DIAGNOSTIC")),activities,false,null);
     }
     var history=messages(id);
     if(history.size()>=200) throw new ApiException(409,"此对话已达100轮，请新建对话");
@@ -226,7 +232,7 @@ public class AiConversations {
     boolean firstMessage=history.isEmpty();
     String fallbackTitle=firstMessage?input.question().strip().substring(0,Math.min(16,input.question().strip().length())):null;
     boolean autoTitleEligible=firstMessage && "auto".equals(String.valueOf(chat.get("TITLE_SOURCE")));
-    return new PreparedRun(tenant,chat.get("FARM_ID").toString(),fallbackTitle,context,report,false,null,null,null,null,List.of(),autoTitleEligible);
+    return new PreparedRun(tenant,chat.get("FARM_ID").toString(),fallbackTitle,context,report,false,null,null,null,null,List.of(),autoTitleEligible,snapshot);
   }
 
   /** Result of persisting a finished streaming run. */
@@ -270,6 +276,12 @@ public class AiConversations {
     String assistantId=db.queryForObject("SELECT id FROM ai_messages WHERE tenant_id=? AND conversation_id=? AND request_id=? AND role='assistant'",String.class,tenant,id,requestId);
     if(!activities.isEmpty()) saveActivities(tenant,id,assistantId,activities);
     return new FinalizedRun(assistantId,answer,mode,diagnostic);
+  }
+
+  /** 页面资料来源记录：同步与流式两条路径写入同一形状（activityId 固定为 page-source，kind=source）。 */
+  static final String PAGE_SOURCE_ACTIVITY_ID="page-source";
+  static ActivitySummary sourceActivity(AiContextSnapshotResolver.Snapshot snapshot,int sequenceNo,OffsetDateTime startedAt,OffsetDateTime finishedAt) {
+    return new ActivitySummary(PAGE_SOURCE_ACTIVITY_ID,sequenceNo,"source",snapshot.label(),"completed",null,snapshot.summary(),startedAt,finishedAt);
   }
 
   /** Same rule-fallback text as the sync path; exposed so the stream path marks mode=rule identically. */

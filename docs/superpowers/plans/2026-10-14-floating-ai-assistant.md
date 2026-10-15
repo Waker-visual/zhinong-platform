@@ -1,6 +1,6 @@
 # 农场应用内悬浮 AI 助手实施计划
 
-> 状态：待用户评审。本文只描述实施方案，尚未开始代码实现。
+> 状态：已实施（2026-10-15）。共享会话状态由 `frontend/src/ai/ai-session.js` 实现（未拆出独立的 `AiConversationView.vue`，两个视图各自渲染、共用同一运行）；页面资料来源以 `kind="source"` 活动随回答落库。验收见 `docs/农场AI助手使用说明.md` 与 `tools/test_floating_assistant.cjs`。
 
 ## Context
 

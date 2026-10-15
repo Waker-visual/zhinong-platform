@@ -2,8 +2,9 @@
 import { computed, nextTick, onUnmounted, ref, watch } from 'vue';
 import { api } from '../api';
 import { confirmAction as confirm } from '../ui/confirm';
-import { createAgentRun, reduceAgentEvent, cancelAgentRun, visibleMessages, formatMessageTime, irrigationApprovalTarget, groupConversationsByDate } from './agent-events.js';
-import { defaultConversationAdapter } from './agent-adapter.js';
+import { visibleMessages, formatMessageTime, irrigationApprovalTarget, groupConversationsByDate } from './agent-events.js';
+import { aiSession } from './ai-session.js';
+import AiSourceNote from './AiSourceNote.vue';
 import { isNearBottom } from './scroll.js';
 import './assistant.css';
 import AssistantText from './AssistantText.vue';
@@ -19,18 +20,20 @@ import AiFollowUps from './AiFollowUps.vue';
 import { followUpContext, prepareFollowUp } from './follow-up-model.js';
 import { companionPresentation, companionTopics, prepareCompanionQuestion } from './companion-model.js';
 import { diagnosticLabels } from './diagnostics';
-const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, initialConversationId: String, pageId: String, focus: { type: Object, default: () => ({}) }, companionTarget: String });
+const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, initialConversationId: String, companionTarget: String });
 const emit = defineEmits(['farm', 'question-prepared', 'conversation-selected']);
 const contextPrepared = ref(false);
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
-const panel = ref('chat'), busy = ref(false), sending = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
+const panel = ref('chat'), busy = ref(false), creating = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const refreshing = ref(false);
 const messagesLoading = ref(false), followUpNotice = ref('');
 let messageLoadVersion = 0, messageLoadController = null;
 const refreshBlocked = computed(() => busy.value || sending.value || refreshing.value || messagesLoading.value);
 const interactionLocked = computed(() => refreshBlocked.value || props.pageRefreshing);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
-const run = ref(null);
+// 运行与发送状态来自小窗共用的会话：从小窗生成中切过来时，选中同一会话即可接着看到增量。
+const run = computed(() => aiSession.runFor(selected.value));
+const sending = computed(() => creating.value || aiSession.state.sending);
 const companionOutcome = ref(''), companionNotice = ref(''), companionTopicIndex = ref(0);
 const highlightedRunId = ref(''); // 从聊天里的灌溉审批活动点击“去确认”后，高亮对应建议
 const initialLoading = ref(true); // 首次读取完成前，历史栏/消息区/分析页/灌溉页展示与最终布局等高的骨架屏，避免跳动
@@ -43,7 +46,6 @@ const followOutput = ref(true), showJump = ref(false);
 const displayedMessages = computed(() => visibleMessages(messages.value, run.value));
 const followUp = computed(() => followUpContext(messages.value));
 const guidanceReady = computed(() => !!selected.value && !!followUp.value && !initialLoading.value && !interactionLocked.value && !run.value && !error.value);
-let activeCancel = null;
 // 输入框默认单行，随内容增高到上限后内部滚动；停止后把问题还原回输入框时同样要重新量高。
 const composerInput = ref(null);
 function resizeComposer() {
@@ -79,7 +81,7 @@ let freshTitleTimer = null;
 const openMenuId = ref(''); // 当前展开着操作菜单的会话 id：用于让该项的 ⋮ 按钮常显（而不仅是 hover/focus-within）
 const writer = computed(() => ['ADMIN','OPERATOR'].includes(props.role));
 const prompts = ['结合当前作物和四情数据，今天优先做什么？','分析近7天的天气变化及对作物的影响','当前地块是否需要灌溉？请说明依据和缺失信息。','对比历史生产记录，给出下季管理建议。'];
-let generation=0, timer, pendingRequest=null, alive=true;
+let generation=0, timer, alive=true;
 // 相对时间（“刚刚”“N 天前”）只有在页面打开时经过的时间推进才会变化：formatMessageTime() 本身是
 // 纯函数，需要一个会变化的 "now" 作为依赖才能让 Vue 重新渲染。一个所有消息共用的计时器，每分钟
 // 推进一次就足够——相对时间文案本来就不需要秒级精度，不必每条消息各开一个 setInterval。
@@ -87,7 +89,8 @@ const nowTick = ref(Date.now());
 let clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 60000);
 const time = value => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '暂无';
 async function refresh() {
-  if (!props.farmId || sending.value || refreshing.value) return false;
+  // 首次读取不受共享会话的生成状态阻塞：从小窗生成中打开完整页时也要先拿到历史与分析。
+  if (!props.farmId || (sending.value && !initialLoading.value) || refreshing.value) return false;
   // 数据刷新不取消回答，也不清空可重试的运行；切换农场由组件卸载隔离上下文。
   refreshing.value = true; error.value = ''; notice.value = '';
   const g=++generation;
@@ -105,7 +108,7 @@ async function refresh() {
   finally { if(alive && g===generation) {initialLoading.value=false;refreshing.value=false;} }
 }
 async function select(id) {
-  if(sending.value) return;
+  if(sending.value && aiSession.state.conversationId!==id) return; // 生成中只允许选中正在生成的那条会话
   const ticket=++messageLoadVersion;
   messageLoadController?.abort();
   const controller=new AbortController(); messageLoadController=controller;
@@ -113,7 +116,7 @@ async function select(id) {
   companionOutcome.value=''; companionNotice.value='';
   // 一次已经停止/出错的运行只属于它发生时所在的对话；切换到另一个对话后必须清空，
   // 不能让上一个对话的问题、空回答和状态条跟着一起显示出来。
-  run.value=null; pendingRequest=null;
+  if(aiSession.state.conversationId!==id) aiSession.clearIdle();
   selected.value=id; error.value='';
   try {
     const rows=await api(`/ai/conversations/${id}/messages`,'GET',undefined,{signal:controller.signal});
@@ -136,7 +139,7 @@ async function scrollToLatest(instant=false) {
   el.scrollTo({top:el.scrollHeight, behavior:(instant||reducedMotion())?'auto':'smooth'});
   followOutput.value=true; showJump.value=false;
 }
-async function newChat() {if(sending.value) return;messageLoadVersion++;messageLoadController?.abort();messagesLoading.value=false;followUpNotice.value='';selected.value='';messages.value=[];question.value='';contextPrepared.value=false;pendingRequest=null;run.value=null;companionOutcome.value='';companionNotice.value='';}
+async function newChat() {if(sending.value) return;messageLoadVersion++;messageLoadController?.abort();messagesLoading.value=false;followUpNotice.value='';selected.value='';messages.value=[];question.value='';contextPrepared.value=false;aiSession.clearIdle();companionOutcome.value='';companionNotice.value='';}
 // 阶段F：删除从历史项的操作菜单发起，不再是选中对话下方的独立链接——可以删除任意一条
 // （不一定是当前选中的那条）。删掉的若恰好是当前对话，行为和原来的 removeChat 一致：回到新建对话。
 async function deleteConversation(id) {
@@ -193,52 +196,49 @@ function onHistoryMenuAction(c,action) {
 async function send(text=question.value) {
   text=text.trim(); if(!text || interactionLocked.value || text.length>2000) return;
   companionOutcome.value=''; companionNotice.value='';
-  sending.value=true; error.value=''; question.value=''; contextPrepared.value=false;
+  error.value=''; question.value=''; contextPrepared.value=false;
   followUpNotice.value='';
-  const controller=new AbortController();
-  let cancelled=false;
-  activeCancel=()=>{if(run.value?.status==='completed') return; cancelled=true; question.value=text; companionOutcome.value='stopped'; controller.abort(); if(run.value) run.value=cancelAgentRun(run.value);};
-  try {
-    if(!selected.value) {
+  let id=selected.value;
+  if(!id) {
+    creating.value=true;
+    try {
       const c=await api('/ai/conversations','POST',{farmId:props.farmId});
-      selected.value=c.id; addConversationRow(c);
-    }
-    const id=selected.value;
-    if(!pendingRequest || pendingRequest.text!==text || pendingRequest.id!==id) pendingRequest={text,id,requestId:crypto.randomUUID()};
-    run.value=createAgentRun(text,pendingRequest.requestId);
-    await scrollToLatest();
-    for await (const event of defaultConversationAdapter({farmId:props.farmId,conversationId:id,question:text,requestId:pendingRequest.requestId,pageId:props.pageId,focusType:props.focus?.type,focusId:props.focus?.id,signal:controller.signal})) {
-      if(!alive || cancelled) break;
-      if(event.type==='conversation.titled') { applyFreshTitle(event.conversationId,event.title); continue; }
-      run.value=reduceAgentEvent(run.value,event);
-      if(event.type==='message.delta' && followOutput.value) await scrollToLatest();
-    }
-    // 取消：真实流式连接会被 controller.abort() 立即中断，服务端检测到断开后不会写入成功回答；
-    // 如果当时已经回退到旧的同步接口，那次请求仍可能在后台跑完并写入，下次重新打开此对话会看到它。
-    // 停止后把问题文字还原回输入框——用户停下来通常是想修改问题重新问，不是想把它丢掉。
-    if(cancelled || !alive) { if(cancelled) question.value=text; return; }
-    if(run.value.status==='error') { question.value=text; return; } // 保留已生成正文与活动摘要，交由 retry() 重试
-    pendingRequest=null;
-    const hadApproval=run.value.activities.some(a=>a.kind==='approval');
-    const answerCompleted=run.value.status==='completed';
-    const storedMessages=await api(`/ai/conversations/${id}/messages`);
-    const storedConversations=await api('/ai/conversations?farmId='+props.farmId);
-    if(cancelled || !alive) return;
-    messages.value=storedMessages; conversations.value=storedConversations;
-    run.value=null;
-    if(alive && answerCompleted) companionOutcome.value='completed';
+      if(!alive) return;
+      selected.value=id=c.id; addConversationRow(c);
+    } catch(e) { if(alive) {error.value=e.message; question.value=text;} return; }
+    finally { creating.value=false; }
+  }
+  await scrollToLatest();
+  // 完整页本身不带页面资料范围（它就是 AI 页）；运行、requestId 与重试统一交给共享会话。
+  await settle(aiSession.send({farmId:props.farmId,conversationId:id,question:text,origin:'full'}),text);
+}
+// 取消：真实流式连接会被 abort() 立即中断，服务端检测到断开后不会写入成功回答；
+// 如果当时已经回退到旧的同步接口，那次请求仍可能在后台跑完并写入，下次重新打开此对话会看到它。
+// 停止或失败后把问题文字还原回输入框——用户停下来通常是想修改问题重新问，不是想把它丢掉。
+async function settle(pending,text) {
+  const result=await pending;
+  if(!alive) return;
+  if(['error','cancelled'].includes(result.status) && text && !question.value) question.value=text;
+}
+function retry() { if(run.value && !sending.value) { const text=run.value.question; question.value=''; settle(aiSession.retry(),text); } }
+function cancel() { const text=aiSession.stop(); if(text && !question.value) question.value=text; }
+// 共享会话事件：无论回答从小窗还是本页发起，只要属于当前选中的会话，就在这里同步消息、标题和禾苗状态。
+const unsubscribe=aiSession.subscribe(async event=>{
+  if(!alive) return;
+  if(event.type==='titled') { applyFreshTitle(event.conversationId,event.title); return; }
+  if(event.conversationId!==selected.value) return;
+  if(event.type==='event' && event.event.type==='message.delta' && followOutput.value) await scrollToLatest();
+  else if(event.type==='stopped') companionOutcome.value='stopped';
+  else if(event.type==='completed') {
+    if(event.messages) messages.value=event.messages;
+    companionOutcome.value='completed';
+    api('/ai/conversations?farmId='+props.farmId).then(rows=>{if(alive) conversations.value=rows;}).catch(()=>{});
     // 回答里出现了审批活动：同步一次灌溉数据，让卡片的有效性核对与“去确认”高亮基于最新建议
+    const hadApproval=event.run?.activities?.some(a=>a.kind==='approval');
     if(hadApproval) refreshIrrigation().catch(()=>{});
     if(followOutput.value) await scrollToLatest();
-  } catch(e) {
-    if(alive) {
-      error.value=e.message; question.value=text;
-      if(run.value) run.value={...run.value,status:'error',error:e.message};
-    }
-  } finally {sending.value=false; activeCancel=null;}
-}
-function retry() { if(run.value && !sending.value) send(run.value.question); }
-function cancel() { activeCancel?.(); }
+  }
+});
 function onActivityToggle() { /* 手动展开/收起由 AiActivityDisclosure 自行记忆本轮运行内的状态 */ }
 // 聊天里的灌溉审批卡片点“去确认”：只是导航到既有灌溉管理页签并高亮对应建议，批准/取消仍然
 // 只能通过该页签原有的确认对话框完成——聊天本身不审批、不下发任何设备指令。
@@ -291,7 +291,7 @@ const weatherCharts=computed(()=>[
 defineExpose({ refresh, refreshing, refreshBlocked, sending, openIrrigation: () => { panel.value = 'irrigation'; } , viewApproval: onViewApproval });
 watch(()=>props.farmId,refresh,{immediate:true});
 watch(()=>props.initialConversationId, async value => {
-  if (!value || sending.value) return;
+  if (!value || (sending.value && aiSession.state.conversationId !== value)) return;
   panel.value = 'chat';
   await select(value);
   emit('conversation-selected');
@@ -304,7 +304,13 @@ watch(()=>props.initialQuestion, async value => {
 }, { immediate: true });
 watch([question,panel],resizeComposer,{flush:'post'});
 timer=setInterval(async()=>{if(panel.value==='irrigation' && !busy.value && props.farmId){try{await refreshIrrigation();}catch{/* next refresh shows errors */}}},10000);
-onUnmounted(()=>{alive=false;activeCancel?.();generation++;messageLoadVersion++;messageLoadController?.abort();clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
+// 离开完整页：小窗快捷会话的回答继续在小窗里生成（小窗始终挂载、能接着展示）；
+// 普通会话离开后没有任何视图能展示它，维持原来的行为——立即停止，不在后台悄悄写库。
+function keepsRunningAfterLeave() {
+  const id=aiSession.state.conversationId;
+  return aiSession.state.origin==='floating' || conversations.value.some(c=>c.id===id && c.surface==='floating');
+}
+onUnmounted(()=>{alive=false;unsubscribe();if(aiSession.state.sending && !keepsRunningAfterLeave()) aiSession.stop();generation++;messageLoadVersion++;messageLoadController?.abort();clearInterval(timer);clearInterval(clockTimer);clearTimeout(freshTitleTimer);});
 </script>
 
 <template>
@@ -369,6 +375,7 @@ onUnmounted(()=>{alive=false;activeCancel?.();generation++;messageLoadVersion++;
                 <AiActivityDisclosure v-if="m.activities?.length" :activities="m.activities" run-status="completed" />
                 <AiApprovalCard v-for="a in approvalActivities(m.activities)" :key="a.activityId" :activity="a" :writer="writer" @view-approval="onViewApproval" />
                 <div class="ai-message-text"><AssistantText v-if="m.role==='assistant'" :text="m.content"/><template v-else>{{m.content}}</template></div>
+                <AiSourceNote v-if="m.role==='assistant'" :activities="m.activities" />
                 <p v-if="m.diagnostic && m.diagnostic!=='OK'" class="ai-diagnostic-note"><AppIcon name="info" />{{diagnosticLabels[m.diagnostic] || '模型暂不可用'}}</p>
                 <AiMessageActions :id="m.id" :text="m.content" :role="m.role" :time="messageTime(m)" :conversation-id="selected" @branched="onBranched" />
                 <AiFollowUps v-if="m.id && m.id===followUp?.messageId" :key="selected+':'+m.id"
