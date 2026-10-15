@@ -37,7 +37,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 事务在整个流式响应期间保持打开（prepareStream 和 finalizeStream 各自是独立的短事务）。
  *
  * Task 6：在原有“读取当前农场资料”context 活动之外，增加一个有界（最多 {@link #MAX_TOOL_ROUNDS}
- * 轮，和旧 /api/ai/ask 工具循环一致）的只读工具调用循环，以及运行结束时的灌溉审批活动。工具名、
+ * 轮）的只读工具调用循环，以及运行结束时的灌溉审批活动。工具名、
  * 标签和结果摘要只走 {@link AiStreamTools} 的固定白名单；未知工具名只生成错误活动，绝不执行。
  */
 @Service
@@ -48,7 +48,7 @@ public class AiStreamService {
   private static final String CONTEXT_ACTIVITY_ID = "context";
   /** 贯穿工具调用轮和最终生成轮的任务活动 id：和读取资料、每个工具查询各自的耗时区分开。 */
   private static final String ANSWER_ACTIVITY_ID = "answer";
-  /** 和旧 /api/ai/ask 的 Function Calling 循环一致的轮数上限，避免模型反复调用工具不收敛。 */
+  /** Function Calling 轮数上限，避免模型反复调用工具不收敛。 */
   private static final int MAX_TOOL_ROUNDS = 3;
   /** 灌溉审批活动的 activityId 约定前缀：id 的其余部分就是 ai_irrigation_runs 的主键，前端据此
    * 解析出 {type:"irrigation-run", id} 目标，不需要额外的数据库列或事件字段。 */

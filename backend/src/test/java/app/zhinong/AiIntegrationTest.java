@@ -582,27 +582,29 @@ class AiIntegrationTest {
     llm.answer = Optional.of(
       new LlmGateway.LlmResponse("虚构演示回答", List.of())
     );
-    Map<String, String> ask = Map.of("farmId", farmId, "question", "今天需要做什么？");
-    call(null, "POST", "/ai/ask", ask, 401);
-    call(otherAdmin, "POST", "/ai/ask", ask, 404);
-    call(platform, "POST", "/ai/ask", ask, 403);
-    call(admin, "POST", "/ai/ask", Map.of("farmId", "missing", "question", "农场概况"), 404);
-    call(otherAdmin, "POST", "/ai/insights", Map.of("farmId", farmId), 404);
-    call(platform, "POST", "/ai/insights", Map.of("farmId", farmId), 403);
-    assertEquals(0, llm.calls.get());
-    assertEquals("llm", call(admin, "POST", "/ai/ask", ask, 200).path("mode").asText());
-    assertEquals(1, llm.calls.get());
+    Map<String, String> chat = Map.of("farmId", farmId);
+    call(null, "POST", "/ai/conversations", chat, 401);
+    call(otherAdmin, "POST", "/ai/conversations", chat, 404);
+    call(platform, "POST", "/ai/conversations", chat, 403);
+    call(admin, "POST", "/ai/conversations", Map.of("farmId", "missing"), 404);
+    String id = call(admin, "POST", "/ai/conversations", chat, 200).path("id").asText();
+    Map<String, String> question = Map.of("question", "今天需要做什么？", "requestId", "access-check");
+    call(null, "POST", "/ai/conversations/" + id + "/messages", question, 401);
+    call(otherAdmin, "POST", "/ai/conversations/" + id + "/messages", question, 404);
+    call(platform, "POST", "/ai/conversations/" + id + "/messages", question, 403);
+    call(operator, "POST", "/ai/conversations/" + id + "/messages", question, 404);
+    int before = llm.calls.get();
+    assertEquals("llm", call(admin, "POST", "/ai/conversations/" + id + "/messages", question, 200).path("mode").asText());
+    assertTrue(llm.calls.get() > before);
   }
 
   @Test
   void tenantUsersReceiveRuleAnswersWhenModelIsUnavailable() throws Exception {
     for (String token : List.of(admin, operator, viewer)) {
-      JsonNode answer = call(token, "POST", "/ai/ask", Map.of("farmId", farmId, "question", "农场概况"), 200);
+      String id = call(token, "POST", "/ai/conversations", Map.of("farmId", farmId), 200).path("id").asText();
+      JsonNode answer = call(token, "POST", "/ai/conversations/" + id + "/messages", Map.of("question", "农场概况", "requestId", "rule-" + id), 200);
       assertEquals("rule", answer.path("mode").asText());
       assertFalse(answer.path("answer").asText().isBlank());
-      JsonNode insights = call(token, "POST", "/ai/insights", Map.of("farmId", farmId), 200);
-      assertEquals("rule", insights.path("mode").asText());
-      assertFalse(insights.path("items").isEmpty());
     }
   }
 

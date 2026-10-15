@@ -11,8 +11,7 @@ import java.util.Map;
 import org.springframework.stereotype.Component;
 
 /**
- * 流式对话工具循环（Task 6）可调用的只读工具：复用 /api/ai/ask（{@link AiController}）已有的查询
- * 模式，工具按租户+农场限定。farmId 永远取自已鉴权的会话记录
+ * 流式对话工具循环（Task 6）可调用的只读工具，按租户+农场限定。farmId 永远取自已鉴权的会话记录
  * （{@code AiStreamService} 里的 {@code prep.farmId()}），绝不使用模型给出的参数——模型的 tool_calls
  * 参数在这里被完全忽略，避免把未经校验的输入传进查询。
  *
@@ -75,7 +74,7 @@ public class AiStreamTools {
     this.decisions = decisions;
   }
 
-  /** OpenAI 兼容 tools 定义，和 {@link AiController#toolDefinitions()} 使用同样的 JSON Schema 写法。 */
+  /** OpenAI 兼容 tools 定义；参数一律为空对象，模型给出的参数不会被读取。 */
   protected List<Map<String, Object>> definitions() {
     return List.of(
       tool("get_farm_summary", "获取农场经营概况：总面积(亩)、累计产量(kg)、任务总数与已完成数、设备告警数"),

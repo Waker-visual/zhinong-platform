@@ -153,13 +153,11 @@ class BusinessCalendarUtcIntegrationTest {
   @Test
   void assistantPromptsStateTheFarmDate() throws Exception {
     llm.systemPrompts.clear();
-    call(admin, "POST", "/ai/ask", Map.of("farmId", farm, "question", "今天有哪些逾期任务？"), 200);
     String conversation = call(admin, "POST", "/ai/conversations", Map.of("farmId", farm), 200).path("id").asText();
     call(admin, "POST", "/ai/conversations/" + conversation + "/messages", Map.of("question", "今天先做什么？", "requestId", "utc-calendar"), 200);
     var dated = llm.systemPrompts.stream().filter(p -> p.contains("今天是")).toList();
-    assertEquals(2, dated.size(), llm.systemPrompts.toString());
-    assertTrue(dated.get(0).contains("今天是2026-03-15（星期日）"), dated.get(0));
-    assertTrue(dated.get(1).contains("今天是2026-03-15。"), dated.get(1));
+    assertEquals(1, dated.size(), llm.systemPrompts.toString());
+    assertTrue(dated.get(0).contains("今天是2026-03-15。"), dated.get(0));
     assertTrue(dated.stream().noneMatch(p -> p.contains(SERVER_TODAY.toString())));
   }
 
