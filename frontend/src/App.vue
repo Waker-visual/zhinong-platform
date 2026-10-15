@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
@@ -10,7 +10,6 @@ import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import FarmAssistant from "./ai/FarmAssistant.vue";
-import FloatingAssistant from "./ai/FloatingAssistant.vue";
 import { aiSession } from "./ai/ai-session.js";
 import FarmBriefing from "./ai/FarmBriefing.vue";
 import AlertCenter from "./workspace/AlertCenter.vue";
@@ -41,6 +40,8 @@ import {
 } from "./ui/feedback";
 import "./ui/shell.css";
 
+// 小窗入口在工作台加载后再取，不占主包；面板资料也只在打开时读取。
+const FloatingAssistant = defineAsyncComponent(() => import("./ai/FloatingAssistant.vue"));
 const identity = ref(null);
 const account = ref(null),
   settingsOpen = ref(false),
@@ -84,7 +85,6 @@ const error = ref("");
 const busy = ref(false);
 const loading = ref(false);
 const farmAssistant = ref(null);
-const floatingAssistant = ref(null);
 const alertCenter = ref(null);
 const assistantQuestion = ref("");
 const assistantConversationId = ref("");

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onUnmounted, ref, watch } from "vue";
 import { api } from "../api.js";
 import { aiSession } from "./ai-session.js";
 import { visibleMessages } from "./agent-events.js";
@@ -200,15 +200,15 @@ const unsubscribe = aiSession.subscribe(event => {
 });
 function time(value) { return value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : ""; }
 watch(() => [question.value, open.value], () => nextTick(resizeInput));
-// 切换农场：共享会话由 App 统一 reset（中止回答、清空待重试请求），这里清空小窗自身的草稿和会话，
-// 再按新农场重新读取快捷会话。
+// 切换农场：共享会话由 App 统一 reset（中止回答、清空待重试请求），这里清空小窗自身的草稿和会话。
+// 快捷会话、模型状态和历史只在打开小窗时读取，登录或切换农场时不预先请求；
+// 作废进行中的读取后同时复位 loading，否则下次打开会被当成“仍在读取”而跳过。
 watch(() => props.farmId, () => {
   removeViewportListener();
   unlockBodyScroll();
   conversation.value = null; messages.value = []; question.value = ""; error.value = ""; notice.value = ""; open.value = false; loadVersion++;
-  loadShortcut();
+  loading.value = false;
 });
-onMounted(() => loadShortcut());
 onUnmounted(() => { alive = false; unsubscribe(); removeViewportListener(); unlockBodyScroll(); });
 </script>
 

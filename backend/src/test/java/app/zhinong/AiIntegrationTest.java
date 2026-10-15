@@ -3,6 +3,7 @@ package app.zhinong;
 import static org.junit.jupiter.api.Assertions.*;
 
 import app.zhinong.ai.AgronomyAnalysis;
+import app.zhinong.ai.AiConversations;
 import app.zhinong.ai.AiStreamTools;
 import app.zhinong.ai.LlmGateway;
 import app.zhinong.fieldwork.FieldWorkService;
@@ -699,6 +700,21 @@ class AiIntegrationTest {
     String branched = call(admin, "POST", "/ai/conversations/" + shortcut + "/branch", Map.of("messageId", assistantId), 200).path("id").asText();
     assertNull(db.queryForObject("SELECT surface FROM ai_conversations WHERE id=?", String.class, branched), "a branch is a normal conversation");
     assertEquals(shortcut, call(admin, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200).path("id").asText());
+  }
+
+  @Test void conversationCapCountsOnlyNormalChatsAndTheListKeepsTheShortcutVisible() throws Exception {
+    call(operator, "POST", "/ai/conversations", Map.of("farmId", farmId, "surface", "floating"), 200);
+    String member = call(operator, "GET", "/auth/me", null, 200).path("memberId").asText();
+    int existing = db.queryForObject(
+      "SELECT COUNT(*) FROM ai_conversations WHERE member_id=? AND farm_id=? AND surface IS NULL", Integer.class, member, farmId);
+    for (int i = existing; i < AiConversations.MAX_CONVERSATIONS; i++)
+      call(operator, "POST", "/ai/conversations", Map.of("farmId", farmId), 200);
+    call(operator, "POST", "/ai/conversations", Map.of("farmId", farmId), 409);
+    var rows = call(operator, "GET", "/ai/conversations?farmId=" + farmId, null, 200);
+    assertEquals(AiConversations.MAX_CONVERSATIONS + 1, rows.size());
+    long floating = 0;
+    for (JsonNode row : rows) if ("floating".equals(row.path("surface").asText())) floating++;
+    assertEquals(1, floating, "the shortcut is listed even when the normal chats are full");
   }
 
   @Test void pageSourceIsResolvedOnTheServerPersistedForBothPathsAndScopedToTheFarm() throws Exception {

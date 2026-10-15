@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/ai")
 public class AiConversations {
+  public static final int MAX_CONVERSATIONS=50;
   private final Store store; private final JdbcTemplate db; private final LlmGateway llm;
   private final AgronomyAnalysis analysis; private final ObjectMapper json; private final AiContextSnapshotResolver snapshots;
   @Autowired
@@ -50,7 +51,8 @@ public class AiConversations {
     return db.queryForList(
       "SELECT id AS \"id\",title AS \"title\",title_source AS \"titleSource\",pinned_at AS \"pinnedAt\",surface AS \"surface\",created_at AS \"createdAt\",updated_at AS \"updatedAt\" "
       +"FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? "
-      +"ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,pinned_at DESC,updated_at DESC LIMIT 50",
+      // 50 ordinary conversations plus the one floating shortcut, so none of them is hidden.
+      +"ORDER BY CASE WHEN pinned_at IS NULL THEN 1 ELSE 0 END,pinned_at DESC,updated_at DESC LIMIT "+(MAX_CONVERSATIONS+1),
       Identity.tenant(),Identity.current().memberId(),farmId);
   }
   @PostMapping("/conversations") @Transactional public Map<String,Object> create(@RequestBody @Valid NewChat input) {
@@ -59,7 +61,9 @@ public class AiConversations {
     if (input.surface()!=null) {
       var existing=db.queryForList("SELECT id AS \"id\",title AS \"title\",surface AS \"surface\" FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? AND surface=?",tenant,member,input.farmId(),input.surface());
       if (!existing.isEmpty()) return existing.getFirst();
-    } else if (list(input.farmId()).stream().filter(row -> row.get("surface")==null).count() + 1 > 50) {
+    } else if (db.queryForObject("SELECT COUNT(*) FROM ai_conversations WHERE tenant_id=? AND member_id=? AND farm_id=? AND surface IS NULL",
+        Integer.class,tenant,member,input.farmId())>=MAX_CONVERSATIONS) {
+      // Count directly: the capped list also holds the floating shortcut, which is not part of this limit.
       throw new ApiException(409,"每个农场最多保留50个对话，请先删除旧对话");
     }
     String id=UUID.randomUUID().toString(); var now=OffsetDateTime.now();
