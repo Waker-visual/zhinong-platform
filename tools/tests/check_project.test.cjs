@@ -25,6 +25,16 @@ test('fingerprint changes with source but ignores generated outputs', t => {
   assert.notEqual(fingerprint(root), first);
 });
 
+test('scanner reports test files that verify.ps1 never runs', t => {
+  const { root, put } = fixture(t);
+  put('scripts/verify.ps1', 'node --test src/ui/listed.test.js src/screen/scene/model.test.js\nnode --test tools/tests/listed.test.cjs\n');
+  const files = ['frontend/src/ui/listed.test.js', 'frontend/src/ui/missing.test.js', 'frontend/src/screen/model.test.js',
+    'frontend/src/screen/scene/model.test.js', 'tools/tests/listed.test.cjs', 'tools/tests/missing.test.cjs'];
+  for (const file of files) put(file, '');
+  assert.deepEqual(scanFiles(root, files).filter(f => f.type === 'unverified_test').map(f => f.path),
+    ['frontend/src/ui/missing.test.js', 'frontend/src/screen/model.test.js', 'tools/tests/missing.test.cjs']);
+});
+
 test('scanner blocks private material paths and reports no secret values', t => {
   const { root, put } = fixture(t);
   const secret = 'A'.repeat(20);

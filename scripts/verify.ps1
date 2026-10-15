@@ -30,6 +30,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '登录田园岸线与字符重采样测试未通过' }
         node --test src/ui/login-river-motion.test.js
         if ($LASTEXITCODE -ne 0) { throw '小舟航线与水面动效测试未通过' }
+        node --test src/ui/service-readiness.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录页服务就绪状态测试未通过' }
         node --test src/ai/markdown.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
         node --test src/ai/follow-up-model.test.js src/ai/follow-up-request.test.js

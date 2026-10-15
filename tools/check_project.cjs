@@ -31,8 +31,20 @@ const DEMO_GENERATORS = /^backend\/src\/main\/java\/app\/zhinong\/bootstrap\//;
 const SERVER_DATE = /\bLocalDate\s*\.\s*now\s*\(/;
 const HARDCODED_ZONE = /"Asia\/Shanghai"/;
 
+// verify.ps1 按主题分组列出测试以给出可读的失败原因；新测试文件未列入时会被悄悄跳过，这里逐个核对。
+// 前端测试在 frontend 目录内运行，脚本里写作 src/...。
+const VERIFY_SCRIPT = 'scripts/verify.ps1';
+const TEST_FILE = /^(?:frontend\/src|tools\/tests)\/.+\.test\.c?js$/;
+
+function listedInVerify(script, relative) {
+  const target = relative.replace(/^frontend\//, '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?:^|\\s)${target}(?:\\s|$)`, 'm').test(script);
+}
+
 function scanFiles(root, files) {
   const findings = [];
+  const verifyPath = path.join(root, VERIFY_SCRIPT);
+  const verifyScript = fs.existsSync(verifyPath) ? fs.readFileSync(verifyPath, 'utf8') : null;
   const forbidden = /^(?:copyright\/|skills\/|private-materials\/|artifacts\/|\.cache\/|data\/|backend\/data\/|docs\/source-provenance\.json$)|(?:^|\/)(?:\.env(?:\..*)?|facts\.private\.json)$|(?:\.bundle|\.pdf|\.docx)$|(?:copyright_pipeline|materials\.ps1|capture_ui\.cjs|capture_v03\.cjs|test_pipeline\.py)/i;
   const patterns = {
     private_network: /\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b/,
@@ -45,6 +57,9 @@ function scanFiles(root, files) {
     const full = path.resolve(root, relative), local = path.relative(root, full);
     if (local.startsWith('..') || path.isAbsolute(local)) throw new Error('Paths must stay inside the project');
     if (!fs.existsSync(full)) continue;
+    if (verifyScript !== null && TEST_FILE.test(relative) && !listedInVerify(verifyScript, relative)) {
+      findings.push({ type: 'unverified_test', path: relative });
+    }
     if (forbidden.test(relative.replaceAll('\\', '/'))) findings.push({ type: 'private_file', path: relative });
     if (/\.private\.(?:txt|json)$/i.test(relative)) findings.push({ type: 'private_file', path: relative });
     if (/(?:^|\/)config\/(?:llm\.properties|database(?:\.(?!example\.)[^/]+)?\.properties)$|(?:^|\/)rds\.txt$/i.test(relative.replaceAll('\\', '/'))) {
