@@ -181,6 +181,11 @@ label select {
   width: 100%;
   height: 100%;
   display: block;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+.login-field canvas[data-ready] {
+  opacity: 1;
 }
 .login-color-sample {display:none;}
 .login-art-accessible {
@@ -308,7 +313,8 @@ label select {
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .login-panel input {
+  .login-panel input,
+  .login-field canvas {
     transition: none;
   }
 }

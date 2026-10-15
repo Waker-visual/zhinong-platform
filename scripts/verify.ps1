@@ -57,6 +57,12 @@ try {
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }
+    node tools/check_bundle.cjs
+    if ($LASTEXITCODE -ne 0) { throw '前端包体超出预算' }
+    node tools/check_fonts.cjs
+    if ($LASTEXITCODE -ne 0) { throw '界面字体子集未覆盖全部界面汉字' }
+    node tools/generate_lunar_festivals.cjs --check
+    if ($LASTEXITCODE -ne 0) { throw '登录场景农历节日日期表需要重新生成' }
     node --test tools/tests/check_project.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '项目检查工具测试未通过' }
     node --test tools/tests/business-time.test.cjs

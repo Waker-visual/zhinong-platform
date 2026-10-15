@@ -91,7 +91,7 @@ AI 对话新增实时设备告警、近两个完整 30 天收获窗口对比和�
 - **AI 与权限**：提供农场问答、经营建议和规则回退；调用模型前校验农场归属，全局模型配置仅平台管理员可管理，模型密钥文件不纳入 Git。
 - **回归验证**：本次在 Windows / Java 25 环境运行 `scripts/verify.ps1`，62 项后端测试、前端生产构建、5 项项目检查工具测试及 2 项地图坐标测试全部通过，敏感信息扫描无发现。
 
-2026-10-12 已通过兼容补丁修复前端依赖审计中的 3 项高危记录，并消除重复导入和大包提示，具体版本与复核方式见下方“开发与验证”。尚未完成公网生产部署验收。已有项目更新代码后，应先停止旧服务，再运行启动脚本完成构建；数据库升级与回退步骤见 [设备校准、控制与回退验收](docs/设备校准与控制验收.md)。
+2026-10-12 已通过兼容补丁修复前端依赖审计中的 3 项高危记录，并消除重复导入，具体版本与复核方式见下方“开发与验证”。字符画登录页合入后桌面端主包一度增至 1.79 MB、再次出现大包提示；2026-10-15 已改为按需加载登录场景数据、以日期表替代运行时历法库并为界面字体做子集切片，现由 `scripts/verify.ps1` 的包体预算检查把关，详见“开发与验证”。尚未完成公网生产部署验收。已有项目更新代码后，应先停止旧服务，再运行启动脚本完成构建；数据库升级与回退步骤见 [设备校准、控制与回退验收](docs/设备校准与控制验收.md)。
 
 ## 🌾 登录后，先看今天的农场
 
@@ -208,13 +208,13 @@ npm.cmd run dev
 # http://127.0.0.1:4273
 ```
 
-项目根目录运行 `scripts/verify.ps1`，执行后端测试（含在 UTC 时区 JVM 中运行的业务日历回归）、前端构建、请求取消与超时、大屏渐进刷新、瓦片并发队列、地图坐标、业务日期统一时钟及项目公开范围检查。`.github/workflows/verify.yml` 在主分支推送和 Pull Request 中运行同一套验证（Windows、Java 21、Node 22）。独立 MySQL 验证仍在已配置的本机环境运行。若个人 Maven 镜像不可达，可通过 `-MavenSettings '绝对路径/settings.xml'` 指定自己的可用 HTTPS 镜像，不必修改全局配置。
+项目根目录运行 `scripts/verify.ps1`，执行后端测试（含在 UTC 时区 JVM 中运行的业务日历回归）、前端构建、包体预算、界面字体子集、请求取消与超时、大屏渐进刷新、瓦片并发队列、地图坐标、业务日期统一时钟及项目公开范围检查。`.github/workflows/verify.yml` 在主分支推送和 Pull Request 中运行同一套验证（Windows、Java 21、Node 22）。独立 MySQL 验证仍在已配置的本机环境运行。若个人 Maven 镜像不可达，可通过 `-MavenSettings '绝对路径/settings.xml'` 指定自己的可用 HTTPS 镜像，不必修改全局配置。
 
 大屏与服务的性能基准、故障恢复规则、运行指标和部署边界见 [服务稳定性与性能指南](docs/服务稳定性与性能指南.md)。可重复运行 `node tools/benchmark_runtime.cjs` 比较同一农场和相同并发条件下的接口耗时，默认仅访问本机服务、保存匿名计时结果。
 
 2026-10-12 安全补丁：Vue 及同版本子包从 `3.5.27` 更新至 `3.5.43`，修复 [SSR 属性名校验漏洞](https://github.com/vuejs/core/security/advisories/GHSA-g2v6-rqmx-r4w6)；间接依赖 `source-map-js` 更新至 `1.2.2`，包含 [索引 source map 校验修复](https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2)。另外将 Vite 从 `7.3.6` 更新至 `7.3.7`，纳入其[文件访问边界修复](https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22)。均未跨主要版本，锁文件已同步；运行 `npm.cmd ci --prefix frontend` 后可用 `npm.cmd audit --prefix frontend` 复核当时的完整依赖审计结果（需要联网）。
 
-前端把 Vue、地图、图表和图表渲染器分别拆包，保留 Vite 默认的 500 kB 告警阈值；AI 适配器静态复用同一个请求模块。默认 SSE 认证、取消与会话过期行为已纳入现有 Agent 测试。修改依赖或构建设置后，需要完整验证并检查桌面端、手机端、地图、图表和 AI 对话；有本机独立 MySQL 环境时，另运行 `scripts/verify-mysql.ps1`，它使用一次性测试库并自动清理。
+前端把 Vue、地图、图表和图表渲染器分别拆包，保留 Vite 默认的 500 kB 告警阈值；验证脚本运行 `tools/check_bundle.cjs`，单个脚本块超过 500 kB、样式表超过 200 kB、字体切片超过 500 kB 或入口首屏脚本合计超过 1.4 MB 即失败。登录页约 1 MB 的字符画取样数据作为静态文件在登录场景挂载时请求，农历节日改查生成的日期表，均不进入桌面端主包。界面字体按 unicode-range 切片：登录页只下载首屏汉字切片和用到的拉丁字重，其余界面文字、GB 2312 常用字和其他字符分片按需加载。界面新增汉字后运行 `python tools/subset_fonts.py`（需要 `pip install fonttools brotli`）重新生成，`node tools/check_fonts.cjs` 核对前端源码和后端演示数据中的汉字都在界面切片内；升级 lunar-javascript 后运行 `node tools/generate_lunar_festivals.cjs`。AI 适配器静态复用同一个请求模块。默认 SSE 认证、取消与会话过期行为已纳入现有 Agent 测试。修改依赖或构建设置后，需要完整验证并检查桌面端、手机端、地图、图表和 AI 对话；有本机独立 MySQL 环境时，另运行 `scripts/verify-mysql.ps1`，它使用一次性测试库并自动清理。
 
 ### AI 助手配置
 

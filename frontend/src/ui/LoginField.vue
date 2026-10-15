@@ -4,7 +4,7 @@ import { setLoginSceneMode, clearLoginSceneMode } from '../account/appearance.js
 import { daylightAt } from './login-daylight.js';
 import { createSceneClock } from './login-scene-clock.js';
 import LoginSceneClock from './LoginSceneClock.vue';
-import { makeLandscape, drawLandscapeMarks, referenceTones, riverBoat } from './login-landscape.js';
+import { loadLandscape, landscapeReady, makeLandscape, drawLandscapeMarks, referenceTones, riverBoat } from './login-landscape.js';
 import { makeFarmActivity, createFarmOperation } from './login-farm-activity.js';
 import { createSky, makeSkyMarks, skyIllumination, skyTones } from './login-sky.js';
 import { createVillage } from './login-village.js';
@@ -14,11 +14,13 @@ import { makeSeasonLandscape, makeSeasonMarks, seasonTones } from './login-seaso
 import { makeFestivalMarks, festivalTones } from './login-festivals.js';
 import { yearVisualState } from './login-year-visuals.js';
 
-const canvas=ref(null),daySample=ref(null),nightSample=ref(null),reduced=ref(false);
+const canvas=ref(null),daySample=ref(null),nightSample=ref(null),reduced=ref(false),ready=ref(false);
 const clock=createSceneClock(),snapshot=shallowRef(clock.read()),period=ref('day');
 const operations=createFarmOperation(),harvestOperations=createFarmOperation(),village=createVillage();
 let context,observer,motionQuery,baseScene,skyModel,signature=[],terrainFrame,terrainBlend;
-let frame=0,last=0,lastPaint=0,lastState,transition=null;
+let frame=0,last=0,lastPaint=0,lastState,transition=null,mounted=false;
+// Start the trace request during setup; the theme and clock run while it loads.
+const landscape=loadLandscape();
 let motionSeconds=0,cloudSeconds=0,width=0,height=0,inputFocused=false,festivalStarted=null;
 const seasonAssets=new Map();
 let activeTheme=null;
@@ -39,7 +41,7 @@ function readPalette(element) {
   return result;
 }
 function rebuild() {
-  if(!context || !width || !height)return;
+  if(!context || !width || !height || !landscapeReady())return;
   baseScene=makeLandscape(width,height);skyModel=createSky(14,baseScene.clouds);
   signature=makeLetteringMarks(width,height);
   seasonAssets.clear();terrainFrame=makeBuffer();terrainBlend=makeBuffer();
@@ -178,16 +180,18 @@ function resize() {
 function focusChanged(){queueMicrotask(()=>{inputFocused=!!document.activeElement?.closest('.login-panel');});}
 function motionChanged(){reduced.value=motionQuery.matches;sync();}
 onMounted(()=>{
-  context=canvas.value.getContext('2d');
+  mounted=true;context=canvas.value.getContext('2d');
   motionQuery=matchMedia('(prefers-reduced-motion: reduce)');reduced.value=motionQuery.matches;
   motionQuery.addEventListener('change',motionChanged);
   observer=new ResizeObserver(resize);observer.observe(canvas.value);
   document.addEventListener('visibilitychange',sync);
   document.addEventListener('focusin',focusChanged);document.addEventListener('focusout',focusChanged);
   focusChanged();resize();
+  // The scene is decorative: if the trace cannot load, the sign-in form and plain sky remain.
+  landscape.then(()=>{if(!mounted)return;rebuild();ready.value=true;sync();},()=>{});
 });
 onUnmounted(()=>{
-  cancelAnimationFrame(frame);observer?.disconnect();motionQuery?.removeEventListener('change',motionChanged);
+  mounted=false;cancelAnimationFrame(frame);observer?.disconnect();motionQuery?.removeEventListener('change',motionChanged);
   document.removeEventListener('visibilitychange',sync);
   document.removeEventListener('focusin',focusChanged);document.removeEventListener('focusout',focusChanged);
   clearLoginSceneMode();
@@ -196,7 +200,7 @@ onUnmounted(()=>{
 
 <template>
   <div class="login-field">
-    <canvas ref="canvas" aria-hidden="true"></canvas>
+    <canvas ref="canvas" :data-ready="ready || null" aria-hidden="true"></canvas>
     <span ref="daySample" class="login-color-sample" data-palette="day" aria-hidden="true"></span>
     <span ref="nightSample" class="login-color-sample" data-palette="night" aria-hidden="true"></span>
     <span class="login-art-accessible" role="img" aria-label="禾风水韵，李東旭作"></span>
