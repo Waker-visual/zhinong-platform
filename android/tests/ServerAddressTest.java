@@ -11,6 +11,9 @@ public class ServerAddressTest {
         for (String other : new String[]{"https://farm.example.com.evil.invalid/", "https://farm.example.com@evil.invalid/", "http://farm.example.com/", "https://farm.example.com:444/", "file:///app"}) {
             if (ServerAddress.sameOrigin("https://farm.example.com", other)) throw new AssertionError("Cross-origin navigation allowed");
         }
+        if (!ServerAddress.cleartext("http://192.168.1.20:9175")) throw new AssertionError("http must be reported as cleartext");
+        if (ServerAddress.cleartext("https://farm.example.com")) throw new AssertionError("https is encrypted");
+        if (ServerAddress.cleartext("not a uri")) throw new AssertionError("Invalid origin is not cleartext");
         System.out.println("Android server address validation passed");
     }
     static void eq(String expected, String actual) { if (!expected.equals(actual)) throw new AssertionError(actual); }

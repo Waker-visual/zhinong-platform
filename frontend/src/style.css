@@ -279,6 +279,16 @@ label select {
   background: var(--login-action-hover);
   border-color: var(--login-action-hover);
 }
+.login-service {
+  color: var(--login-muted);
+  background: var(--login-input-bg);
+  border: 1px solid var(--login-panel-line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}
 .login-hint {
   color: var(--login-muted);
   font-size: 12px;

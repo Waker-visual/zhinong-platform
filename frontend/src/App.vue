@@ -27,6 +27,7 @@ import ModalDialog from "./ui/ModalDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import FeedbackRegion from "./ui/FeedbackRegion.vue";
 import { shakeElement } from "./ui/validate";
+import { watchReadiness } from "./ui/service-readiness.js";
 import StatusCapsule from "./ui/StatusCapsule.vue";
 import {
   deferDelete,
@@ -132,10 +133,27 @@ const captureDevice = ref(null);
 const captureValue = ref("");
 const model = reactive({});
 const login = reactive({
-  tenantCode: "demo-a",
-  username: "admin",
+  tenantCode: "",
+  username: "",
   password: "",
 });
+// 登录页只在服务以演示模式启动时预填演示租户和管理员，正式部署保持空白。
+const service = reactive({ state: "checking", demo: false });
+let stopReadiness = null;
+function applyReadiness(status) {
+  service.state = status.state;
+  if (status.state === "unreachable") return;
+  service.demo = status.demo;
+  if (status.demo && !login.tenantCode && !login.username) {
+    login.tenantCode = "demo-a";
+    login.username = "admin";
+  }
+}
+function watchLoginReadiness(onLogin) {
+  stopReadiness?.();
+  stopReadiness = onLogin ? watchReadiness(applyReadiness) : null;
+}
+watch(() => !identity.value, watchLoginReadiness, { immediate: true });
 const role = computed(() => identity.value?.role);
 const admin = computed(() => role.value === "ADMIN");
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(role.value));
@@ -750,6 +768,7 @@ onMounted(async () => {
   });
 });
 onUnmounted(() => {
+  stopReadiness?.();
   window.removeEventListener("session-expired", expire);
   window.removeEventListener("pagehide", flushOnLeave);
   window.removeEventListener("keydown", onShortcut);
@@ -827,10 +846,20 @@ onUnmounted(() => {
         <p v-if="loginNotice" role="status" class="success">
           {{ loginNotice }}
         </p>
-        <button class="primary login-button" :disabled="busy" :aria-busy="busy">
-          {{ busy ? "正在登录…" : "进入工作空间" }}
+        <p v-if="service.state === 'starting'" role="status" class="login-service">
+          正在准备农场数据，首次启动通常需要 1–3 分钟，准备好后即可登录。
+        </p>
+        <p v-else-if="service.state === 'unreachable'" role="status" class="login-service">
+          暂时连不上本地服务，请确认服务已启动，恢复后这里会自动更新。
+        </p>
+        <button
+          class="primary login-button"
+          :disabled="busy || service.state === 'starting'"
+          :aria-busy="busy || service.state === 'starting'"
+        >
+          {{ busy ? "正在登录…" : service.state === "starting" ? "服务准备中…" : "进入工作空间" }}
         </button>
-        <details class="login-hint">
+        <details v-if="service.demo" class="login-hint">
           <summary>查看本地演示账号说明</summary>
           <p>租户代码：demo-a / demo-b<br />演示密码请查看本机启动提示。</p>
         </details>

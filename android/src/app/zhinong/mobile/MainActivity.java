@@ -115,7 +115,11 @@ public final class MainActivity extends Activity {
                 final String failure = problem;
                 runOnUiThread(() -> { if (current != generation || isFinishing()) return; connect.setEnabled(true);
                     if (failure != null) result.setText(failure);
-                    else { origin = selected; getPreferences(MODE_PRIVATE).edit().putString("server_origin", origin).apply(); showFarm(); }
+                    else {
+                        origin = selected; getPreferences(MODE_PRIVATE).edit().putString("server_origin", origin).apply();
+                        if (ServerAddress.cleartext(origin)) Toast.makeText(MainActivity.this, "当前为未加密的 http 连接，口令和设备指令会以明文传输，请只在可信局域网使用", Toast.LENGTH_LONG).show();
+                        showFarm();
+                    }
                 });
             }, "zhihe-connection-check").start();
         });
