@@ -76,7 +76,8 @@ public class SessionFilter extends OncePerRequestFilter {
           if (
             header == null || !header.startsWith("Bearer ")
           ) throw new ApiException(401, "请先登录");
-          Identity identity = auth.authenticate(header.substring(7));
+          AuthService.Session session = auth.session(header.substring(7));
+          Identity identity = session.identity();
           for (String name : new String[] { "tenantId", "X-Tenant-Id" }) {
             String selected = request.getHeader(name);
             if (selected != null && !selected.equals(identity.tenantId())) {
@@ -90,7 +91,7 @@ public class SessionFilter extends OncePerRequestFilter {
             Identity.require("PLATFORM_ADMIN");
           }
           if (
-            auth.passwordChangeRequired(identity.memberId()) &&
+            session.mustChangePassword() &&
             !java.util.Set.of(
               "/api/account",
               "/api/account/password",

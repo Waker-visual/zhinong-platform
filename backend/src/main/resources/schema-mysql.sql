@@ -79,6 +79,14 @@ PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
 EXECUTE zhinong_ai_upgrade_stmt;
 DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
 
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sessions')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='sessions' AND COLUMN_NAME='created_at'),
+ 'ALTER TABLE sessions ADD COLUMN created_at DATETIME(6) NULL', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
 CREATE TABLE IF NOT EXISTS tenants (
  id VARCHAR(36) PRIMARY KEY, code VARCHAR(40) NOT NULL UNIQUE,
  name VARCHAR(120) NOT NULL, enabled BOOLEAN NOT NULL DEFAULT TRUE
@@ -97,7 +105,8 @@ CREATE TABLE IF NOT EXISTS members (
 CREATE TABLE IF NOT EXISTS sessions (
  token_hash VARCHAR(64) PRIMARY KEY, member_id VARCHAR(36) NOT NULL,
  expires_at DATETIME(6) NOT NULL,
- FOREIGN KEY(member_id) REFERENCES members(id)
+ FOREIGN KEY(member_id) REFERENCES members(id),
+ created_at DATETIME(6)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS farms (
