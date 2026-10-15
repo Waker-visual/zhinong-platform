@@ -59,6 +59,8 @@ try {
     } finally { Pop-Location }
     node --test tools/tests/check_project.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '项目检查工具测试未通过' }
+    node --test tools/tests/business-time.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw '业务日期统一时钟检查测试未通过' }
     node --test tools/tests/coordinates.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '地图坐标回归测试未通过' }
     node --test tools/tests/mobile.test.cjs

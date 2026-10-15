@@ -9,9 +9,10 @@ public final class SyntheticTelemetry {
   public static final String VERSION = "demo-stream-v1";
   private SyntheticTelemetry() {}
 
-  public static Map<String, BigDecimal> sample(String type, String seed, Instant at,
+  /** {@code zone} is the farm calendar (farm.zone): daylight, rain hours and irrigation shifts follow farm time. */
+  public static Map<String, BigDecimal> sample(String type, String seed, Instant at, ZoneId zone,
       Map<String, BigDecimal> previous, long elapsedSeconds) {
-    var local = at.atZone(ZoneId.of("Asia/Shanghai"));
+    var local = at.atZone(zone);
     double hour = local.getHour() + local.getMinute() / 60.0 + local.getSecond() / 3600.0;
     double day = local.toLocalDate().toEpochDay();
     double offset = Math.floorMod(seed.hashCode(), 11) / 10.0 - 0.5;

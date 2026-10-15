@@ -1,5 +1,6 @@
 package app.zhinong.ai;
 
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
@@ -22,7 +23,6 @@ import org.springframework.stereotype.Service;
 /** A durable daily snapshot: database facts first, one optional model interpretation per farm/day. */
 @Service
 public class FarmBriefingService {
-  static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
   private static final Logger log = LoggerFactory.getLogger(FarmBriefingService.class);
   private static final TypeReference<LinkedHashMap<String, Object>> BODY_TYPE = new TypeReference<>() {};
   private final Store store;
@@ -31,6 +31,7 @@ public class FarmBriefingService {
   private final TelemetryService telemetry;
   private final LlmGateway llm;
   private final ObjectMapper json;
+  private final FarmClock clock;
   private final AtomicBoolean sweepQueued = new AtomicBoolean();
   // Never execute a model call on Spring's scheduler: irrigation stop checks share that scheduler.
   private final ThreadPoolExecutor worker = new ThreadPoolExecutor(1, 1, 0, TimeUnit.SECONDS,
@@ -42,21 +43,21 @@ public class FarmBriefingService {
   @Value("${farm.ai.briefing-enabled:${farm.ai.automation-enabled:true}}") boolean enabled;
 
   public FarmBriefingService(Store store, JdbcTemplate db, AgronomyAnalysis agronomy,
-      TelemetryService telemetry, LlmGateway llm, ObjectMapper json) {
+      TelemetryService telemetry, LlmGateway llm, ObjectMapper json, FarmClock clock) {
     this.store = store; this.db = db; this.agronomy = agronomy;
-    this.telemetry = telemetry; this.llm = llm; this.json = json;
+    this.telemetry = telemetry; this.llm = llm; this.json = json; this.clock = clock;
   }
 
   public Map<String, Object> today(String farmId) {
     store.get("farms", farmId); // Tenant/platform checks precede any report lookup or external call.
     String tenant = Identity.tenant();
-    LocalDate date = LocalDate.now(ZONE);
+    LocalDate date = clock.today();
     var existing = find(tenant, farmId, date);
     if (!existing.isEmpty()) return existing.getFirst();
 
     var snapshot = snapshot(farmId, date);
     String id = UUID.randomUUID().toString();
-    var now = OffsetDateTime.now(ZONE);
+    var now = clock.now();
     try {
       db.update("""
         INSERT INTO ai_farm_briefings(id,tenant_id,farm_id,report_date,status,source,diagnostic,body_json,generated_at,updated_at)
@@ -76,11 +77,11 @@ public class FarmBriefingService {
   public Map<String, Object> peekToday(String farmId) {
     store.get("farms", farmId);
     var reports = read("SELECT * FROM ai_farm_briefings WHERE tenant_id=? AND farm_id=? AND report_date=?",
-      Identity.tenant(), farmId, LocalDate.now(ZONE));
+      Identity.tenant(), farmId, clock.today());
     var result = new LinkedHashMap<String, Object>();
     result.put("available", !reports.isEmpty());
     if (reports.isEmpty()) {
-      result.put("farmId", farmId); result.put("reportDate", LocalDate.now(ZONE).toString());
+      result.put("farmId", farmId); result.put("reportDate", clock.today().toString());
       result.put("message", "今日综合日报尚未生成，可在首页打开今日经营简报。");
     } else result.putAll(reports.getFirst());
     return result;
@@ -104,7 +105,7 @@ public class FarmBriefingService {
     db.update("""
       UPDATE ai_farm_briefings SET status='READY',diagnostic='INTERRUPTED',updated_at=?
       WHERE tenant_id=? AND farm_id=? AND status IN ('PENDING','GENERATING') AND updated_at<?
-      """, OffsetDateTime.now(ZONE), tenant, farmId, OffsetDateTime.now(ZONE).minusMinutes(10));
+      """, clock.now(), tenant, farmId, clock.now().minusMinutes(10));
   }
 
   private List<Map<String, Object>> read(String query, Object... args) {
@@ -132,7 +133,7 @@ public class FarmBriefingService {
       if (db.update("""
           UPDATE ai_farm_briefings SET status='GENERATING',updated_at=?
           WHERE tenant_id=? AND farm_id=? AND id=? AND status='PENDING'
-          """, OffsetDateTime.now(ZONE), tenant, farmId, id) != 1) return;
+          """, clock.now(), tenant, farmId, id) != 1) return;
       var report = read("SELECT * FROM ai_farm_briefings WHERE tenant_id=? AND farm_id=? AND id=?", tenant, farmId, id).getFirst();
       String system = """
         你是智禾农场每日经营分析助手，系统只包含虚构演示数据。依据提供的日报事实快照撰写中文综合分析，约400字。
@@ -152,7 +153,7 @@ public class FarmBriefingService {
       db.update("""
         UPDATE ai_farm_briefings SET status='READY',source='LLM',model=?,diagnostic='OK',ai_summary=?,updated_at=?
         WHERE tenant_id=? AND farm_id=? AND id=? AND status='GENERATING'
-        """, model, prose, OffsetDateTime.now(ZONE), tenant, farmId, id);
+        """, model, prose, clock.now(), tenant, farmId, id);
     } catch (Exception ex) {
       completeFallback(tenant, farmId, id, "UNAVAILABLE");
       log.warn("Daily briefing interpretation unavailable; the stored factual report remains accessible ({})", ex.getClass().getSimpleName());
@@ -163,13 +164,13 @@ public class FarmBriefingService {
     db.update("""
       UPDATE ai_farm_briefings SET status='READY',source='RULE_ENGINE',diagnostic=?,updated_at=?
       WHERE tenant_id=? AND farm_id=? AND id=? AND status IN ('PENDING','GENERATING')
-      """, diagnostic == null ? "UNAVAILABLE" : diagnostic, OffsetDateTime.now(ZONE), tenant, farmId, id);
+      """, diagnostic == null ? "UNAVAILABLE" : diagnostic, clock.now(), tenant, farmId, id);
   }
 
   /** Dispatch only: no SQL sweep, model call or blocking wait on Spring's safety scheduler. */
   @Scheduled(fixedDelayString = "${farm.ai.briefing-check-ms:60000}", initialDelay = 60000)
   public void scheduled() {
-    if (!enabled || LocalTime.now(ZONE).isBefore(LocalTime.of(6, 0)) || !sweepQueued.compareAndSet(false, true)) return;
+    if (!enabled || clock.time().isBefore(LocalTime.of(6, 0)) || !sweepQueued.compareAndSet(false, true)) return;
     try {
       worker.execute(() -> { try { sweep(); } finally { sweepQueued.set(false); } });
     } catch (RejectedExecutionException busy) { sweepQueued.set(false); }
@@ -267,7 +268,7 @@ public class FarmBriefingService {
       evidence("农情资料", plantings + " 项有效在种计划，" + fresh + " 个新鲜测点，" + issues + " 项现场问题", "种植计划、农情测点与巡田记录")
     );
     var result = new LinkedHashMap<String, Object>();
-    result.put("farmName", analysis.get("farmName")); result.put("timeZone", ZONE.getId());
+    result.put("farmName", analysis.get("farmName")); result.put("timeZone", clock.zone().getId());
     result.put("summary", "当前有 " + plantings + " 项有效在种计划，近7天" + (records == 0 ? "暂无生产记录" : "已记录产量 " + production.get("YIELD_KG") + " kg")
       + "；待办任务 " + pending + " 项（逾期 " + overdue + " 项），未解决告警 " + alerts.size() + " 条。今日优先：" + priorities.getFirst().get("title") + "。");
     result.put("metrics", metrics); result.put("priorities", priorities); result.put("evidence", evidence); result.put("dataGaps", gaps);

@@ -1,6 +1,7 @@
 package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
 import java.math.*;
@@ -21,14 +22,17 @@ public class TelemetryService {
   private final AssetService assets;
   private final DeviceCredentials credentials;
   private final DeviceAlertMonitor monitor;
+  private final FarmClock clock;
   private final SecureRandom random = new SecureRandom();
 
-  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials, DeviceAlertMonitor monitor) {
+  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials, DeviceAlertMonitor monitor,
+      FarmClock clock) {
     this.db = store.db();
     this.store = store;
     this.assets = assets;
     this.credentials = credentials;
     this.monitor = monitor;
+    this.clock = clock;
   }
 
   public Map<String, Object> collect(String id) {
@@ -80,7 +84,7 @@ public class TelemetryService {
       }
     }
     var sample = SyntheticTelemetry.sample(profile.get("DEVICE_TYPE").toString(), profile.get("FARM_ID").toString(),
-      now, previous, Duration.between(last, now).getSeconds());
+      now, clock.zone(), previous, Duration.between(last, now).getSeconds());
     var research = db.queryForList("""
       SELECT q.name FROM devices d JOIN demo_research_farms r ON r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id
       JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.security.Identity;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,7 +58,7 @@ class AiStreamServiceTest {
         return mock(ScheduledFuture.class);
       });
       service = new AiStreamService(conversations, mock(LlmGateway.class), mock(AiStreamTools.class),
-        mock(IrrigationService.class), executor, deadlines, budgetMillis);
+        mock(IrrigationService.class), executor, deadlines, budgetMillis, FarmClock.system());
     }
     SseEmitter open() {
       AtomicReference<SseEmitter> emitter = new AtomicReference<>();

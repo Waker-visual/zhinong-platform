@@ -276,8 +276,9 @@ abstract class ResearchScenarioContract {
       db.update("INSERT INTO asset_profiles(tenant_id,device_id,code,device_type,protocol,plot_id) VALUES(?,?,?,?,'MANUAL',?)",tenant,device,device,type,plot);
       db.update("INSERT INTO device_channels(tenant_id,device_id,metric) VALUES(?,?,?)",tenant,device,metric);
     }
-    var zone=ZoneId.of("Asia/Shanghai");
-    var today=LocalDate.now(zone);var day=today.minusDays(2);var first=today.minusDays(6);
+    var farmClock=context.getBean(app.zhinong.business.FarmClock.class);
+    var zone=farmClock.zone();
+    var today=farmClock.today();var day=today.minusDays(2);var first=today.minusDays(6);
     var at=List.of(first.atTime(0,15),day.minusDays(1).atTime(23,45),day.atTime(0,15),day.atTime(23,45),
       first.minusDays(1).atTime(23,45),today.plusDays(1).atTime(0,15));
     int[] temperatures={15,80,10,30,999,999},pests={5,8,1,3,999,999};
@@ -316,8 +317,10 @@ abstract class ResearchScenarioContract {
     db.update("INSERT INTO devices(id,tenant_id,farm_id,name,metric,unit,adapter) VALUES(?,?,?,'日界探头','SOIL_MOISTURE','%','MANUAL')", device, tenant, farm);
     db.update("INSERT INTO asset_profiles(tenant_id,device_id,code,device_type,protocol,plot_id) VALUES(?,?,?,'SOIL','MANUAL',?)", tenant, device, device, plot);
     db.update("INSERT INTO device_channels(tenant_id,device_id,metric,lower_limit,upper_limit) VALUES(?,?,'SOIL_MOISTURE',20,60)", tenant, device);
-    var day = LocalDate.now().minusDays(2);
-    var midnight = day.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+    // Matrix days are farm-calendar days (farm.zone), not the server's.
+    var farmClock = context.getBean(app.zhinong.business.FarmClock.class);
+    var day = farmClock.today().minusDays(2);
+    var midnight = farmClock.startOf(day);
     String insert = "INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'SOIL_MOISTURE',?,?,?,'MANUAL')";
     db.update(insert, UUID.randomUUID().toString(), tenant, device, 80, midnight.minusMinutes(15), midnight);
     db.update(insert, UUID.randomUUID().toString(), tenant, device, 10, midnight.plusMinutes(15), midnight);

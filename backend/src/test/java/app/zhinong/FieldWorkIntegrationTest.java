@@ -2,10 +2,10 @@ package app.zhinong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import app.zhinong.business.FarmClock;
 import com.fasterxml.jackson.databind.*;
 import java.net.URI;
 import java.net.http.*;
-import java.time.LocalDate;
 import java.util.*;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,6 +30,9 @@ class FieldWorkIntegrationTest {
 
   @Autowired
   ObjectMapper json;
+
+  @Autowired
+  FarmClock clock;
 
   final HttpClient http = HttpClient.newHttpClient();
   String admin, operator, viewer, other, platform, workerId, otherWorkerId, farm, plot, plot2;
@@ -139,7 +142,7 @@ class FieldWorkIntegrationTest {
       "taskType",
       "PROTECTION",
       "dueDate",
-      LocalDate.now().toString(),
+      clock.today().toString(),
       "assigneeId",
       assignee,
       "method",
@@ -219,7 +222,7 @@ class FieldWorkIntegrationTest {
       200
     );
     var late = new HashMap<>(plan(workerId));
-    late.put("dueDate", LocalDate.now().minusDays(2).toString());
+    late.put("dueDate", clock.today().minusDays(2).toString());
     String lateTask = call(admin, "POST", "/field-work/tasks", late, 200)
       .path("id")
       .asText();

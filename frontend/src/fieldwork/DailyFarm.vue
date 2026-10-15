@@ -453,7 +453,7 @@ async function history(row) {
         <article :class="{ 'attention danger': pending.some(overdue) }">
           <small>农场逾期任务</small
           ><strong>{{ pending.filter(overdue).length }}<span>项</span></strong>
-          <p>按服务器日期 {{ data.today || "…" }}</p>
+          <p>按农场日期 {{ data.today || "…" }}</p>
         </article>
         <article
           :class="{ 'attention caution': pending.some((t) => t.blockedReason) }"

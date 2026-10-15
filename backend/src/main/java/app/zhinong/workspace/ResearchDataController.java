@@ -1,8 +1,8 @@
 package app.zhinong.workspace;
 
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
-import java.time.LocalDate;
 import java.util.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/farms/{farmId}/research-data")
 public class ResearchDataController {
   private final Store store;
-  public ResearchDataController(Store store) { this.store=store; }
+  private final FarmClock clock;
+  public ResearchDataController(Store store, FarmClock clock) { this.store=store; this.clock=clock; }
   @GetMapping public Object report(@PathVariable String farmId) {
     store.get("farms",farmId);
     String tenant=Identity.tenant(); var db=store.db();
@@ -35,7 +36,7 @@ public class ResearchDataController {
         OR s.crop<>p.crop OR s.area_mu>p.area_mu OR r.record_date<s.start_date OR r.record_date>s.end_date
         OR t.task_type<>'HARVEST' OR t.status<>'COMPLETED' OR t.due_date<>r.record_date OR w.actual_area_mu<>s.area_mu)
       """,Long.class,tenant,farmId));
-    checks.put("futureHarvests",db.queryForObject("SELECT COUNT(*) FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>?",Long.class,tenant,farmId,LocalDate.now()));
+    checks.put("futureHarvests",db.queryForObject("SELECT COUNT(*) FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>?",Long.class,tenant,farmId,clock.today()));
     checks.put("decreasingCounters",db.queryForObject("""
       SELECT COUNT(*) FROM (SELECT r.measured_value,
         LAG(r.measured_value) OVER(PARTITION BY r.tenant_id,r.device_id,r.metric ORDER BY r.measured_at,r.id) AS previous_value

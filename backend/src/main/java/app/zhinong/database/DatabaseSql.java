@@ -10,11 +10,7 @@ public class DatabaseSql {
   private final boolean mysql;
   public DatabaseSql(Environment env) { mysql = env.getProperty("spring.datasource.url", "").startsWith("jdbc:mysql:"); }
   public boolean mysql() { return mysql; }
-  public String calendarDate(String column) {
-    String offset=java.time.OffsetDateTime.now().getOffset().getId();
-    return "CAST("+column+(mysql?"":" AT TIME ZONE '"+offset+"'")+" AS DATE)";
-  }
-  /** Use the same business zone for date buckets and the caller's time-window boundaries. */
+  /** Use the same business zone (FarmClock) for date buckets and the caller's time-window boundaries. */
   public String calendarDate(String column, java.time.ZoneId zone) {
     String offset=java.time.OffsetDateTime.now(zone).getOffset().getId();
     if ("Z".equals(offset)) offset="+00:00";

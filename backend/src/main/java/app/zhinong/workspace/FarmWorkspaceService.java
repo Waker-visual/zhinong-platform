@@ -1,6 +1,7 @@
 package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -22,19 +23,22 @@ public class FarmWorkspaceService {
   private final AssetService assets;
   private final TelemetryService telemetry;
   private final ObjectMapper json;
+  private final FarmClock clock;
   @Value("#{${farm.demo:false} && ${farm.demo-rich:true} && ${farm.demo-live:false}}") private boolean demoLive;
 
   public FarmWorkspaceService(
     Store store,
     AssetService assets,
     TelemetryService telemetry,
-    ObjectMapper json
+    ObjectMapper json,
+    FarmClock clock
   ) {
     this.store = store;
     this.db = store.db();
     this.assets = assets;
     this.telemetry = telemetry;
     this.json = json;
+    this.clock = clock;
   }
 
   public List<Map<String, Object>> cards() {
@@ -180,7 +184,9 @@ public class FarmWorkspaceService {
     store.get("farms", id);
     if (days < 1 || days > 731) throw new ApiException(400, "统计范围为 1–731 天");
     String tenant = Identity.tenant();
-    LocalDate start = LocalDate.now().minusDays(days - 1);
+    // One farm-calendar date bounds both queries, instead of the database server's CURRENT_DATE.
+    LocalDate today = clock.today();
+    LocalDate start = today.minusDays(days - 1);
     var crops = db.queryForList(
       """
       SELECT CASE WHEN crop='' THEN '未填写作物' ELSE crop END AS "name",SUM(area_mu) AS "value"
@@ -202,12 +208,13 @@ public class FarmWorkspaceService {
       """
       SELECT r.record_date AS "date",SUM(r.yield_kg) AS "value" FROM production r
       JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
-      WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<=CURRENT_DATE
+      WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<=?
       GROUP BY r.record_date ORDER BY r.record_date
       """,
       tenant,
       id,
-      start
+      start,
+      today
     );
     var distribution = db.queryForList(
       """
@@ -223,10 +230,11 @@ public class FarmWorkspaceService {
       """
       SELECT p.name AS "name",COALESCE(SUM(r.yield_kg),0) AS "value"
       FROM plots p LEFT JOIN production r ON r.tenant_id=p.tenant_id AND r.plot_id=p.id
-        AND r.record_date>=? AND r.record_date<=CURRENT_DATE
+        AND r.record_date>=? AND r.record_date<=?
       WHERE p.tenant_id=? AND p.farm_id=? GROUP BY p.id,p.name ORDER BY SUM(r.yield_kg) DESC
       """,
       start,
+      today,
       tenant,
       id
     );
@@ -266,7 +274,7 @@ public class FarmWorkspaceService {
       "from",
       start,
       "to",
-      LocalDate.now(),
+      today,
       "summary",
       summary,
       "cropArea",

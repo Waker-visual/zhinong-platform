@@ -1,5 +1,6 @@
 package app.zhinong.ai;
 
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
@@ -13,15 +14,16 @@ import org.springframework.stereotype.Service;
 public class AgronomyAnalysis {
   private final Store store;
   private final JdbcTemplate db;
-  public AgronomyAnalysis(Store store, JdbcTemplate db) { this.store=store; this.db=db; }
+  private final FarmClock clock;
+  public AgronomyAnalysis(Store store, JdbcTemplate db, FarmClock clock) { this.store=store; this.db=db; this.clock=clock; }
 
   public Map<String,Object> report(String farmId) {
     var farm=store.get("farms",farmId);
     String tenant=Identity.tenant();
-    var zone=ZoneId.of("Asia/Shanghai");
-    var now=OffsetDateTime.now(zone);
+    var zone=clock.zone();
+    var now=clock.now();
     var date=now.toLocalDate();
-    var since=date.minusDays(6).atStartOfDay(zone).toOffsetDateTime();
+    var since=clock.startOf(date.minusDays(6));
     var crops=db.queryForList("""
       SELECT p.id AS "plotId",p.name AS "plotName",s.crop,s.variety,s.start_date AS "startDate",s.end_date AS "endDate",s.area_mu AS "areaMu"
       FROM plantings s JOIN plots p ON p.tenant_id=s.tenant_id AND p.id=s.plot_id

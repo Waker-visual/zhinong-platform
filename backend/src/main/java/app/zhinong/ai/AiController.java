@@ -1,6 +1,7 @@
 package app.zhinong.ai;
 
 import app.zhinong.ai.LlmGateway.ToolCall;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.fieldwork.FieldWorkService;
 import app.zhinong.security.Identity;
@@ -39,6 +40,7 @@ public class AiController {
   private final SimulationStore simulations;
   private final LlmGateway llm;
   private final ObjectMapper json;
+  private final FarmClock clock;
 
   public AiController(
     FarmWorkspaceService farmWorkspace,
@@ -46,7 +48,8 @@ public class AiController {
     Store store,
     SimulationStore simulations,
     LlmGateway llm,
-    ObjectMapper json
+    ObjectMapper json,
+    FarmClock clock
   ) {
     this.farmWorkspace = farmWorkspace;
     this.fieldWork = fieldWork;
@@ -54,6 +57,7 @@ public class AiController {
     this.simulations = simulations;
     this.llm = llm;
     this.json = json;
+    this.clock = clock;
   }
 
   public record AskInput(
@@ -197,6 +201,7 @@ public class AiController {
     store.get("farms", input.farmId());
     String q = input.question();
     String farmId = input.farmId();
+    var today = clock.today();
     List<Map<String, Object>> messages = new ArrayList<>();
     messages.add(
       Map.of(
@@ -204,9 +209,9 @@ public class AiController {
         "system",
         "content",
         "你是智禾农场平台的农场智能助手，用户是农场管理员。今天是" +
-        java.time.LocalDate.now() +
+        today +
         "（" +
-        java.time.LocalDate.now().getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.CHINESE) +
+        today.getDayOfWeek().getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.CHINESE) +
         "），回答涉及日期、时间、星期、今天等一律以此为准。" +
         "系统内所有业务数据（农场档案、经营概况、地块、种植计划、生产记录、监测设备、农事任务、现场问题、成员、操作日志、经营模拟、租户）都可以通过提供的工具实时查询，回答问题时先自主选择合适的工具获取数据，再基于工具返回结果回答。" +
         "如果是农事知识、方法类问题，可以结合农业常识直接回答。" +

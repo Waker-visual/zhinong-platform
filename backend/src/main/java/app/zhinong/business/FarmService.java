@@ -22,17 +22,20 @@ public class FarmService {
   private final DeviceAdapter adapter;
   private final AssetService assets;
   private final FieldWorkService fieldWork;
+  private final FarmClock clock;
 
   public FarmService(
     Store store,
     DeviceAdapter adapter,
     AssetService assets,
-    FieldWorkService fieldWork
+    FieldWorkService fieldWork,
+    FarmClock clock
   ) {
     this.store = store;
     this.adapter = adapter;
     this.assets = assets;
     this.fieldWork = fieldWork;
+    this.clock = clock;
   }
 
   public List<Map<String, Object>> list(String table) {
@@ -66,6 +69,7 @@ public class FarmService {
   public Map<String, Object> dashboard() {
     String tenant = Identity.tenant();
     var db = store.db();
+    LocalDate today = clock.today();
     return Map.of(
       "farms",
       db.queryForObject(
@@ -103,13 +107,13 @@ public class FarmService {
         Long.class,
         tenant
       ),
-      // 导航计数与今日农场同一口径：按服务器日期判断逾期，逾期优先于受阻，二者不重复计数。
+      // 导航计数与今日农场同一口径：按农场业务日期（farm.zone）判断逾期，逾期优先于受阻，二者不重复计数。
       "overdueTasks",
       db.queryForObject(
         "SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND status IN ('PENDING','RUNNING') AND due_date<? AND " + Store.activeScope("farm_tasks"),
         Long.class,
         tenant,
-        LocalDate.now()
+        today
       ),
       "blockedTasks",
       db.queryForObject(
@@ -120,7 +124,7 @@ public class FarmService {
         """,
         Long.class,
         tenant,
-        LocalDate.now()
+        today
       ),
       "openIssues",
       db.queryForObject(

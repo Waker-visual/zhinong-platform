@@ -35,6 +35,9 @@ class WorkspaceIntegrationTest {
   JdbcTemplate db;
 
   @Autowired
+  app.zhinong.business.FarmClock clock;
+
+  @Autowired
   WorkspaceData fixtures;
 
   @Autowired
@@ -672,7 +675,7 @@ class WorkspaceIntegrationTest {
           "plotId",
           plot,
           "recordDate",
-          java.time.LocalDate.now().toString(),
+          clock.today().toString(),
           "yieldKg",
           1234,
           "note",
@@ -690,7 +693,7 @@ class WorkspaceIntegrationTest {
           "plotId",
           otherPlot,
           "recordDate",
-          java.time.LocalDate.now().toString(),
+          clock.today().toString(),
           "yieldKg",
           9999,
           "note",

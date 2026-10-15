@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,7 +40,7 @@ class AiPreparationTimeoutTest {
     db.update("INSERT INTO ai_conversations VALUES('chat','tenant','member','farm','auto')");
     var analysis = mock(AgronomyAnalysis.class);
     var gateway = mock(LlmGateway.class);
-    var target = new AiConversations(mock(Store.class), db, gateway, analysis, new ObjectMapper());
+    var target = new AiConversations(mock(Store.class), db, gateway, analysis, new ObjectMapper(), FarmClock.system());
     // Match Spring's class-based proxy support for package-visible transactional methods.
     var factory = new ProxyFactory(target);
     factory.setProxyTargetClass(true);
@@ -48,7 +49,8 @@ class AiPreparationTimeoutTest {
     var executor = mock(ExecutorService.class);
     var deadlines = mock(ScheduledExecutorService.class);
     when(deadlines.schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS))).thenReturn(mock(ScheduledFuture.class));
-    var service = new AiStreamService(conversations, gateway, mock(AiStreamTools.class), mock(IrrigationService.class), executor, deadlines);
+    var service = new AiStreamService(conversations, gateway, mock(AiStreamTools.class), mock(IrrigationService.class), executor, deadlines,
+      FarmClock.system());
     var identity = new Identity("member", "tenant", "演示租户", "operator", "演示用户", "OPERATOR");
     var question = new AiConversations.Question("今日农事", "preparation-test");
 

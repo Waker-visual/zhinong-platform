@@ -1,6 +1,7 @@
 package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.database.DatabaseTime;
 import app.zhinong.fieldwork.FieldWorkService;
@@ -20,7 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 public class FieldMapService {
   private final Store store;private final JdbcTemplate db;private final ObjectMapper json;
   private final AssetService assets;private final DeviceCommandService commands;private final FieldWorkService fieldwork;
-  public FieldMapService(Store store,ObjectMapper json,AssetService assets,DeviceCommandService commands,FieldWorkService fieldwork) {
+  private final FarmClock clock;
+  public FieldMapService(Store store,ObjectMapper json,AssetService assets,DeviceCommandService commands,FieldWorkService fieldwork,FarmClock clock) {
+    this.clock=clock;
     this.store=store;db=store.db();this.json=json;this.assets=assets;this.commands=commands;this.fieldwork=fieldwork;
   }
   public record ParcelInput(@NotBlank String plotId,@NotBlank @Size(max=80) String name,@NotNull @Size(min=3,max=80) List<List<Double>> boundary) {}
@@ -78,7 +81,7 @@ public class FieldMapService {
       throw new ApiException(400,"小田块超出当前农场配置范围，请先核对位置");
     if(db.queryForObject("SELECT COUNT(*) FROM farm_map_parcels WHERE tenant_id=? AND farm_id=?",Integer.class,Identity.tenant(),farm)>=100)throw new ApiException(409,"单农场最多保存 100 个小田块");
     String id=UUID.randomUUID().toString();
-    db.update("INSERT INTO farm_map_parcels(id,tenant_id,farm_id,plot_id,name,boundary_json,source,source_note,created_at) VALUES(?,?,?,?,?,?,'USER_ESTIMATE','用户按底图估绘，未实测',?)",id,Identity.tenant(),farm,input.plotId(),input.name().strip(),encode(input.boundary()),OffsetDateTime.now());
+    db.update("INSERT INTO farm_map_parcels(id,tenant_id,farm_id,plot_id,name,boundary_json,source,source_note,created_at) VALUES(?,?,?,?,?,?,'USER_ESTIMATE','用户按底图估绘，未实测',?)",id,Identity.tenant(),farm,input.plotId(),input.name().strip(),encode(input.boundary()),clock.now());
     store.audit("MAP_PARCEL_ESTIMATED",id);return Map.of("id",id);
   }
   private void activeFarm(String farm) {
@@ -145,7 +148,7 @@ public class FieldMapService {
     event(Identity.tenant(),id,"ACCEPTED","模拟水泵已确认启动");store.audit("MAP_IRRIGATION_START",id);return job(farm,id);
   }
   private void insert(String id,String farm,Map<String,Object> p,String device,String task,String request,String kind,String title,String params,String route,int duration,String command,BigDecimal flow) {
-    var now=OffsetDateTime.now();
+    var now=clock.now();
     db.update("""
       INSERT INTO farm_map_jobs(id,tenant_id,farm_id,plot_id,parcel_id,device_id,task_id,owner_id,request_id,kind,title,status,
         parameters_json,route_json,boundary_json,duration_seconds,start_command_id,flow_m3h,created_at,started_at,last_tick_at,result_note)
@@ -181,7 +184,7 @@ public class FieldMapService {
     return seconds.isEmpty()?((Number)row.get("DURATION_SECONDS")).doubleValue():seconds.getFirst();
   }
   private void event(String tenant,String job,String action,String note) {
-    db.update("INSERT INTO farm_map_job_events(id,tenant_id,job_id,action,note,occurred_at) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),tenant,job,action,note,OffsetDateTime.now());
+    db.update("INSERT INTO farm_map_job_events(id,tenant_id,job_id,action,note,occurred_at) VALUES(?,?,?,?,?,?)",UUID.randomUUID().toString(),tenant,job,action,note,clock.now());
   }
 
   public Map<String,Object> act(String farm,String id,String action) {
@@ -189,17 +192,17 @@ public class FieldMapService {
     var r=storedJob(Identity.tenant(),farm,id,true);
     if(!Set.of("RUNNING","PAUSED").contains(r.get("STATUS")))return publicJob(r);
     if(!action.equals("STOP") && !"MACHINERY".equals(r.get("KIND")))throw new ApiException(409,"当前灌溉设备仅支持启动和停止，不支持暂停续灌");
-    advance(r,Instant.now());r=storedJob(Identity.tenant(),farm,id,true);
+    advance(r,clock.instant());r=storedJob(Identity.tenant(),farm,id,true);
     if(!Set.of("RUNNING","PAUSED").contains(r.get("STATUS")))return publicJob(r);
     if(action.equals("STOP"))finish(r,"STOPPED","人工停止模拟任务");
     else if(action.equals("PAUSE") && "RUNNING".equals(r.get("STATUS")))db.update("UPDATE farm_map_jobs SET status='PAUSED',result_note='模拟任务已暂停' WHERE tenant_id=? AND id=?",Identity.tenant(),id);
-    else if(action.equals("RESUME") && "PAUSED".equals(r.get("STATUS")))db.update("UPDATE farm_map_jobs SET status='RUNNING',last_tick_at=?,result_note='模拟任务继续执行' WHERE tenant_id=? AND id=?",OffsetDateTime.now(),Identity.tenant(),id);
+    else if(action.equals("RESUME") && "PAUSED".equals(r.get("STATUS")))db.update("UPDATE farm_map_jobs SET status='RUNNING',last_tick_at=?,result_note='模拟任务继续执行' WHERE tenant_id=? AND id=?",clock.now(),Identity.tenant(),id);
     event(Identity.tenant(),id,action,"模拟任务操作："+action);store.audit("MAP_JOB_"+action,id);return job(farm,id);
   }
   /** System entry point: tenant is taken from the persisted job, never a request argument. */
   public void tick(String tenant,String farm,String id) {
     var initial=storedJob(tenant,farm,id,false);db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE",tenant,initial.get("DEVICE_ID"));
-    var r=storedJob(tenant,farm,id,true);advance(r,Instant.now());
+    var r=storedJob(tenant,farm,id,true);advance(r,clock.instant());
   }
   private void advance(Map<String,Object> r,Instant now) {
     if(!"RUNNING".equals(r.get("STATUS")))return;
@@ -223,7 +226,7 @@ public class FieldMapService {
     if(links.isEmpty())throw new IllegalStateException("AI irrigation map job missing");
     var initial=links.getFirst();String id=initial.get("ID").toString(),farm=initial.get("FARM_ID").toString();
     db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE",tenant,initial.get("DEVICE_ID"));
-    var r=storedJob(tenant,farm,id,true);advance(r,Instant.now());r=storedJob(tenant,farm,id,true);
+    var r=storedJob(tenant,farm,id,true);advance(r,clock.instant());r=storedJob(tenant,farm,id,true);
     if("RUNNING".equals(r.get("STATUS")))finish(r,"STOPPED",reason);
     else syncAiRun(r);
   }
@@ -238,7 +241,7 @@ public class FieldMapService {
   private void finish(Map<String,Object> r,String status,String note) {
     String tenant=r.get("TENANT_ID").toString(),id=r.get("ID").toString();String stop=null;
     if("IRRIGATION".equals(r.get("KIND")))stop=commands.stopMapSimulation(tenant,id);
-    db.update("UPDATE farm_map_jobs SET status=?,finished_at=?,stop_command_id=?,result_note=? WHERE tenant_id=? AND id=?",status,OffsetDateTime.now(),stop,note+("IRRIGATION".equals(r.get("KIND"))?"；用水为模拟流量积分估算，未实测":"；未接入真实农机执行与轨迹"),tenant,id);
+    db.update("UPDATE farm_map_jobs SET status=?,finished_at=?,stop_command_id=?,result_note=? WHERE tenant_id=? AND id=?",status,clock.now(),stop,note+("IRRIGATION".equals(r.get("KIND"))?"；用水为模拟流量积分估算，未实测":"；未接入真实农机执行与轨迹"),tenant,id);
     event(tenant,id,status,note);
     syncAiRun(storedJob(tenant,r.get("FARM_ID").toString(),id,false));
     syncTask(tenant,id,status.equals("COMPLETED")?"COMPLETED":"CANCELLED",note+"；非真实生产作业");
@@ -254,8 +257,8 @@ public class FieldMapService {
       else area=FieldGeometry.route(boundary(r.get("BOUNDARY_JSON")),((Number)params.get("widthMeters")).doubleValue(),((Number)params.get("bearing")).doubleValue(),((Number)params.get("headlandMeters")).doubleValue()).areaMu();
       if("MANUAL".equals(params.get("planningMode")))note+="；手绘路线未核定面积，面积字段保留 0（未测），不表示无作业";
       note+="；作业面积为模拟规划覆盖估算，未实测";
-      db.update("UPDATE task_fieldwork SET completed_at=?,completion_note=?,actual_area_mu=? WHERE tenant_id=? AND task_id=?",java.sql.Timestamp.from(Instant.now()),note,area,tenant,task);
+      db.update("UPDATE task_fieldwork SET completed_at=?,completion_note=?,actual_area_mu=? WHERE tenant_id=? AND task_id=?",java.sql.Timestamp.from(clock.instant()),note,area,tenant,task);
     }
-    db.update("INSERT INTO field_work_logs(id,tenant_id,task_id,actor_id,action,note,method,actual_area_mu,occurred_at) VALUES(?,?,?,?,?,?,'SERVICE',?,?)",UUID.randomUUID().toString(),tenant,task,r.get("OWNER_ID"),status,note,area,java.sql.Timestamp.from(Instant.now()));
+    db.update("INSERT INTO field_work_logs(id,tenant_id,task_id,actor_id,action,note,method,actual_area_mu,occurred_at) VALUES(?,?,?,?,?,?,'SERVICE',?,?)",UUID.randomUUID().toString(),tenant,task,r.get("OWNER_ID"),status,note,area,java.sql.Timestamp.from(clock.instant()));
   }
 }

@@ -21,6 +21,13 @@
     <plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin>
       <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId>
         <configuration><systemPropertyVariables><farm.llm.file-enabled>false</farm.llm.file-enabled></systemPropertyVariables></configuration>
+        <executions>
+          <!-- Business-calendar regressions need a JVM whose default zone is UTC from startup (H2 and JDBC included). -->
+          <execution><id>default-test</id><configuration><excludedGroups>server-utc</excludedGroups></configuration></execution>
+          <execution><id>server-utc</id><goals><goal>test</goal></goals>
+            <configuration><groups>server-utc</groups><argLine>-Duser.timezone=UTC</argLine><failIfNoSpecifiedTests>false</failIfNoSpecifiedTests></configuration>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
     <resources>
