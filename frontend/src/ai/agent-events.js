@@ -294,10 +294,13 @@ export function groupConversationsByDate(conversations, now = new Date()) {
 // 组合当前展示用的消息列表：在不改动已持久化历史的前提下，
 // 追加这次运行的临时用户消息和流式中的助手占位消息。
 // run 为空时直接返回原始历史（不新建数组也可以，但为了调用方一致性这里仍返回新数组的浅拷贝）。
+// 共享会话下，另一侧可能在服务端刚落库、本次运行还没结束时读取历史（例如生成末尾从小窗切到完整页）：
+// 同一 requestId 的已落库消息先隐藏，只展示这次运行，运行完成后再由落库消息整体替换，避免同一问答出现两遍。
 export function visibleMessages(history, run) {
   if (!run) return history;
+  const settled = run.requestId ? history.filter(message => message.requestId !== run.requestId) : history;
   return [
-    ...history,
+    ...settled,
     { role: "user", content: run.question, temporary: true },
     { role: "assistant", content: run.text, temporary: true, pending: true, run },
   ];

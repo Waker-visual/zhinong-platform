@@ -54,6 +54,7 @@
   -webkit-mask-image:linear-gradient(to right,black calc(100% - 40px),transparent 100%);
 }
 .ai-history-title.fresh {animation:ai-title-fresh-in 900ms var(--ease-expo);}
+.ai-history-surface {flex:none;margin-left:6px;padding:2px 5px;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-size:10px;line-height:1.3;}
 @keyframes ai-title-fresh-in {from {opacity:.15;} to {opacity:1;}}
 .ai-history-rename {flex:1;min-width:0;height:28px;margin:0 8px 0 10px;padding:0 6px;border:1px solid var(--focus-ring);border-radius:var(--radius-sm);background:var(--surface);font-size:13px;}
 /* ⋮按钮：24px圆角正方形，默认隐藏；悬停/键盘聚焦/菜单打开时出现；选中项在触屏上常显

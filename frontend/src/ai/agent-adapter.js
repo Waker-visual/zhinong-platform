@@ -1,8 +1,8 @@
 import { api, streamJson } from "../api.js";
 
 // 与页面共用同一个请求模块和认证状态；api.js 可直接在 Node 测试环境导入。
-async function defaultSend({ conversationId, question, requestId, signal }) {
-  return api(`/ai/conversations/${conversationId}/messages`, "POST", { question, requestId }, { timeoutMs: 70000, signal });
+async function defaultSend({ conversationId, question, requestId, pageId, focusType, focusId, signal }) {
+  return api(`/ai/conversations/${conversationId}/messages`, "POST", { question, requestId, pageId, focusType, focusId }, { timeoutMs: 70000, signal });
 }
 
 // 必须是 async function*（而不是普通 async function 再 return 一个异步生成器）：调用方
@@ -12,8 +12,8 @@ async function defaultSend({ conversationId, question, requestId, signal }) {
 // 被当成“流式彻底不可用”，每次都静默回退到同步接口，SSE 永远用不上（该问题已在手工浏览器
 // 验收中复现：实际发送请求只命中 /messages，从未命中 /stream）。用 yield* 委托，
 // defaultStreamSend(...) 调用后立即同步返回一个真正的异步生成器，才能被正确迭代。
-async function* defaultStreamSend({ conversationId, question, requestId, signal }) {
-  yield* streamJson(`/ai/conversations/${conversationId}/stream`, { question, requestId }, { timeoutMs: 70000, signal });
+async function* defaultStreamSend({ conversationId, question, requestId, pageId, focusType, focusId, signal }) {
+  yield* streamJson(`/ai/conversations/${conversationId}/stream`, { question, requestId, pageId, focusType, focusId }, { timeoutMs: 70000, signal });
 }
 
 const diagnostics = {
@@ -34,7 +34,7 @@ function errorMessage(error) {
 }
 
 // 同步适配器：farmId 当前未被同步接口使用，但保留在参数中以便流式适配器复用同一调用方。
-export async function* syncConversationAdapter({ farmId, conversationId, question, requestId, signal, send = defaultSend }) {
+export async function* syncConversationAdapter({ farmId, conversationId, question, requestId, pageId, focusType, focusId, signal, send = defaultSend }) {
   let sequence = 0;
   const next = () => ++sequence;
   yield { sequence: next(), type: "run.started" };
@@ -47,7 +47,7 @@ export async function* syncConversationAdapter({ farmId, conversationId, questio
   };
   yield { sequence: next(), type: "activity.started", activity };
   try {
-    const response = await send({ farmId, conversationId, question, requestId, signal });
+    const response = await send({ farmId, conversationId, question, requestId, pageId, focusType, focusId, signal });
     yield {
       sequence: next(),
       type: "activity.completed",
@@ -74,11 +74,11 @@ export async function* syncConversationAdapter({ farmId, conversationId, questio
 // AgentRunEvent 协议发出的事件。只有在还没有产出过任何事件时失败，才向上抛出异常——
 // 这样 defaultConversationAdapter 才知道可以安全回退到同步接口（不会造成问题重复提交）。
 // 一旦已经转发过事件再出错，只能就地发出 run.error，不能再回退（会变成同一个问题发送两次）。
-export async function* streamConversationAdapter({ conversationId, question, requestId, signal, send = defaultStreamSend }) {
+export async function* streamConversationAdapter({ conversationId, question, requestId, pageId, focusType, focusId, signal, send = defaultStreamSend }) {
   let yielded = false;
   let terminal = false;
   try {
-    for await (const event of send({ conversationId, question, requestId, signal })) {
+    for await (const event of send({ conversationId, question, requestId, pageId, focusType, focusId, signal })) {
       yielded = true;
       if (["run.completed", "run.error"].includes(event.type)) terminal = true;
       yield event;

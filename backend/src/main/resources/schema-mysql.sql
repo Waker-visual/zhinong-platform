@@ -17,8 +17,32 @@ DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
 
 SET @zhinong_ai_upgrade = IF(
  EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations' AND COLUMN_NAME='surface'),
+ 'ALTER TABLE ai_conversations ADD COLUMN surface VARCHAR(16) NULL', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations')
  AND NOT EXISTS(SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations' AND CONSTRAINT_NAME='chk_ai_conversations_title_source'),
  'ALTER TABLE ai_conversations ADD CONSTRAINT chk_ai_conversations_title_source CHECK(title_source IN (''auto'',''user''))', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations' AND CONSTRAINT_NAME='chk_ai_conversations_surface'),
+ 'ALTER TABLE ai_conversations ADD CONSTRAINT chk_ai_conversations_surface CHECK(surface IS NULL OR surface=''floating'')', 'SELECT 1');
+PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
+EXECUTE zhinong_ai_upgrade_stmt;
+DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
+
+SET @zhinong_ai_upgrade = IF(
+ EXISTS(SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations')
+ AND NOT EXISTS(SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='ai_conversations' AND CONSTRAINT_NAME='uq_ai_conversations_surface'),
+ 'ALTER TABLE ai_conversations ADD CONSTRAINT uq_ai_conversations_surface UNIQUE(tenant_id,member_id,farm_id,surface)', 'SELECT 1');
 PREPARE zhinong_ai_upgrade_stmt FROM @zhinong_ai_upgrade;
 EXECUTE zhinong_ai_upgrade_stmt;
 DEALLOCATE PREPARE zhinong_ai_upgrade_stmt;
@@ -305,7 +329,10 @@ CREATE TABLE IF NOT EXISTS ai_conversations (
  FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),
  pinned_at TIMESTAMP(6),
  title_source VARCHAR(10) NOT NULL DEFAULT 'auto',
- CONSTRAINT chk_ai_conversations_title_source CHECK(title_source IN ('auto','user'))
+ surface VARCHAR(16),
+ CONSTRAINT chk_ai_conversations_title_source CHECK(title_source IN ('auto','user')),
+ CONSTRAINT chk_ai_conversations_surface CHECK(surface IS NULL OR surface='floating'),
+ CONSTRAINT uq_ai_conversations_surface UNIQUE(tenant_id,member_id,farm_id,surface)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE IF NOT EXISTS ai_messages (

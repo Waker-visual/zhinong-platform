@@ -42,6 +42,17 @@
 
 读取对话消息时，每条消息附带一个 `activities` 数组，记录这条回答执行过程中的只读活动摘要，字段包括 `activityId`、`sequenceNo`（顺序号）、`kind`（`context`/`tool`/`source`/`approval`/`task`）、`label`、`status`（`pending`/`running`/`completed`/`error`）、`detail`、`resultSummary` 以及开始/结束时间，按 `sequenceNo` 排序。数据库只保存脱敏后的安全摘要，不保存模型原始请求、完整工具参数或凭据；在本功能上线前产生的旧消息没有活动记录，读取时返回空数组，不影响已有对话。删除对话会级联删除其消息和活动摘要。`kind="approval"` 的灌溉审批活动把目标灌溉建议编码在 `activityId` 里（`irrigation-run:<建议ID>`），不另外新增数据库列或事件字段；前端据此解析出要跳转到的建议，仅用于导航。
 
+### 悬浮助手「小禾」与页面资料来源
+
+今日农场、运行概览、设备台账等业务页右下角有小禾入口（手机端位于底部导航上方），只在点击后打开，不会自动弹出。桌面端是不遮挡页面的浮窗，点击关闭、按 Escape 或再次点击入口即可收起；手机端是全宽底部面板，打开时锁定背景滚动，键盘弹出时随可视区域调整高度。关闭后焦点回到入口。完整 AI 页上不显示小禾入口，避免两处同时提问。
+
+- **快捷会话**：每位成员在每座农场只有一条小窗会话，首次发送时创建，刷新后仍会恢复。它同时出现在完整 AI 页历史列表中，带“小窗”标记，可以继续、重命名或删除；从小窗会话分支出的新对话是普通对话。
+- **共享运行状态**：小窗和完整页使用同一份运行状态，同一时间只生成一段回答。生成中点“打开完整 AI”会直接跳到同一会话，增量正文、活动摘要和停止按钮原样延续；关闭小窗不会中止回答，完成或失败后入口上出现状态点。完整页正在生成另一条会话时，小窗会提示稍后再问。
+- **失败重试**：回答失败后点“重试本次回答”，沿用首次发送的请求编号和页面资料范围；服务端若已保存过该回答则直接回放，不会出现重复问题。停止或失败后，原问题会还回输入框。
+- **切换农场与退出登录**：会立即中止正在生成的回答、清空待重试请求、小窗草稿和消息，并按新农场重新读取快捷会话；旧农场的回答不会出现在新农场视图中。离开完整页时，普通会话的回答会停止；小窗会话的回答继续在小窗里完成。
+- **页面资料来源**：小窗发送时只告诉服务端“当前页面 + 所选对象”（例如设备台账里选中的设备），服务端按当前租户和农场重新查询有限的白名单资料交给模型，不接受浏览器上传的页面内容。回答落库时附带一条 `kind="source"` 的来源记录（`activityId` 为 `page-source`），例如“参考页面：地块管理 · 已定位「来源验收地」”或“参考页面：今日农场 · 未完成任务 8 项，待处理问题 4 项”，在小窗和完整页的回答下方显示。来源记录只保存页面名称、对象名称和计数，不保存读数或原始快照。跨租户、跨农场或与页面不匹配的对象会被拒绝，且不会调用模型。完整 AI 页本身不附带页面范围。
+- 小窗只做只读咨询：可以复制、朗读、打开完整 AI 或跳转灌溉管理确认已有建议，不能在聊天中批准灌溉或控制设备。
+
 ### 流式回答
 
 前端发送问题时优先调用 `POST /api/ai/conversations/{id}/stream`，响应为 `text/event-stream`，按下列类型依次推送 `AgentRunEvent`（字段为空时省略）：
@@ -159,9 +170,9 @@
 | --- | --- |
 | `GET /api/ai/status` | 任意已登录账号（租户或平台）可查：`enabled`、`llm`（是否已配置云端模型）；已配置时额外带 `model`（模型 id，例如 `deepseek-flash`）。绝不返回模型地址或密钥。前端头部徽标据此显示“云端模型 · <model>”或“规则分析模式”；状态还没返回时显示中性骨架占位，不会先闪一下“规则分析模式”再跳成已配置 |
 | `GET /api/ai/analysis?farmId=...` | 当前农场天气、四情与生产数据快照 |
-| `GET/POST /api/ai/conversations` | 本人对话列表或新建（GET需farmId，POST传farmId） |
-| `GET/POST /api/ai/conversations/{id}/messages` | 读取对话（每条消息含 `activities` 活动摘要数组）或提问（question、requestId），同步等待完整回答 |
-| `POST /api/ai/conversations/{id}/stream` | 同样的输入（question、requestId），以 `text/event-stream` 流式推送 `AgentRunEvent`；前端默认优先使用，不可用时回退到上一行的同步接口 |
+| `GET/POST /api/ai/conversations` | 本人对话列表（含 `surface`，小窗会话为 `floating`）或新建（GET需farmId，POST传farmId；可选 `surface: "floating"`，同一成员与农场重复调用返回同一条快捷会话） |
+| `GET/POST /api/ai/conversations/{id}/messages` | 读取对话（每条消息含 `requestId` 与 `activities` 活动摘要数组）或提问（question、requestId；可选 `pageId`、`focusType`、`focusId` 页面资料范围），同步等待完整回答 |
+| `POST /api/ai/conversations/{id}/stream` | 同样的输入（question、requestId 及可选页面资料范围），以 `text/event-stream` 流式推送 `AgentRunEvent`；带页面范围时额外推送并保存一条 `source` 活动；前端默认优先使用，不可用时回退到上一行的同步接口 |
 | `POST /api/ai/conversations/{id}/branch` | 从某条消息分支出一个新对话（请求体 `messageId`），复制截至该消息的消息与活动摘要 |
 | `POST /api/ai/conversations/{id}/rename` | 重命名（请求体 `title`，1–40字，自动去首尾空白），把 `title_source` 切到 `user`，之后自动标题永远不会再覆盖它 |
 | `POST /api/ai/conversations/{id}/pin` | 置顶/取消置顶（请求体 `pinned`），只写 `pinned_at`，不影响标题或 `updated_at` |
@@ -182,3 +193,5 @@
 2026-10-10 集成升级：H2 与 MySQL 均保留原会话。MySQL 初始化脚本在创建活动表前，检查并补齐 `pinned_at`、`title_source`、标题来源检查约束和消息复合唯一键；可以重复启动，无需手动执行这些 ALTER。启动账号需具备对应表的 ALTER 权限，升级前备份数据库。若禁用 `FARM_DATABASE_INIT`，需由数据库维护者先执行生成的 `schema-mysql.sql`。MySQL 验证脚本使用独立临时库，覆盖旧会话/消息保留、重复升级、置顶/手动标题保留及活动外键与级联删除。
 
 合并验收：`scripts/verify.ps1` 完成 141 项后端测试、66 项 Agent 事件测试、11 项 Markdown 测试、前端生产构建及项目/手机端检查；另运行 `scripts/verify-mysql.ps1`，旧库升级检查和 11 项 MySQL 回归全部通过。构建 JAR 后，`node tools/test_ai_workspace.cjs` 使用隔离内存库验证流式接口、规则回退、重命名、置顶、分支、刷新后持久化、天气四情、灌溉默认人工确认、深色主题和 390px 布局；不读取私有模型配置，也不调用外部模型。摄像头和手机端分别由 `tools/test_field_cameras.cjs`、`tools/test_mobile.cjs` 验证，均通过。
+
+小禾悬浮助手验收：`scripts/verify.ps1` 另包含共享会话状态（`src/ai/ai-session.test.js`）与页面范围模型（`src/ai/floating-assistant-model.test.js`）测试；后端集成测试覆盖快捷会话按成员/农场复用、分支清除来源标记、来源记录在流式与同步两条路径落库、重放不再调用模型，以及跨租户/跨农场/不匹配对象拒绝。构建 JAR 与前端后运行 `node tools/test_floating_assistant.cjs`（在 `backend` 目录下），使用隔离内存库验证：生成中切到完整 AI 后同一回答只显示一次并完成、两侧显示来源记录；失败重试沿用同一请求编号；生成中切换农场会中止并清空小窗；390/360px 深色底部面板宽度、无横向溢出、44px 触控热区、背景滚动锁与 Escape 归还焦点。
