@@ -124,7 +124,6 @@ const rows = ref([]);
 const dashboard = ref({});
 const farmRows = ref([]);
 const plotRows = ref([]);
-const tasks = ref([]);
 const observations = ref([]);
 const devices = ref([]);
 const editing = ref(null);
@@ -361,12 +360,11 @@ async function load() {
     api("/farm-workspaces"),
     api("/plots"),
     api("/dashboard"),
-    api("/tasks"),
   ]);
   if (sequence !== loadSequence) return;
   const failed = results.find(result => result.status === "rejected");
   if (failed) throw failed.reason;
-  const [farms, plots, summary, taskList] = results.map(result => result.value);
+  const [farms, plots, summary] = results.map(result => result.value);
   farmRows.value = farms;
   if (
     farms.length === 1 ||
@@ -376,7 +374,6 @@ async function load() {
     farmScope.value = (farms.find((farm) => farm.operatingDemo && farm.name === "青禾设备联动演示场") || farms.find((farm) => farm.operatingDemo) || farms[0])?.id || "";
   plotRows.value = plots;
   dashboard.value = summary;
-  tasks.value = taskList;
   if (
     target === "daily" ||
     target === "operations" ||
@@ -632,7 +629,6 @@ function expire() {
   farmRows.value = [];
   plotRows.value = [];
   dashboard.value = {};
-  tasks.value = [];
   observations.value = [];
   dialog.value = false;
   captureDevice.value = null;
@@ -688,12 +684,16 @@ async function save() {
   }, "已保存", "save");
 }
 // 普通删除不再弹确认框：先隐藏，提示条上 6 秒内可撤销，到时才提交（清单：事后撤销替代二次确认）
-function remove(row) {
+async function remove(row) {
   const target = page.value;
-  const linked = tasks.value.filter((t) => t.plotId === row.id).length;
-  if (target === "plots" && linked) {
-    failure(`“${row.name}”还有 ${linked} 项农事任务，不能删除地块。`);
-    return;
+  if (target === "plots") {
+    // 只在删除地块时读取所属农场的任务，避免每次加载拉取整个租户的任务表；读取失败时交给服务端校验。
+    const linked = await api("/tasks?farmId=" + encodeURIComponent(row.farmId))
+      .then((list) => list.filter((t) => t.plotId === row.id).length, () => 0);
+    if (linked) {
+      failure(`“${row.name}”还有 ${linked} 项农事任务，不能删除地块。`);
+      return;
+    }
   }
   deferDelete({
     id: row.id,

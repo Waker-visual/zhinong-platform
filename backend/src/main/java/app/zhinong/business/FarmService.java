@@ -246,6 +246,11 @@ public class FarmService {
   public void deletePlot(String id) {
     Identity.require("ADMIN");
     store.lock("plots", id);
+    // Name the blocking records: the foreign key alone only yields a generic conflict.
+    long tasks = store
+      .db()
+      .queryForObject("SELECT COUNT(*) FROM farm_tasks WHERE tenant_id=? AND plot_id=?", Long.class, Identity.tenant(), id);
+    if (tasks > 0) throw new ApiException(409, "该地块还有 " + tasks + " 项农事任务，不能删除");
     store
       .db()
       .update(
