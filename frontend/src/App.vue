@@ -17,6 +17,7 @@ import DailyFarm from "./fieldwork/DailyFarm.vue";
 import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import brandLogo from "./assets/zhihe-logo.svg";
+import LoginField from "./ui/LoginField.vue";
 import FarmSelect from "./ui/FarmSelect.vue";
 import SelectMenu from "./ui/SelectMenu.vue";
 import DatePicker from "./ui/DatePicker.vue";
@@ -568,12 +569,14 @@ function onShortcut(event) {
   }
 }
 const loginForm = ref(null);
+const showLoginPassword = ref(false);
 async function signIn() {
   await action(async () => {
     const result = await api("/auth/login", "POST", login);
     setToken(result.token);
     identity.value = result.identity;
     login.password = "";
+    showLoginPassword.value = false;
     loginNotice.value = "";
     page.value =
       result.identity.role === "PLATFORM_ADMIN" ? "platform/tenants" : "daily";
@@ -756,26 +759,23 @@ onUnmounted(() => {
         <img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" />
         智禾农场
       </div>
-      <div>
-        <p class="eyebrow">农场经营工作空间</p>
-        <h1>田间有序<br />经营有据</h1>
-        <p class="story-copy">
-          连接每一块田地的种植、农事与收获。<br />为不同经营主体提供独立的农场工作空间。
-        </p>
-      </div>
-      <div class="field-art" aria-hidden="true">
-        <i></i><i></i><i></i><i></i><i></i>
-      </div>
-      <small>多租户农场管理 · 0.3.0</small>
+      <LoginField />
     </section>
     <section class="login-panel">
-      <form ref="loginForm" v-validate @submit.prevent="signIn">
-        <p class="eyebrow">欢迎回来</p>
-        <h2>登录农场工作空间</h2>
-        <p class="muted">请输入租户代码及您的成员账号</p>
+      <form ref="loginForm" v-validate aria-labelledby="login-title" @submit.prevent="signIn">
+        <div class="login-mobile-brand">
+          <img :src="brandLogo" alt="" width="32" height="32" />智禾农场
+        </div>
+        <header class="login-heading">
+          <h1 id="login-title">田间有序<br />经营有据</h1>
+          <p class="muted">连接每一块田地的种植、农事与收获。</p>
+        </header>
         <label
           >租户代码<input
             v-model.trim="login.tenantCode"
+            name="tenantCode"
+            :disabled="busy"
+            aria-describedby="login-tenant-help"
             required
             autocomplete="organization"
             autocapitalize="none"
@@ -783,33 +783,53 @@ onUnmounted(() => {
             enterkeyhint="next"
             placeholder="例如 demo-a"
         /></label>
+        <p id="login-tenant-help" class="login-field-help">使用农场管理员提供的代码</p>
         <label
           >登录账号<input
             v-model.trim="login.username"
+            name="username"
+            :disabled="busy"
+            placeholder="请输入成员账号"
             required
             autocomplete="username"
             autocapitalize="none"
             spellcheck="false"
             enterkeyhint="next"
         /></label>
-        <label
-          >密码<input
+        <label for="login-password">密码</label>
+        <div class="login-password">
+          <input
+            id="login-password"
+            name="password"
             v-model="login.password"
+            :disabled="busy"
             required
-            type="password"
+            :type="showLoginPassword ? 'text' : 'password'"
+            placeholder="请输入密码"
             autocomplete="current-password"
             enterkeyhint="go"
-        /></label>
+          />
+          <button
+            type="button"
+            class="login-password-toggle"
+            :disabled="busy"
+            :aria-label="showLoginPassword ? '隐藏密码' : '显示密码'"
+            :aria-pressed="showLoginPassword"
+            aria-controls="login-password"
+            @click="showLoginPassword = !showLoginPassword"
+          >{{ showLoginPassword ? '隐藏' : '显示' }}</button>
+        </div>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <p v-if="loginNotice" role="status" class="success">
           {{ loginNotice }}
         </p>
         <button class="primary login-button" :disabled="busy" :aria-busy="busy">
-          {{ busy ? "正在登录…" : "进入工作空间 →" }}
+          {{ busy ? "正在登录…" : "进入工作空间" }}
         </button>
-        <p class="login-hint">
-          本地演示租户：demo-a / demo-b<br />演示密码由启动脚本在本机生成。
-        </p>
+        <details class="login-hint">
+          <summary>查看本地演示账号说明</summary>
+          <p>租户代码：demo-a / demo-b<br />演示密码请查看本机启动提示。</p>
+        </details>
       </form>
     </section>
   </div>
