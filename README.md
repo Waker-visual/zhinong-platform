@@ -2,7 +2,7 @@
 
 <p align="center">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883" />
-  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring_Boot-3.5-6db33f" />
+  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring_Boot-4.1-6db33f" />
   <img alt="Java 21+" src="https://img.shields.io/badge/Java-21%2B-cb7944" />
   <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-356951" />
 </p>
@@ -15,7 +15,7 @@
 
 ## 最近更新
 
-2026-10-15 的整合带来会话滑动续期与登录退避、统一业务时区、Spring Boot 3.5、预警与遥测查询提速，以及前端主包和登录页字体的大幅瘦身。历次更新与当时的验证结果见 [更新记录](CHANGELOG.md)。
+2026-10-16：后端升级到 Spring Boot 4.1，演示农场的模拟遥测按时间分层自动精简，并提供离线 H2 压缩脚本。2026-10-15：会话滑动续期与登录退避、统一业务时区、预警与遥测查询提速，前端主包和登录页字体大幅瘦身。历次更新与当时的验证结果见 [更新记录](CHANGELOG.md)。
 
 尚未完成公网生产部署验收。已有项目更新代码后，应先停止旧服务，再运行启动脚本完成构建；数据库升级与回退步骤见 [设备校准、控制与回退验收](docs/设备校准与控制验收.md)。
 
