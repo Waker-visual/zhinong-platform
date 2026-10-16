@@ -76,7 +76,7 @@ public class DemoTelemetryRetention {
   }
 
   @Scheduled(fixedDelayString = "${farm.demo-retention.delay-ms:3600000}",
-    initialDelayString = "${farm.demo-retention.initial-delay-ms:300000}")
+    initialDelayString = "${farm.demo-retention.initial-delay-ms:300000}", scheduler = "demoRetentionScheduler")
   public void tick() {
     if (!enabled) return;
     var result = prune(clock.instant());

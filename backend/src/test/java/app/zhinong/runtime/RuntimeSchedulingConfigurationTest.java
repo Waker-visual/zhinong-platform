@@ -37,6 +37,31 @@ class RuntimeSchedulingConfigurationTest {
   }
 
   @Test
+  void demoRetentionDoesNotOccupyBusinessTimerThreads() throws Exception {
+    var release = new CountDownLatch(1);
+    try (var context = new AnnotationConfigApplicationContext(RuntimeSchedulingConfiguration.class)) {
+      var ordinary = context.getBean("taskScheduler", ThreadPoolTaskScheduler.class);
+      var retention = context.getBean("demoRetentionScheduler", ThreadPoolTaskScheduler.class);
+      try {
+        var entered = new CountDownLatch(1);
+        // A long first retention pass holds its own thread only.
+        retention.execute(() -> {
+          entered.countDown();
+          try { release.await(); }
+          catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+        });
+        assertTrue(entered.await(2, TimeUnit.SECONDS));
+        var first = new CompletableFuture<String>();
+        var second = new CompletableFuture<String>();
+        ordinary.execute(() -> first.complete(Thread.currentThread().getName()));
+        ordinary.execute(() -> second.complete(Thread.currentThread().getName()));
+        assertTrue(first.get(2, TimeUnit.SECONDS).startsWith("farm-background-"));
+        assertTrue(second.get(2, TimeUnit.SECONDS).startsWith("farm-background-"));
+      } finally { release.countDown(); }
+    }
+  }
+
+  @Test
   void unqualifiedScheduledWorkDoesNotRunOnTheAiDeadlineExecutor() throws Exception {
     try (var context = new AnnotationConfigApplicationContext(
         RuntimeSchedulingConfiguration.class, ScheduledProbeConfiguration.class)) {
