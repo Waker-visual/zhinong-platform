@@ -216,6 +216,7 @@ class TenantIsolationTest {
   void taskStateMachineAndAuditAreReal() throws Exception {
     String plot = plot(a, farm(a));
     String id = data(request(a, "POST", "/tasks", task(plot)), 200).get("ID").asText();
+    assertEquals("该地块还有 1 项农事任务，不能删除", data(request(a, "DELETE", "/plots/" + plot, null), 409).get("message").asText());
     data(request(b, "PATCH", "/tasks/" + id + "/status", Map.of("status", "RUNNING")), 404);
     data(request(viewer, "PATCH", "/tasks/" + id + "/status", Map.of("status", "RUNNING")), 403);
     data(

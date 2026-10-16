@@ -22,6 +22,10 @@ public final class ServerAddress {
             throw new IllegalArgumentException("请输入完整 http(s) 服务器地址；不含账号、查询参数或额外路径。");
         }
     }
+    /** http stays allowed for a trusted LAN, but passwords and device commands then cross the network unencrypted. */
+    public static boolean cleartext(String origin) {
+        try { return "http".equalsIgnoreCase(new URI(origin).getScheme()); } catch (Exception e) { return false; }
+    }
     public static boolean sameOrigin(String origin, String target) {
         try {
             URI a = new URI(origin), b = new URI(target);

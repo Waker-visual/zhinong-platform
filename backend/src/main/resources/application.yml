@@ -41,6 +41,8 @@ management:
       percentiles:
         http.server.requests: 0.5,0.95,0.99
 farm:
+  # Business calendar for "today", overdue tasks, daily limits and AI prompts; independent of the server zone.
+  zone: ${FARM_ZONE:Asia/Shanghai}
   demo: ${FARM_DEMO:false}
   demo-rich: ${FARM_DEMO_RICH:true}
   demo-portfolio: ${FARM_DEMO_PORTFOLIO:false}

@@ -41,7 +41,8 @@ if (-not $env:FARM_BOOTSTRAP_PASSWORD) {
     New-Item -ItemType Directory -Force (Split-Path -Parent $passwordFile) | Out-Null
     Set-Content -LiteralPath $passwordFile -Value $env:FARM_BOOTSTRAP_PASSWORD -NoNewline
 }
-Write-Host '启动 MySQL 模式：http://127.0.0.1:9175（连接失败不会回退到本地数据库）'
+$port = if ($env:FARM_PORT) { $env:FARM_PORT } else { '9175' }
+Write-Host "启动 MySQL 模式：http://127.0.0.1:$port（连接失败不会回退到本地数据库）"
 Write-Host '首次初始化口令保存在 .cache/demo-password.txt；已有云端账号的口令不变。'
 Push-Location (Join-Path $projectRoot 'backend')
 try { java '-Djava.net.useSystemProxies=true' -jar target/zhinong-platform-0.3.0.jar } finally { Pop-Location }

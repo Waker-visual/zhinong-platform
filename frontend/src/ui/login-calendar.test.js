@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { DISPLAY_SITE, civilTime } from './login-daylight.js';
 import { SCENE_SCENARIOS, seasonAt, calendarAt, previewInstant } from './login-calendar.js';
+import lunar from 'lunar-javascript';
 
 const at=date=>Date.parse(`${date}T12:34:56+08:00`);
 
@@ -68,6 +69,24 @@ test('2033 leap month does not create another lunar festival or shift the next n
 test('a leap eighth month does not repeat mid-autumn',()=>{
   assert.deepEqual(calendarAt(at('1995-09-09')).festivals,['mid-autumn']);
   assert.deepEqual(calendarAt(at('1995-10-09')).festivals,[]);
+});
+
+test('the bundled festival table matches lunar-javascript on every civil day from 1901 to 2100',()=>{
+  // The page ships a generated table instead of lunar-javascript; regenerate with tools/generate_lunar_festivals.cjs.
+  for(let day=Date.UTC(1901,0,1);day<Date.UTC(2101,0,1);day+=86_400_000) {
+    const date=new Date(day),lunarDate=lunar.Solar.fromYmd(date.getUTCFullYear(),date.getUTCMonth()+1,date.getUTCDate()).getLunar();
+    const month=lunarDate.getMonth(),dayOfMonth=lunarDate.getDay(),want=[];
+    if(month===1&&dayOfMonth<=7)want.push('spring-festival');
+    if(month===8&&dayOfMonth>=15&&dayOfMonth<=17)want.push('mid-autumn');
+    const key=date.toISOString().slice(0,10),got=calendarAt(at(key)).festivals.filter(name=>name!=='national-day');
+    if(got.length!==want.length || got.some((name,i)=>name!==want[i]))assert.fail(`${key}: ${got} != ${want}`);
+  }
+  for(const year of [1901,2026,2100])for(const id of ['spring-festival','mid-autumn']) {
+    const preview=civilTime(previewInstant(id,at(`${year}-06-01`)));
+    assert.deepEqual(calendarAt(at(preview.dateKey)).festivals.filter(name=>name===id),[id],`${year} ${id}`);
+  }
+  assert.deepEqual(calendarAt(at('2101-01-29')).festivals,[]);
+  assert.throws(()=>previewInstant('spring-festival',at('2101-06-01')),RangeError);
 });
 
 test('previews choose the current farm year and preserve civil time for every scenario',()=>{

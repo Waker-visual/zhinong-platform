@@ -33,6 +33,7 @@ const upgrades = [
   ['ai_irrigation_runs', 'TABLE_CONSTRAINTS', 'CONSTRAINT_NAME', 'uq_ai_irrigation_run_tenant', 'ADD CONSTRAINT uq_ai_irrigation_run_tenant UNIQUE(tenant_id,id)'],
   ['telemetry_readings', 'STATISTICS', 'INDEX_NAME', 'ix_telemetry_latest', 'ADD INDEX ix_telemetry_latest(tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC)'],
   ['telemetry_readings', 'STATISTICS', 'INDEX_NAME', 'ix_telemetry_device_time', 'ADD INDEX ix_telemetry_device_time(tenant_id,device_id,measured_at DESC)'],
+  ['sessions', 'COLUMNS', 'COLUMN_NAME', 'created_at', 'ADD COLUMN created_at DATETIME(6) NULL'],
 ].map(([table, catalog, field, name, change]) => {
   const statement = `ALTER TABLE ${table} ${change}`.replaceAll("'", "''");
   return `SET @zhinong_ai_upgrade = IF(

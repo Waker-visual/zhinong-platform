@@ -1,8 +1,8 @@
 package app.zhinong.workspace;
 
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
-import java.time.LocalDate;
 import java.util.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/farms/{farmId}/research-data")
 public class ResearchDataController {
   private final Store store;
-  public ResearchDataController(Store store) { this.store=store; }
+  private final FarmClock clock;
+  public ResearchDataController(Store store, FarmClock clock) { this.store=store; this.clock=clock; }
   @GetMapping public Object report(@PathVariable String farmId) {
     store.get("farms",farmId);
     String tenant=Identity.tenant(); var db=store.db();
@@ -35,14 +36,11 @@ public class ResearchDataController {
         OR s.crop<>p.crop OR s.area_mu>p.area_mu OR r.record_date<s.start_date OR r.record_date>s.end_date
         OR t.task_type<>'HARVEST' OR t.status<>'COMPLETED' OR t.due_date<>r.record_date OR w.actual_area_mu<>s.area_mu)
       """,Long.class,tenant,farmId));
-    checks.put("futureHarvests",db.queryForObject("SELECT COUNT(*) FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>?",Long.class,tenant,farmId,LocalDate.now()));
-    checks.put("decreasingCounters",db.queryForObject("""
-      SELECT COUNT(*) FROM (SELECT r.measured_value,
-        LAG(r.measured_value) OVER(PARTITION BY r.tenant_id,r.device_id,r.metric ORDER BY r.measured_at,r.id) AS previous_value
-        FROM telemetry_readings r JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
-        WHERE r.tenant_id=? AND d.farm_id=? AND r.metric IN ('ENERGY','WATER_TOTAL') AND r.source='SIMULATED') samples
-      WHERE previous_value>measured_value
-      """,Long.class,tenant,farmId));
+    checks.put("futureHarvests",db.queryForObject("SELECT COUNT(*) FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>?",Long.class,tenant,farmId,clock.today()));
+    long decreasing=0;
+    for(String metric:List.of("ENERGY","WATER_TOTAL"))
+      decreasing+=db.queryForObject(decreasingCounterSql(store.sql()),Long.class,metric,tenant,farmId);
+    checks.put("decreasingCounters",decreasing);
     checks.put("plotsWithoutSoilMonitoring",db.queryForObject("""
       SELECT COUNT(*) FROM plots p WHERE p.tenant_id=? AND p.farm_id=? AND NOT EXISTS(
         SELECT 1 FROM asset_profiles a JOIN device_channels c ON c.tenant_id=a.tenant_id AND c.device_id=a.device_id
@@ -51,5 +49,20 @@ public class ResearchDataController {
     boolean valid=checks.values().stream().allMatch(value->((Number)value).longValue()==0);
     return Map.of("available",true,"synthetic",true,"manifest",manifests.getFirst(),"counts",counts,"checks",checks,"consistent",valid,
       "note","学术合成数据 v2：按种植季构造，产量和监测值为假设值；不能作为真实观测或实际生产效果的证据。");
+  }
+
+  /**
+   * One cumulative counter (parameters: metric, tenant, farm). Starting from the farm's devices and
+   * reading (tenant, device, metric, time) avoids scanning the tenant's whole telemetry table,
+   * which exceeded the statement timeout on the two-year demo history.
+   */
+  static String decreasingCounterSql(app.zhinong.database.DatabaseSql sql) {
+    return """
+      SELECT COUNT(*) FROM (SELECT r.measured_value,
+        LAG(r.measured_value) OVER(PARTITION BY r.device_id ORDER BY r.measured_at,r.id) AS previous_value
+        FROM devices d JOIN telemetry_readings r%s ON r.tenant_id=d.tenant_id AND r.device_id=d.id AND r.metric=?
+        WHERE d.tenant_id=? AND d.farm_id=? AND r.source='SIMULATED') samples
+      WHERE previous_value>measured_value
+      """.formatted(sql.useIndex("ix_telemetry_history"));
   }
 }

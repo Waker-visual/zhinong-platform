@@ -1,7 +1,7 @@
 package app.zhinong;
 
 import static org.junit.jupiter.api.Assertions.*;
-import app.zhinong.business.DatabaseTime;
+import app.zhinong.database.DatabaseTime;
 import app.zhinong.workspace.DemoTelemetryStream;
 import java.time.*;
 import java.util.*;

@@ -4,17 +4,17 @@ import java.util.*;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
-/** Only identifiers owned by application code may be passed to these helpers. */
+/** The SQL that differs between H2 and MySQL 8. Only identifiers owned by application code may be passed to these helpers. */
 @Component
 public class DatabaseSql {
   private final boolean mysql;
-  public DatabaseSql(Environment env) { mysql = env.getProperty("spring.datasource.url", "").startsWith("jdbc:mysql:"); }
-  public boolean mysql() { return mysql; }
-  public String calendarDate(String column) {
-    String offset=java.time.OffsetDateTime.now().getOffset().getId();
-    return "CAST("+column+(mysql?"":" AT TIME ZONE '"+offset+"'")+" AS DATE)";
+  public DatabaseSql(Environment env) {
+    String url = env.getProperty("spring.datasource.url", "");
+    mysql = url.startsWith("jdbc:mysql:");
+    if (!mysql && !url.startsWith("jdbc:h2:")) throw new IllegalArgumentException("仅支持 H2 或 MySQL 8 数据库");
   }
-  /** Use the same business zone for date buckets and the caller's time-window boundaries. */
+  public boolean mysql() { return mysql; }
+  /** Use the same business zone (FarmClock) for date buckets and the caller's time-window boundaries. */
   public String calendarDate(String column, java.time.ZoneId zone) {
     String offset=java.time.OffsetDateTime.now(zone).getOffset().getId();
     if ("Z".equals(offset)) offset="+00:00";
@@ -36,5 +36,15 @@ public class DatabaseSql {
     Set<String> keySet = Set.of(keys.split(","));
     return base + " ON DUPLICATE KEY UPDATE " + Arrays.stream(names).filter(n -> !keySet.contains(n))
       .map(n -> n + "=VALUES(" + n + ")").collect(java.util.stream.Collectors.joining(","));
+  }
+  /**
+   * H2 2.2 picks the two-column foreign-key index for telemetry even when a longer index
+   * matches every equality column, then reads and sorts a device's whole history. Pinning
+   * the index and spelling out its column order lets H2 seek the first row. MySQL plans
+   * these lookups itself, so it gets no hint.
+   */
+  public String useIndex(String index) {
+    if (!index.matches("[a-z_]+")) throw new IllegalArgumentException("Invalid SQL identifier");
+    return mysql ? "" : " USE INDEX (" + index + ")";
   }
 }

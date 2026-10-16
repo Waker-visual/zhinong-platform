@@ -43,7 +43,8 @@ if (-not $env:FARM_BOOTSTRAP_PASSWORD) {
     New-Item -ItemType Directory -Force (Split-Path -Parent $passwordFile) | Out-Null
     Set-Content -LiteralPath $passwordFile -Value $env:FARM_BOOTSTRAP_PASSWORD -NoNewline
 }
-Write-Host '智禾农场：http://127.0.0.1:9175'
+$port = if ($env:FARM_PORT) { $env:FARM_PORT } else { '9175' }
+Write-Host "智禾农场：http://127.0.0.1:$port"
 Write-Host '首次初始化演示账号口令（已有数据库时账号口令不变）：'
 Write-Host $env:FARM_BOOTSTRAP_PASSWORD
 Push-Location (Join-Path $projectRoot 'backend')

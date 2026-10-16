@@ -11,7 +11,7 @@ import org.springframework.context.annotation.*;
 public class DatabaseJsonConfiguration {
   /** Retain the session zone when Connector/J returns a DATETIME as LocalDateTime. */
   @Bean
-  com.fasterxml.jackson.databind.Module databaseTimes(SqlDialect dialect, org.springframework.core.env.Environment env) {
+  com.fasterxml.jackson.databind.Module databaseTimes(app.zhinong.database.DatabaseSql dialect, org.springframework.core.env.Environment env) {
     var module = new SimpleModule("database-utc-times");
     String url = env.getProperty("spring.datasource.url", "");
     ZoneId zone = url.matches(".*[?&]connectionTimeZone=UTC(?:&.*)?$") ? ZoneOffset.UTC : ZoneId.systemDefault();

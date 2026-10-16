@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { api, connection, isConnectionError, setToken } from "./api";
 import { forms, labels, menus } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
@@ -10,7 +10,6 @@ import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
 import SimulationPage from "./simulation/SimulationPage.vue";
 import FarmAssistant from "./ai/FarmAssistant.vue";
-import FloatingAssistant from "./ai/FloatingAssistant.vue";
 import { aiSession } from "./ai/ai-session.js";
 import FarmBriefing from "./ai/FarmBriefing.vue";
 import AlertCenter from "./workspace/AlertCenter.vue";
@@ -27,6 +26,7 @@ import ModalDialog from "./ui/ModalDialog.vue";
 import ConfirmDialog from "./ui/ConfirmDialog.vue";
 import FeedbackRegion from "./ui/FeedbackRegion.vue";
 import { shakeElement } from "./ui/validate";
+import { watchReadiness } from "./ui/service-readiness.js";
 import StatusCapsule from "./ui/StatusCapsule.vue";
 import {
   deferDelete,
@@ -40,6 +40,8 @@ import {
 } from "./ui/feedback";
 import "./ui/shell.css";
 
+// 小窗入口在工作台加载后再取，不占主包；面板资料也只在打开时读取。
+const FloatingAssistant = defineAsyncComponent(() => import("./ai/FloatingAssistant.vue"));
 const identity = ref(null);
 const account = ref(null),
   settingsOpen = ref(false),
@@ -83,7 +85,6 @@ const error = ref("");
 const busy = ref(false);
 const loading = ref(false);
 const farmAssistant = ref(null);
-const floatingAssistant = ref(null);
 const alertCenter = ref(null);
 const assistantQuestion = ref("");
 const assistantConversationId = ref("");
@@ -123,7 +124,6 @@ const rows = ref([]);
 const dashboard = ref({});
 const farmRows = ref([]);
 const plotRows = ref([]);
-const tasks = ref([]);
 const observations = ref([]);
 const devices = ref([]);
 const editing = ref(null);
@@ -132,10 +132,27 @@ const captureDevice = ref(null);
 const captureValue = ref("");
 const model = reactive({});
 const login = reactive({
-  tenantCode: "demo-a",
-  username: "admin",
+  tenantCode: "",
+  username: "",
   password: "",
 });
+// 登录页只在服务以演示模式启动时预填演示租户和管理员，正式部署保持空白。
+const service = reactive({ state: "checking", demo: false });
+let stopReadiness = null;
+function applyReadiness(status) {
+  service.state = status.state;
+  if (status.state === "unreachable") return;
+  service.demo = status.demo;
+  if (status.demo && !login.tenantCode && !login.username) {
+    login.tenantCode = "demo-a";
+    login.username = "admin";
+  }
+}
+function watchLoginReadiness(onLogin) {
+  stopReadiness?.();
+  stopReadiness = onLogin ? watchReadiness(applyReadiness) : null;
+}
+watch(() => !identity.value, watchLoginReadiness, { immediate: true });
 const role = computed(() => identity.value?.role);
 const admin = computed(() => role.value === "ADMIN");
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(role.value));
@@ -343,12 +360,11 @@ async function load() {
     api("/farm-workspaces"),
     api("/plots"),
     api("/dashboard"),
-    api("/tasks"),
   ]);
   if (sequence !== loadSequence) return;
   const failed = results.find(result => result.status === "rejected");
   if (failed) throw failed.reason;
-  const [farms, plots, summary, taskList] = results.map(result => result.value);
+  const [farms, plots, summary] = results.map(result => result.value);
   farmRows.value = farms;
   if (
     farms.length === 1 ||
@@ -358,7 +374,6 @@ async function load() {
     farmScope.value = (farms.find((farm) => farm.operatingDemo && farm.name === "青禾设备联动演示场") || farms.find((farm) => farm.operatingDemo) || farms[0])?.id || "";
   plotRows.value = plots;
   dashboard.value = summary;
-  tasks.value = taskList;
   if (
     target === "daily" ||
     target === "operations" ||
@@ -614,7 +629,6 @@ function expire() {
   farmRows.value = [];
   plotRows.value = [];
   dashboard.value = {};
-  tasks.value = [];
   observations.value = [];
   dialog.value = false;
   captureDevice.value = null;
@@ -670,12 +684,16 @@ async function save() {
   }, "已保存", "save");
 }
 // 普通删除不再弹确认框：先隐藏，提示条上 6 秒内可撤销，到时才提交（清单：事后撤销替代二次确认）
-function remove(row) {
+async function remove(row) {
   const target = page.value;
-  const linked = tasks.value.filter((t) => t.plotId === row.id).length;
-  if (target === "plots" && linked) {
-    failure(`“${row.name}”还有 ${linked} 项农事任务，不能删除地块。`);
-    return;
+  if (target === "plots") {
+    // 只在删除地块时读取所属农场的任务，避免每次加载拉取整个租户的任务表；读取失败时交给服务端校验。
+    const linked = await api("/tasks?farmId=" + encodeURIComponent(row.farmId))
+      .then((list) => list.filter((t) => t.plotId === row.id).length, () => 0);
+    if (linked) {
+      failure(`“${row.name}”还有 ${linked} 项农事任务，不能删除地块。`);
+      return;
+    }
   }
   deferDelete({
     id: row.id,
@@ -750,6 +768,7 @@ onMounted(async () => {
   });
 });
 onUnmounted(() => {
+  stopReadiness?.();
   window.removeEventListener("session-expired", expire);
   window.removeEventListener("pagehide", flushOnLeave);
   window.removeEventListener("keydown", onShortcut);
@@ -827,10 +846,20 @@ onUnmounted(() => {
         <p v-if="loginNotice" role="status" class="success">
           {{ loginNotice }}
         </p>
-        <button class="primary login-button" :disabled="busy" :aria-busy="busy">
-          {{ busy ? "正在登录…" : "进入工作空间" }}
+        <p v-if="service.state === 'starting'" role="status" class="login-service">
+          正在准备农场数据，首次启动通常需要 1–3 分钟，准备好后即可登录。
+        </p>
+        <p v-else-if="service.state === 'unreachable'" role="status" class="login-service">
+          暂时连不上本地服务，请确认服务已启动，恢复后这里会自动更新。
+        </p>
+        <button
+          class="primary login-button"
+          :disabled="busy || service.state === 'starting'"
+          :aria-busy="busy || service.state === 'starting'"
+        >
+          {{ busy ? "正在登录…" : service.state === "starting" ? "服务准备中…" : "进入工作空间" }}
         </button>
-        <details class="login-hint">
+        <details v-if="service.demo" class="login-hint">
           <summary>查看本地演示账号说明</summary>
           <p>租户代码：demo-a / demo-b<br />演示密码请查看本机启动提示。</p>
         </details>
@@ -1033,6 +1062,10 @@ onUnmounted(() => {
         <p v-if="connection.state === 'offline'" role="alert" class="error">
           无法连接本地服务，页面上的数据可能不是最新的。
           <button class="text-button" :disabled="refreshDisabled" @click="refreshActive">重新连接</button>
+        </p>
+        <p v-else-if="connection.state === 'slow'" role="status" class="connection-slow">
+          本地服务响应超时，可能仍在处理；页面上的部分数据可能未更新。
+          <button class="text-button" :disabled="refreshDisabled" @click="refreshActive">重新读取</button>
         </p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <FarmBriefing

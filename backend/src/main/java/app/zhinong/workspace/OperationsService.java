@@ -1,8 +1,9 @@
 package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
-import app.zhinong.business.DatabaseTime;
+import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -29,9 +30,11 @@ public class OperationsService {
   static final String MOISTURE = "SOIL_MOISTURE";
 
   private final Store store;
+  private final FarmClock clock;
 
-  public OperationsService(Store store) {
+  public OperationsService(Store store, FarmClock clock) {
     this.store = store;
+    this.clock = clock;
   }
 
   /** 与设备台账“正常上报”同一口径：最近一次上报在间隔的 3 倍以内，至少 3 分钟。 */
@@ -175,7 +178,7 @@ public class OperationsService {
         tolerance((Number) d.get("interval"))
       ) fresh++;
     }
-    LocalDate today = LocalDate.now();
+    LocalDate today = clock.today();
     var tasks = db.queryForMap(
       """
       SELECT COUNT(*) AS "open",
@@ -282,17 +285,12 @@ public class OperationsService {
    */
   private Map<String, Object> matrix(String tenant, String farmId, LocalDate today) {
     var db = store.db();
-    ZoneId zone = ZoneId.systemDefault();
+    ZoneId zone = clock.zone();
     LocalDate first = today.minusDays(MATRIX_DAYS - 1);
     // plot -> date -> device -> [min, max, lower, upper]
     var readings = new HashMap<String, Map<LocalDate, Map<String, double[]>>>();
-    String dayBucket = store.sql().calendarDate("r.measured_at");
-    if (store.sql().mysql()) {
-      // RDS can use a UTC connection while the farm's calendar remains local.
-      String offset = OffsetDateTime.now(zone).getOffset().getId();
-      if ("Z".equals(offset)) offset = "+00:00";
-      dayBucket = "CAST(CONVERT_TZ(r.measured_at,@@session.time_zone,'" + offset + "') AS DATE)";
-    }
+    // Day cells follow the farm calendar on both engines, whatever the server or RDS session zone.
+    String dayBucket = store.sql().calendarDate("r.measured_at", zone);
     db.query(
       """
       SELECT a.plot_id,r.device_id,%s,MIN(r.measured_value),MAX(r.measured_value),c.lower_limit,c.upper_limit

@@ -2,7 +2,7 @@ package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
 import app.zhinong.business.Store;
-import app.zhinong.business.DatabaseTime;
+import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
 import java.math.BigDecimal;
 import java.time.*;
@@ -174,22 +174,30 @@ public class AssetService {
     );
   }
 
-  public Map<String, Object> latest(String tenant, String id, String metric) {
-    // Bound each indexed source before merging. Sorting the complete UNION history
-    // once per channel made device lists and every monitoring pass grow with retention.
-    var rows = db.queryForList(
-      ("""
+  /**
+   * Bound each indexed source before merging. Sorting the complete UNION history once per
+   * channel made device lists and every monitoring pass grow with retention. The telemetry
+   * ORDER BY repeats the equality columns so H2 reads ix_telemetry_latest in index order and
+   * stops at the first row; this runs per channel while ingestion holds the device lock.
+   */
+  String latestSql() {
+    return ("""
       SELECT * FROM (
         (SELECT measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt"
-         FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=?
-         ORDER BY measured_at DESC,received_at DESC,id DESC LIMIT 1)
+         FROM telemetry_readings%s WHERE tenant_id=? AND device_id=? AND metric=?
+         ORDER BY tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC LIMIT 1)
         UNION ALL
         (SELECT %s AS "time",o.measured_value AS "value",o.source AS "source",%s AS "receivedAt"
          FROM observations o JOIN devices d ON d.tenant_id=o.tenant_id AND d.id=o.device_id
          WHERE o.tenant_id=? AND o.device_id=? AND d.metric=?
          ORDER BY o.measured_at DESC,o.id DESC LIMIT 1)
       ) r ORDER BY "time" DESC,"receivedAt" DESC LIMIT 1
-      """).formatted(store.sql().timestamp("o.measured_at"), store.sql().timestamp("o.measured_at")),
+      """).formatted(store.sql().useIndex("ix_telemetry_latest"), store.sql().timestamp("o.measured_at"), store.sql().timestamp("o.measured_at"));
+  }
+
+  public Map<String, Object> latest(String tenant, String id, String metric) {
+    var rows = db.queryForList(
+      latestSql(),
       tenant,
       id,
       metric,

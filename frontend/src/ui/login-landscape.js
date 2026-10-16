@@ -1,15 +1,28 @@
-import reference from "./login-reference.json";
+// Only the palette size is bundled (named JSON imports are tree-shaken); the ~1 MB trace is a hashed
+// static asset fetched once when the login scene mounts, keeping it out of the desktop entry chunk.
+import { paletteSize } from "./login-reference.json";
+import referenceUrl from "./login-reference.json?url";
 import { arrangeScene, narrowRiverX, riverBanks, groundCellXs } from "./login-scene-layout.js";
 import { makeBoatMarks, waterMotion } from './login-river-motion.js';
 export { narrowRiverX, riverBanks } from "./login-scene-layout.js";
-const scenePoints=arrangeScene(reference.points);
-const boatTrace=[];
-for(let i=0;i<reference.points.length;i+=5)if(reference.points[i+4]===3)boatTrace.push(reference.points.slice(i,i+4));
-export const riverBoat=(width,height,time)=>makeBoatMarks(width,height,time,boatTrace);
+let reference=null,scenePoints=null,boatTrace=[],pending=null;
+export function loadLandscape() {
+  pending??=fetch(referenceUrl).then(response=>{
+    if(!response.ok)throw new Error(`Login scene trace unavailable: ${response.status}`);
+    return response.json();
+  }).then(data=>{
+    const trace=[];
+    for(let i=0;i<data.points.length;i+=5)if(data.points[i+4]===3)trace.push(data.points.slice(i,i+4));
+    scenePoints=arrangeScene(data.points);boatTrace=trace;reference=data;
+  }).catch(error=>{pending=null;throw error;});
+  return pending;
+}
+export const landscapeReady=()=>reference!==null;
+export const riverBoat=(width,height,time)=>reference ? makeBoatMarks(width,height,time,boatTrace) : [];
 
 const font='Consolas, "Liberation Mono", monospace';
 const noise=(x,y)=>{const n=Math.sin(x*127.1+y*311.7)*43758.5453;return n-Math.floor(n);};
-export const referenceTones=Array.from({length:reference.paletteSize},(_,i)=>`ink-${i}`);
+export const referenceTones=Array.from({length:paletteSize},(_,i)=>`ink-${i}`);
 
 export function makeLandscape(width,height) {
   const marks=[],animated=[],clouds=[];

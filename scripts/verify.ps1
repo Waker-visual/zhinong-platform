@@ -30,6 +30,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '登录田园岸线与字符重采样测试未通过' }
         node --test src/ui/login-river-motion.test.js
         if ($LASTEXITCODE -ne 0) { throw '小舟航线与水面动效测试未通过' }
+        node --test src/ui/service-readiness.test.js
+        if ($LASTEXITCODE -ne 0) { throw '登录页服务就绪状态测试未通过' }
         node --test src/ai/markdown.test.js
         if ($LASTEXITCODE -ne 0) { throw 'Markdown 渲染器测试未通过' }
         node --test src/ai/follow-up-model.test.js src/ai/follow-up-request.test.js
@@ -57,8 +59,16 @@ try {
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }
+    node tools/check_bundle.cjs
+    if ($LASTEXITCODE -ne 0) { throw '前端包体超出预算' }
+    node tools/check_fonts.cjs
+    if ($LASTEXITCODE -ne 0) { throw '界面字体子集未覆盖全部界面汉字' }
+    node tools/generate_lunar_festivals.cjs --check
+    if ($LASTEXITCODE -ne 0) { throw '登录场景农历节日日期表需要重新生成' }
     node --test tools/tests/check_project.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '项目检查工具测试未通过' }
+    node --test tools/tests/business-time.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw '业务日期统一时钟检查测试未通过' }
     node --test tools/tests/coordinates.test.cjs
     if ($LASTEXITCODE -ne 0) { throw '地图坐标回归测试未通过' }
     node --test tools/tests/mobile.test.cjs

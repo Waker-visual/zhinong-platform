@@ -1204,6 +1204,25 @@ label > .select-menu {
 .status-capsule.offline .connection-dot {
   background: var(--danger);
 }
+/* 请求超时：服务仍可连接但处理较慢，与“离线”区分 */
+.status-capsule.slow {
+  border-color: var(--caution-line);
+  background: var(--caution-bg);
+  color: var(--caution);
+}
+.status-capsule.slow .connection-dot {
+  background: var(--caution);
+}
+.connection-slow {
+  margin: 14px 0;
+  padding: 12px 16px;
+  border: 1px solid var(--caution-line);
+  border-radius: var(--radius-sm);
+  background: var(--caution-bg);
+  color: var(--caution);
+  font-size: 13px;
+  line-height: 1.7;
+}
 .capsule-short {
   display: none;
 }

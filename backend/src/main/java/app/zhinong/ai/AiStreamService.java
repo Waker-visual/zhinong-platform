@@ -6,6 +6,7 @@ import app.zhinong.ai.AiConversations.PreparedRun;
 import app.zhinong.ai.AiConversations.Question;
 import app.zhinong.ai.LlmGateway.ToolCall;
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.security.Identity;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -36,7 +37,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * 事务在整个流式响应期间保持打开（prepareStream 和 finalizeStream 各自是独立的短事务）。
  *
  * Task 6：在原有“读取当前农场资料”context 活动之外，增加一个有界（最多 {@link #MAX_TOOL_ROUNDS}
- * 轮，和旧 /api/ai/ask 工具循环一致）的只读工具调用循环，以及运行结束时的灌溉审批活动。工具名、
+ * 轮）的只读工具调用循环，以及运行结束时的灌溉审批活动。工具名、
  * 标签和结果摘要只走 {@link AiStreamTools} 的固定白名单；未知工具名只生成错误活动，绝不执行。
  */
 @Service
@@ -47,7 +48,7 @@ public class AiStreamService {
   private static final String CONTEXT_ACTIVITY_ID = "context";
   /** 贯穿工具调用轮和最终生成轮的任务活动 id：和读取资料、每个工具查询各自的耗时区分开。 */
   private static final String ANSWER_ACTIVITY_ID = "answer";
-  /** 和旧 /api/ai/ask 的 Function Calling 循环一致的轮数上限，避免模型反复调用工具不收敛。 */
+  /** Function Calling 轮数上限，避免模型反复调用工具不收敛。 */
   private static final int MAX_TOOL_ROUNDS = 3;
   /** 灌溉审批活动的 activityId 约定前缀：id 的其余部分就是 ai_irrigation_runs 的主键，前端据此
    * 解析出 {type:"irrigation-run", id} 目标，不需要额外的数据库列或事件字段。 */
@@ -59,6 +60,7 @@ public class AiStreamService {
   private final IrrigationService irrigation;
   private final ExecutorService executor;
   private final ScheduledExecutorService deadlines;
+  private final FarmClock clock;
   private final Semaphore capacity = new Semaphore(8);
   // Includes preparation, all model/tool rounds and the optional title request.
   private final long runBudgetMillis;
@@ -70,13 +72,15 @@ public class AiStreamService {
     AiStreamTools tools,
     IrrigationService irrigation,
     @Qualifier("aiStreamExecutor") ExecutorService aiStreamExecutor,
-    @Qualifier("aiStreamDeadlineScheduler") ScheduledExecutorService aiStreamDeadlineScheduler
+    @Qualifier("aiStreamDeadlineScheduler") ScheduledExecutorService aiStreamDeadlineScheduler,
+    FarmClock clock
   ) {
-    this(conversations, llm, tools, irrigation, aiStreamExecutor, aiStreamDeadlineScheduler, 65_000L);
+    this(conversations, llm, tools, irrigation, aiStreamExecutor, aiStreamDeadlineScheduler, 65_000L, clock);
   }
 
   AiStreamService(AiConversations conversations, LlmGateway llm, AiStreamTools tools,
-      IrrigationService irrigation, ExecutorService executor, ScheduledExecutorService deadlines, long runBudgetMillis) {
+      IrrigationService irrigation, ExecutorService executor, ScheduledExecutorService deadlines, long runBudgetMillis,
+      FarmClock clock) {
     this.conversations = conversations;
     this.llm = llm;
     this.tools = tools;
@@ -84,6 +88,7 @@ public class AiStreamService {
     this.executor = executor;
     this.deadlines = deadlines;
     this.runBudgetMillis = runBudgetMillis;
+    this.clock = clock;
   }
 
   /** 和同步接口一样的输入校验（@Valid Question）；鉴权/幂等检查发生在这里，仍在请求线程上。 */
@@ -174,7 +179,7 @@ public class AiStreamService {
         send(emitter, AgentEvent.conversationTitled(sequence.incrementAndGet(), id, firstMessageTitle), disconnected);
         if (disconnected.get()) return;
       }
-      OffsetDateTime contextStartedAt = OffsetDateTime.now();
+      OffsetDateTime contextStartedAt = clock.now();
       send(
         emitter,
         AgentEvent.activityStarted(
@@ -194,7 +199,7 @@ public class AiStreamService {
       // 都结束才标记完成，导致它显示的耗时（例如 5.7s）其实是整轮运行的耗时，不是真正读取资料花的
       // 时间。读取资料本身在这里（调用模型之前）已经做完——buildContext 在 prepareStream 里已经跑完，
       // 这里只是把它标记为完成——所以立刻结束这个活动，duration 才反映真实的读取耗时。
-      OffsetDateTime contextFinishedAt = OffsetDateTime.now();
+      OffsetDateTime contextFinishedAt = clock.now();
       String contextSummary = "已读取当前农场基础资料";
       send(
         emitter,
@@ -225,7 +230,7 @@ public class AiStreamService {
 
       // 新增一个贯穿“工具调用轮 + 最终生成轮”的任务活动，让“生成回答”本身的耗时和上面的
       // 读取资料耗时、下面每个工具查询各自的耗时区分开，摘要里的“用时”才有意义。
-      OffsetDateTime answerStartedAt = OffsetDateTime.now();
+      OffsetDateTime answerStartedAt = clock.now();
       send(
         emitter,
         AgentEvent.activityStarted(
@@ -308,7 +313,7 @@ public class AiStreamService {
       if (disconnected.get()) return;
       String answer = accumulated.toString();
 
-      OffsetDateTime answerFinishedAt = OffsetDateTime.now();
+      OffsetDateTime answerFinishedAt = clock.now();
       String answerSummary = modelAnswered ? "已汇总当前农场资料并生成回答" : "已汇总当前农场资料，模型暂不可用，已给出规则回退建议";
       send(
         emitter,
@@ -344,7 +349,7 @@ public class AiStreamService {
           // 句末标点在拼接时去重：reason 本身已经以“。”收尾，直接拼上“；预计时长”会变成“。；”——
           // 阶段 E 验收截图发现的标点瑕疵。
           String approvalSummary = clip(dedupeSentencePunctuation("原因：" + reason + "；预计时长 " + durationObj + " 秒"), 500);
-          OffsetDateTime approvalAt = OffsetDateTime.now();
+          OffsetDateTime approvalAt = clock.now();
           activitySeq[0]++;
           // 建议仍在等待人工确认，不是“已完成”的活动：状态是 pending（待确认），没有 finishedAt——
           // 时间线上只保留这一行摘要，真正的原因/时长/“去确认”由前端在时间线下方的独立卡片渲染。
@@ -426,7 +431,7 @@ public class AiStreamService {
       String activityId = "tool-" + activitySeq[0];
       if (label == null) {
         // 未知工具名：只生成错误活动，绝不执行；仍需回填一条 tool 消息，否则下一轮请求结构非法。
-        OffsetDateTime at = OffsetDateTime.now();
+        OffsetDateTime at = clock.now();
         AgentEvent.Activity errorActivity = new AgentEvent.Activity(activityId, "tool", "不支持的操作", "error", null, null, at, at);
         send(emitter, AgentEvent.activityCompleted(sequence.incrementAndGet(), errorActivity), disconnected);
         if (disconnected.get()) return false;
@@ -434,7 +439,7 @@ public class AiStreamService {
         toolReplies.add(Map.of("role", "tool", "tool_call_id", call.id(), "content", "{\"error\":\"unsupported_tool\"}"));
         continue;
       }
-      OffsetDateTime startedAt = OffsetDateTime.now();
+      OffsetDateTime startedAt = clock.now();
       send(
         emitter,
         AgentEvent.activityStarted(sequence.incrementAndGet(), new AgentEvent.Activity(activityId, "tool", label, "running", null, null, startedAt, null)),
@@ -444,7 +449,7 @@ public class AiStreamService {
       try {
         Object toolResult = tools.run(call.name(), farmId);
         String summary = tools.resultSummary(call.name(), toolResult);
-        OffsetDateTime finishedAt = OffsetDateTime.now();
+        OffsetDateTime finishedAt = clock.now();
         send(
           emitter,
           AgentEvent.activityCompleted(sequence.incrementAndGet(), new AgentEvent.Activity(activityId, "tool", label, "completed", null, summary, startedAt, finishedAt)),
@@ -454,7 +459,7 @@ public class AiStreamService {
         toolActivities.add(new ActivitySummary(activityId, activitySeq[0], "tool", label, "completed", null, summary, startedAt, finishedAt));
         toolReplies.add(Map.of("role", "tool", "tool_call_id", call.id(), "content", tools.toJson(toolResult)));
       } catch (Exception toolFailure) {
-        OffsetDateTime finishedAt = OffsetDateTime.now();
+        OffsetDateTime finishedAt = clock.now();
         String safeDetail = "读取失败，请重试";
         send(
           emitter,

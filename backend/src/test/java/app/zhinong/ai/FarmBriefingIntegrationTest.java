@@ -2,6 +2,7 @@ package app.zhinong.ai;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import app.zhinong.business.FarmClock;
 import app.zhinong.security.Identity;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +34,7 @@ class FarmBriefingIntegrationTest {
   @Autowired ObjectMapper json;
   @Autowired JdbcTemplate db;
   @Autowired FarmBriefingService briefings;
+  @Autowired FarmClock clock;
   @Autowired TestLlmGateway llm;
   final HttpClient client = HttpClient.newHttpClient();
   String admin, viewer, other, platform, farm, tenant;
@@ -71,7 +73,7 @@ class FarmBriefingIntegrationTest {
     } finally { release.countDown(); }
     var report = ready(farm);
     assertEquals("LLM", report.path("source").asText());
-    assertEquals(LocalDate.now(FarmBriefingService.ZONE).toString(), report.path("reportDate").asText());
+    assertEquals(clock.today().toString(), report.path("reportDate").asText());
     assertEquals("Asia/Shanghai", report.path("timeZone").asText());
     assertTrue(report.path("aiSummary").asText().contains("复查条件"));
     assertEquals(report.path("id"), call(viewer, "GET", "/ai/briefings/today?farmId=" + farm, null, 200).path("id"));
@@ -84,7 +86,7 @@ class FarmBriefingIntegrationTest {
     String plot = plot(farm, tenant), secondPlot = plot(second, tenant);
     String foreignTenant = db.queryForObject("SELECT tenant_id FROM farms WHERE id=?", String.class, foreign);
     String foreignPlot = plot(foreign, foreignTenant);
-    LocalDate date = LocalDate.now(FarmBriefingService.ZONE);
+    LocalDate date = clock.today();
     production(tenant, plot, date.minusDays(6), 40); production(tenant, plot, date, 60);
     production(tenant, plot, date.minusDays(7), 700); production(tenant, plot, date.plusDays(1), 900);
     production(tenant, secondPlot, date, 2000); production(foreignTenant, foreignPlot, date, 3000);
@@ -128,7 +130,7 @@ class FarmBriefingIntegrationTest {
     assertEquals("INTERRUPTED", report.path("diagnostic").asText());
     assertEquals(1, llm.calls.get());
     db.update("UPDATE ai_farm_briefings SET report_date=?,status='PENDING',updated_at=? WHERE tenant_id=? AND farm_id=?",
-      LocalDate.now(FarmBriefingService.ZONE).minusDays(1), OffsetDateTime.now().minusMinutes(11), tenant, farm);
+      clock.today().minusDays(1), OffsetDateTime.now().minusMinutes(11), tenant, farm);
     var history = call(admin, "GET", "/ai/briefings/history?farmId=" + farm, null, 200);
     assertEquals("READY", history.get(0).path("status").asText());
     assertEquals("INTERRUPTED", history.get(0).path("diagnostic").asText());

@@ -61,6 +61,8 @@ class RuntimeOperationsTest {
     var health = get("/api/health", null);
     assertEquals(200, health.statusCode());
     assertTrue(json.readTree(health.body()).path("ready").asBoolean());
+    // This context starts with farm.demo=true, which lets the login page prefill the demo tenant.
+    assertTrue(json.readTree(health.body()).path("demo").asBoolean());
     assertEquals(10, db.getQueryTimeout());
   }
 

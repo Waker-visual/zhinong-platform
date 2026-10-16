@@ -458,7 +458,7 @@ onBeforeUnmount(() => {
         <div class="display-view-bar">
           <nav aria-label="大屏视图">
             <button :aria-pressed="view === 'scene'" @click="view = 'scene'">
-              <AppIcon name="plantings" />三维农场
+              <AppIcon name="cube" />三维农场
             </button>
             <button
               :aria-pressed="view === 'overview'"
@@ -472,7 +472,7 @@ onBeforeUnmount(() => {
               <AppIcon name="plantings" />智能农情
             </button>
             <button :aria-pressed="view === 'tour'" @click="view = 'tour'">
-              <AppIcon name="cube" />农场导览
+              <AppIcon name="patrol" />农场导览
             </button>
           </nav>
           <p :title="readSummary">

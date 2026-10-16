@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.boot.availability.ApplicationAvailability;
@@ -21,11 +22,18 @@ public class SessionFilter extends OncePerRequestFilter {
   private final AuthService auth;
   private final ObjectMapper json;
   private final ApplicationAvailability availability;
+  private final boolean demo;
 
-  public SessionFilter(AuthService auth, ObjectMapper json, ApplicationAvailability availability) {
+  public SessionFilter(
+    AuthService auth,
+    ObjectMapper json,
+    ApplicationAvailability availability,
+    @Value("${farm.demo:false}") boolean demo
+  ) {
     this.auth = auth;
     this.json = json;
     this.availability = availability;
+    this.demo = demo;
   }
 
   @Override
@@ -48,7 +56,8 @@ public class SessionFilter extends OncePerRequestFilter {
         if (path.equals("/api/health") && request.getMethod().equals("GET")) {
           response.setStatus(ready ? 200 : 503);
           response.setContentType("application/json;charset=UTF-8");
-          json.writeValue(response.getWriter(), Map.of("ready", ready));
+          // demo only lets the login page prefill the public demo tenant; it reveals no account data.
+          json.writeValue(response.getWriter(), Map.of("ready", ready, "demo", demo));
           return;
         }
         if (!ready) throw new ApiException(503, "项目正在初始化或停止，请稍候重试");
@@ -67,7 +76,8 @@ public class SessionFilter extends OncePerRequestFilter {
           if (
             header == null || !header.startsWith("Bearer ")
           ) throw new ApiException(401, "请先登录");
-          Identity identity = auth.authenticate(header.substring(7));
+          AuthService.Session session = auth.session(header.substring(7));
+          Identity identity = session.identity();
           for (String name : new String[] { "tenantId", "X-Tenant-Id" }) {
             String selected = request.getHeader(name);
             if (selected != null && !selected.equals(identity.tenantId())) {
@@ -81,7 +91,7 @@ public class SessionFilter extends OncePerRequestFilter {
             Identity.require("PLATFORM_ADMIN");
           }
           if (
-            auth.passwordChangeRequired(identity.memberId()) &&
+            session.mustChangePassword() &&
             !java.util.Set.of(
               "/api/account",
               "/api/account/password",

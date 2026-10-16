@@ -1,6 +1,7 @@
 package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
 import java.math.*;
@@ -21,14 +22,17 @@ public class TelemetryService {
   private final AssetService assets;
   private final DeviceCredentials credentials;
   private final DeviceAlertMonitor monitor;
+  private final FarmClock clock;
   private final SecureRandom random = new SecureRandom();
 
-  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials, DeviceAlertMonitor monitor) {
+  public TelemetryService(Store store, AssetService assets, DeviceCredentials credentials, DeviceAlertMonitor monitor,
+      FarmClock clock) {
     this.db = store.db();
     this.store = store;
     this.assets = assets;
     this.credentials = credentials;
     this.monitor = monitor;
+    this.clock = clock;
   }
 
   public Map<String, Object> collect(String id) {
@@ -57,8 +61,10 @@ public class TelemetryService {
       db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE", tenant, id);
       // Recheck scope and user edits after taking the same lock as device mutations.
       if (db.queryForList(eligible + " AND d.id=?", String.class, tenant, farm, id).isEmpty()) continue;
-      var latest = db.queryForObject("SELECT MAX(measured_at) FROM telemetry_readings WHERE tenant_id=? AND device_id=?",
-        OffsetDateTime.class, tenant, id);
+      // An index seek, not MAX() over the device history: this runs every minute while holding the device lock.
+      var latest = db.queryForList("SELECT measured_at FROM telemetry_readings" + store.sql().useIndex("ix_telemetry_device_time")
+        + " WHERE tenant_id=? AND device_id=? ORDER BY tenant_id,device_id,measured_at DESC LIMIT 1",
+        OffsetDateTime.class, tenant, id).stream().findFirst().orElse(null);
       if (latest != null && latest.toInstant().isAfter(Instant.now().minusSeconds(55))) continue;
       write(tenant, id, Instant.now(), simulatedReadings(tenant, id), "SIMULATED", "DEMO_SIMULATOR");
     }
@@ -80,7 +86,7 @@ public class TelemetryService {
       }
     }
     var sample = SyntheticTelemetry.sample(profile.get("DEVICE_TYPE").toString(), profile.get("FARM_ID").toString(),
-      now, previous, Duration.between(last, now).getSeconds());
+      now, clock.zone(), previous, Duration.between(last, now).getSeconds());
     var research = db.queryForList("""
       SELECT q.name FROM devices d JOIN demo_research_farms r ON r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id
       JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
@@ -317,11 +323,13 @@ public class TelemetryService {
     }
   }
 
-  @Transactional(propagation = org.springframework.transaction.annotation.Propagation.NOT_SUPPORTED)
+  /**
+   * GET is side-effect free: device writes and DeviceAlertTicker maintain the committed incidents.
+   * A tenant-wide scan here took longer than the browser timeout and contended for device locks.
+   */
+  @Transactional(readOnly = true)
   public List<Map<String, Object>> alerts(String farmId, String status) {
-    String tenant = alertScope(farmId, status);
-    monitor.scanFarm(tenant, farmId);
-    return readAlerts(tenant, farmId, status);
+    return readAlerts(alertScope(farmId, status), farmId, status);
   }
 
   /** Dashboard reads consume the committed monitor snapshot without spawning farm-wide writes. */

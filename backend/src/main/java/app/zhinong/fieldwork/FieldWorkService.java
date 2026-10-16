@@ -1,6 +1,7 @@
 package app.zhinong.fieldwork;
 
 import app.zhinong.api.ApiException;
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
 import jakarta.validation.constraints.*;
@@ -16,9 +17,11 @@ import org.springframework.transaction.annotation.Transactional;
 public class FieldWorkService {
 
   private final Store store;
+  private final FarmClock clock;
 
-  public FieldWorkService(Store store) {
+  public FieldWorkService(Store store, FarmClock clock) {
     this.store = store;
+    this.clock = clock;
   }
 
   public record IssueInput(
@@ -102,8 +105,9 @@ public class FieldWorkService {
       issues,
       "crew",
       crew,
+      // Overdue means due before the farm's calendar day, not the server's.
       "today",
-      LocalDate.now()
+      clock.today()
     );
   }
 
@@ -136,7 +140,7 @@ public class FieldWorkService {
   public Object createMachinerySimulation(String plotId, String title, String taskType) {
     Identity.require("ADMIN", "OPERATOR");
     return createTask(new PlanInput(plotId, "[模拟农机] " + title.strip(), taskType,
-      LocalDate.now(), Identity.current().memberId(), "SERVICE",
+      clock.today(), Identity.current().memberId(), "SERVICE",
       "地图模拟任务；按估绘边界规划，不代表真实生产作业。"), null);
   }
 

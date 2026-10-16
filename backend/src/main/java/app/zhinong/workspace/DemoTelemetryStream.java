@@ -1,6 +1,7 @@
 package app.zhinong.workspace;
 
-import app.zhinong.business.DatabaseTime;
+import app.zhinong.database.DatabaseTime;
+import app.zhinong.business.FarmClock;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.*;
@@ -23,6 +24,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 public class DemoTelemetryStream implements ApplicationRunner {
   private final JdbcTemplate db;
   private final TelemetryService telemetry;
+  private final FarmClock clock;
   private final TransactionTemplate tx;
   private final int days;
   private final boolean enabled;
@@ -42,10 +44,11 @@ public class DemoTelemetryStream implements ApplicationRunner {
     """;
 
   public DemoTelemetryStream(JdbcTemplate db, TelemetryService telemetry, PlatformTransactionManager manager,
-      @Value("${farm.demo:false}") boolean demo, @Value("${farm.demo-stream.days:30}") int days) {
+      FarmClock clock, @Value("${farm.demo:false}") boolean demo, @Value("${farm.demo-stream.days:30}") int days) {
     if (days < 1 || days > 30) throw new IllegalArgumentException("模拟历史范围为 1–30 天");
     this.db = db;
     this.telemetry = telemetry;
+    this.clock = clock;
     this.tx = new TransactionTemplate(manager);
     this.days = days;
     this.enabled = demo;
@@ -116,7 +119,7 @@ public class DemoTelemetryStream implements ApplicationRunner {
         var row = saved.get(pos++);
         state.put(row.get("METRIC").toString(), (BigDecimal) row.get("MEASURED_VALUE"));
       }
-      var values = SyntheticTelemetry.sample(type, device.get("FARM_ID").toString(), at, state, interval);
+      var values = SyntheticTelemetry.sample(type, device.get("FARM_ID").toString(), at, clock.zone(), state, interval);
       var current = new ArrayList<WorkspaceInputs.Reading>();
       for (String metric : channels) {
         if (occupied.contains(metric + ":" + at)) continue;

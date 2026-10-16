@@ -202,6 +202,29 @@ abstract class ResearchScenarioContract {
     assertFalse(call(token,"GET","/ai/irrigation?farmId="+id,null,200).path("policies").isEmpty());
   }
 
+  @Test void counterCheckStillReportsAResetAndStaysWithinTheFarm() throws Exception {
+    String token=login("demo-a","admin"),id=farm(),t=tenant();
+    String pump=db.queryForObject("""
+      SELECT d.id FROM devices d JOIN device_channels c ON c.tenant_id=d.tenant_id AND c.device_id=d.id
+      WHERE d.tenant_id=? AND d.farm_id=? AND c.metric='ENERGY' ORDER BY d.id LIMIT 1
+      """,String.class,t,id);
+    String reading=UUID.randomUUID().toString();var at=OffsetDateTime.now(ZoneOffset.UTC).withNano(0);
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'ENERGY',0,?,?,'SIMULATED')",
+      reading,t,pump,at,at);
+    try {
+      var report=call(token,"GET","/farms/"+id+"/research-data",null,200);
+      assertEquals(1,report.at("/checks/decreasingCounters").asInt(),report.toString());
+      assertFalse(report.path("consistent").asBoolean());
+      for(var other:call(token,"GET","/farm-workspaces",null,200)) if(!other.path("id").asText().equals(id)) {
+        var neighbour=call(token,"GET","/farms/"+other.path("id").asText()+"/research-data",null,200);
+        if(neighbour.path("available").asBoolean()) assertEquals(0,neighbour.at("/checks/decreasingCounters").asInt(),"a reset is counted only on its own farm");
+      }
+    } finally {
+      db.update("DELETE FROM telemetry_readings WHERE tenant_id=? AND id=?",t,reading);
+    }
+    assertTrue(call(token,"GET","/farms/"+id+"/research-data",null,200).path("consistent").asBoolean());
+  }
+
   @Test void startupReadinessPreventsPrematureEmptyBusinessResponses() throws Exception {
     assertTrue(call(null,"GET","/health",null,200).path("ready").asBoolean());
     org.springframework.boot.availability.AvailabilityChangeEvent.publish(context,org.springframework.boot.availability.ReadinessState.REFUSING_TRAFFIC);
@@ -276,8 +299,9 @@ abstract class ResearchScenarioContract {
       db.update("INSERT INTO asset_profiles(tenant_id,device_id,code,device_type,protocol,plot_id) VALUES(?,?,?,?,'MANUAL',?)",tenant,device,device,type,plot);
       db.update("INSERT INTO device_channels(tenant_id,device_id,metric) VALUES(?,?,?)",tenant,device,metric);
     }
-    var zone=ZoneId.of("Asia/Shanghai");
-    var today=LocalDate.now(zone);var day=today.minusDays(2);var first=today.minusDays(6);
+    var farmClock=context.getBean(app.zhinong.business.FarmClock.class);
+    var zone=farmClock.zone();
+    var today=farmClock.today();var day=today.minusDays(2);var first=today.minusDays(6);
     var at=List.of(first.atTime(0,15),day.minusDays(1).atTime(23,45),day.atTime(0,15),day.atTime(23,45),
       first.minusDays(1).atTime(23,45),today.plusDays(1).atTime(0,15));
     int[] temperatures={15,80,10,30,999,999},pests={5,8,1,3,999,999};
@@ -316,8 +340,10 @@ abstract class ResearchScenarioContract {
     db.update("INSERT INTO devices(id,tenant_id,farm_id,name,metric,unit,adapter) VALUES(?,?,?,'日界探头','SOIL_MOISTURE','%','MANUAL')", device, tenant, farm);
     db.update("INSERT INTO asset_profiles(tenant_id,device_id,code,device_type,protocol,plot_id) VALUES(?,?,?,'SOIL','MANUAL',?)", tenant, device, device, plot);
     db.update("INSERT INTO device_channels(tenant_id,device_id,metric,lower_limit,upper_limit) VALUES(?,?,'SOIL_MOISTURE',20,60)", tenant, device);
-    var day = LocalDate.now().minusDays(2);
-    var midnight = day.atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+    // Matrix days are farm-calendar days (farm.zone), not the server's.
+    var farmClock = context.getBean(app.zhinong.business.FarmClock.class);
+    var day = farmClock.today().minusDays(2);
+    var midnight = farmClock.startOf(day);
     String insert = "INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,'SOIL_MOISTURE',?,?,?,'MANUAL')";
     db.update(insert, UUID.randomUUID().toString(), tenant, device, 80, midnight.minusMinutes(15), midnight);
     db.update(insert, UUID.randomUUID().toString(), tenant, device, 10, midnight.plusMinutes(15), midnight);

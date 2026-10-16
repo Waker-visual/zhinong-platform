@@ -1,10 +1,10 @@
 package app.zhinong.ai;
 
+import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
 import app.zhinong.workspace.TelemetryService;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -16,11 +16,13 @@ public class FarmDecisionSupport {
   private final Store store;
   private final TelemetryService telemetry;
   private final FarmBriefingService briefings;
+  private final FarmClock clock;
 
-  public FarmDecisionSupport(Store store, TelemetryService telemetry, FarmBriefingService briefings) {
+  public FarmDecisionSupport(Store store, TelemetryService telemetry, FarmBriefingService briefings, FarmClock clock) {
     this.store = store;
     this.telemetry = telemetry;
     this.briefings = briefings;
+    this.clock = clock;
   }
 
   public Map<String, Object> alerts(String farmId) {
@@ -55,7 +57,7 @@ public class FarmDecisionSupport {
     store.get("farms", farmId);
     String tenant = Identity.tenant();
     // Compare two complete 30-day windows, excluding the incomplete current day.
-    LocalDate end = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+    LocalDate end = clock.today();
     var result = new LinkedHashMap<String, Object>();
     result.put("currentPeriod", productionPeriod(tenant, farmId, end.minusDays(30), end));
     result.put("previousPeriod", productionPeriod(tenant, farmId, end.minusDays(60), end.minusDays(30)));

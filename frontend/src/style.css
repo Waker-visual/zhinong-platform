@@ -181,6 +181,11 @@ label select {
   width: 100%;
   height: 100%;
   display: block;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+.login-field canvas[data-ready] {
+  opacity: 1;
 }
 .login-color-sample {display:none;}
 .login-art-accessible {
@@ -279,6 +284,16 @@ label select {
   background: var(--login-action-hover);
   border-color: var(--login-action-hover);
 }
+.login-service {
+  color: var(--login-muted);
+  background: var(--login-input-bg);
+  border: 1px solid var(--login-panel-line);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}
 .login-hint {
   color: var(--login-muted);
   font-size: 12px;
@@ -298,7 +313,8 @@ label select {
   display: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .login-panel input {
+  .login-panel input,
+  .login-field canvas {
     transition: none;
   }
 }

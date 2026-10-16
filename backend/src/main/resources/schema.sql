@@ -13,6 +13,8 @@ CREATE TABLE IF NOT EXISTS sessions (
  token_hash VARCHAR(64) PRIMARY KEY, member_id VARCHAR(36) NOT NULL REFERENCES members(id),
  expires_at TIMESTAMP NOT NULL
 );
+-- 登录时间：会话按 2 小时空闲续期，但从登录起最长 12 小时。旧会话为空时按最初的到期时间推算。
+ALTER TABLE sessions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP;
 CREATE TABLE IF NOT EXISTS farms (
  id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) NOT NULL REFERENCES tenants(id),
  name VARCHAR(100) NOT NULL, description VARCHAR(500) NOT NULL,
