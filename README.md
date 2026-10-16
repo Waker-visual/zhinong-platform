@@ -1,96 +1,72 @@
-<p align="center"><img src="docs/images/banner.svg" alt="智禾农场 · 从一块田，到一季经营" width="100%" /></p>
-
 <p align="center">
-  <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883" />
-  <img alt="Spring Boot" src="https://img.shields.io/badge/Spring_Boot-4.1-6db33f" />
-  <img alt="Java 21+" src="https://img.shields.io/badge/Java-21%2B-cb7944" />
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-356951" />
+  <img src="docs/images/banner.svg" alt="智禾农场 · 从一块田，到一季经营" width="100%" />
 </p>
 
-**智禾农场**是基于 **Vue 3 + Spring Boot** 的农场经营管理平台，面向个人与家庭农场，也支持多个租户独立经营、多人分工协作。平台将农场档案、地块种植、农事任务、现场问题、设备监测与收获记录放在同一个工作空间，让“今天先做什么”“哪里缺人缺设备”“这次作业做了多少”有据可查。
+<p align="center">
+  <a href="https://github.com/Waker-visual/zhinong-platform/actions/workflows/verify.yml"><img src="https://github.com/Waker-visual/zhinong-platform/actions/workflows/verify.yml/badge.svg" alt="项目验证" /></a>
+  <img src="https://img.shields.io/badge/version-0.3.0-356951" alt="版本 0.3.0" />
+  <img src="https://img.shields.io/badge/Vue-3-42b883" alt="Vue 3" />
+  <img src="https://img.shields.io/badge/Spring_Boot-4.1-6db33f" alt="Spring Boot 4.1" />
+  <img src="https://img.shields.io/badge/Java-21%2B-cb7944" alt="Java 21 及以上" />
+</p>
 
-农场主可以在经营总览中查看进度和异常，在地图上定位地块与设备，安排任务并复核作业结果；操作员通过手机端上报问题、处理待办和填写回执。季度经营模拟用于比较资源配置方案，农场 AI 助手提供多轮农事对话、天气与四情分析、灌溉建议及执行记录。
+<p align="center">
+  面向个人与家庭农场的经营工作空间，连接田块、农事、设备与每一次作业记录。
+</p>
 
-> 当前版本用于本机演示与流程验证，仅使用虚构演示数据。设备控制包含模拟执行和通用 HTTP 指令接口，尚未连接实体设备；AI 定时灌溉目前仅支持模拟设备，默认由人工确认。
+<p align="center">
+  <a href="#界面预览">界面预览</a> ·
+  <a href="#快速启动">快速启动</a> ·
+  <a href="#验证与开发">验证与开发</a> ·
+  <a href="#文档导航">文档导航</a> ·
+  <a href="CHANGELOG.md">更新记录</a>
+</p>
 
-## 最近更新
+## 项目概览
 
-2026-10-16：后端升级到 Spring Boot 4.1，演示农场的模拟遥测按时间分层自动精简，并提供离线 H2 压缩脚本。2026-10-15：会话滑动续期与登录退避、统一业务时区、预警与遥测查询提速，前端主包和登录页字体大幅瘦身。历次更新与当时的验证结果见 [更新记录](CHANGELOG.md)。
+**智禾农场（Zhihe Farm）** 把日常经营、现场协作、三维展示与 AI 咨询放在同一套多租户系统中。从“今天先处理什么”到“这次作业是否完成”，每一步都关联地块、负责人和处理依据。
 
-尚未完成公网生产部署验收。已有项目更新代码后，应先停止旧服务，再运行启动脚本完成构建；数据库升级与回退步骤见 [设备校准、控制与回退验收](docs/设备校准与控制验收.md)。
+当前为 **0.3.0 阶段性成果版**，提供五个演示农场、桌面工作台与手机端。所有经营记录、设备状态和模拟结果均用于虚构场景展示；实体设备联调及公网生产部署尚未完成验收。
 
-## 🌾 登录后，先看今天的农场
+| 能力 | 可以完成什么 |
+| :--- | :--- |
+| **日常经营** | 维护农场、地块与种植计划，查看今日待办、经营简报和收获记录。 |
+| **农事闭环** | 巡田上报 → 派发任务 → 协调资源与受阻 → 作业回执 → 现场复核。 |
+| **三维与地图** | 探索 Unity WebGL 农场，定位田块与设备；切换卫星地图、经营总览、智能农情和农场导览。 |
+| **设备监测** | 查看气象、墒情、水情与虫情，区分缺测和过期读数；支持模拟控制及 HTTP 上报、指令回执接口。 |
+| **AI 小禾** | 结合当前农场与页面资料流式回答，展示查询过程与来源；支持可拖动入口、失败重试和明确的规则回退。 |
+| **经营模拟** | 对照季度资源方案，观察巡检、灌溉与农机缺位的影响，保留参数、事件和模拟记录。 |
 
-![农场主的今日农场工作台](docs/images/owner-daily.png)
+## 界面预览
 
-- **农场主**：先处理逾期、资源缺口和现场问题，再安排负责人、日期与作业方式。
-- **操作员**：默认进入自己的任务队列，田间上报、报告受阻、填写完成回执。
-- **查看者**：查看经营进展和处理记录，不提供业务写入操作。
-- **单农场用户**：自动选中唯一农场，进入种植、收获、地图或模拟时保持当前农场。
+### 三维农场大屏
+
+![三维农场：九个小田块、设备热点与农场导览](docs/images/farm-scene.png)
+
+田块编号与设备热点联动当前农场记录，支持旋转、平移、缩放、设备演示动画和可选舒缓音乐。卫星影像来源：Esri、Vantor、Earthstar Geographics、GIS User Community；影像及模型不代表实时画面或测绘成果。
 
 <details>
-<summary>📱 看看手机端与作业回执</summary>
+<summary><strong>展开查看登录场景、经营工作台与手机协作</strong></summary>
 
-<p><img src="docs/images/worker-mobile.png" alt="操作员手机端任务与上报入口" width="290" /></p>
+![昼夜与四季变化的字符画田园登录页](docs/images/login-landscape.png)
 
-![查看者检查作业记录](docs/images/viewer-receipt.png)
+<p align="center">
+  <img src="docs/images/workspace-current.png" alt="今日农场工作台与可拖动小禾入口" width="100%" />
+</p>
 
-手机端保留文字导航和触控按钮。任务不再只靠一个“完成”状态：作业方式、面积、结果、执行人和时间都被记录。
+<p align="center">
+  <img src="docs/images/worker-mobile.png" alt="操作员手机端任务与巡田上报" width="280" />
+</p>
+
+登录页提供昼夜、四季与节日场景预览。工作台按角色组织任务，手机端支持巡田上报、受阻反馈与完成回执；更多流程见[单农场场景与验收指南](docs/单农场场景与验收指南.md)。
 
 </details>
 
-## 从发现问题，到确认解决
-
-```mermaid
-flowchart LR
-  A[巡田发现异常] --> B[操作员上报地块问题]
-  B --> C[农场主派发处理任务]
-  C --> D{资源是否落实}
-  D -->|不足| E[报告受阻并协调补位]
-  E --> C
-  D -->|落实| F[执行并填写作业回执]
-  F --> G[农场主复查现场效果]
-  G --> H[填写依据并关闭问题]
-```
-
-完成作业后，现场问题仍等待农场主复核。取消未完成的处理任务会让问题回到“待安排”，便于重新派发。服务端校验租户、执行角色与负责人，旧状态接口不能绕过新任务的回执要求。
-
-## 🗺️ 地图、设备与经营数据
-
-| 能力 | 当前实现 |
-|---|---|
-| 经营总览与交互 | 农场统一切换、生产与设备概况、深浅主题、表单校验、加载与操作反馈 |
-| 地块与种植 | 农场筛选、地块面积、种植周期、重叠检查、状态流转 |
-| 实景地图 | 卫星影像 / 街道地图 / 离线布局，地块边界与设备点位，加载失败可重试 |
-| 设备接入 | 人工录入、本地模拟、带设备凭据的 HTTP 上报；smart-farm 闸门 / 泵房 / 局域网协议映射，可选 MQTT 网关 |
-| 单农场设备控制 | 气象/墒情/水情/虫情模板、闸门和泵房模拟控制、HTTP 指令领取与回执、操作记录 |
-| 数据看板 | 作物构成、任务状态、产量趋势、环境监测曲线 |
-| 账号设置 | 昵称、头像、密码、深浅主题、主题色，管理员重置成员临时密码 |
-| 数据隔离 | 租户由认证会话确定；平台管理员不读取租户经营数据 |
-| 农场 AI 助手 | 多轮农事对话、天气与四情分析、人工审批或自动模拟灌溉；模型不可用时明确回退规则 |
-| 现场监测与处理 | 按地块展示、三层墒情、缺测与过期标识、接收记录；告警转田间问题后派工和复核 |
-
-地图底图具有拍摄时间差，卫星影像不是实时视频。地块叠加位置需要校准；示例农场、设备与经营数据均为虚构。
-
-## 用一季度检验经营方案
-
-假设你经营 **60 亩水稻、40 亩玉米、12 亩蔬菜**，虫害发生时无人机检修 45 天。安排人工补位是否有效？巡检太慢又会怎样？
-
-![季度三方案对照](docs/images/quarter-comparison.png)
-
-| 模拟输入 | 资源正常 | 无人机缺位 | 人工补位 |
-|---|---:|---:|---:|
-| 常规巡检、灌溉 | 77,556 kg | 50,514 kg | 76,735 kg |
-| 巡检间隔延长为 14 天 | 70,766 kg | 50,514 kg | 70,542 kg |
-| 灌溉能力降至 30 m³/日 | 62,010 kg | 40,838 kg | 61,416 kg |
-
-表中为本机 90 天模型模拟收获量，按整数显示。天气回放来自公开再分析数据；作物参数、资源能力和成本有明确假设，**未经现场农学标定，不是产量承诺或生产处方**。报告保留每日事件、地块快照、天气指纹与参数，可查看缺水、虫害等归因。结果保存在独立模拟数据库，不写入实际产量台账。
-
-完整参数、结果和验收步骤见 [单农场场景与验收指南](docs/单农场场景与验收指南.md)。
-
 ## 快速启动
 
-准备 **JDK 21+、Maven 3.9、Node.js 22.12+**。
+准备 **Windows PowerShell、JDK 21+、Maven 3.9+、Node.js 22.12+**。
+
+**需要查看 3D？请在首次启动前准备 WebGL 资源。** Git 仓库不包含编译后的 Unity 二进制文件。按 [WebGL 开发包指南](docs/WebGL开发包使用指南.md)下载、校验并解压预编译包，再执行启动命令，无需安装 Unity。预编译包的场景效果以其发布版本为准；最新模型行为需使用对应版本重新构建。管理、地图和 AI 模块可独立运行。
 
 ```powershell
 git clone https://github.com/Waker-visual/zhinong-platform.git
@@ -98,123 +74,70 @@ Set-Location zhinong-platform
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-demo.ps1
 ```
 
-首次运行安装依赖、构建并启动。浏览器访问 **http://127.0.0.1:9175**。以后代码没有变化时可以跳过构建：
+首次运行会安装依赖、构建前后端并初始化演示数据。打开 **http://127.0.0.1:9175**，以租户 `demo-a`、账号 `admin` 登录；随机初始密码由终端输出，并保存在本机 `.cache/demo-password.txt`。保持终端运行，按 `Ctrl+C` 停止。
+
+<details>
+<summary><strong>常用启动与配置</strong></summary>
+
+- **再次启动**：代码与资源未变化时执行 `.\scripts\start-demo.ps1 -SkipBuild`；更新后先停止旧服务，再重新构建。
+- **前端开发**：后端运行时，执行 `npm.cmd --prefix frontend ci` 和 `npm.cmd --prefix frontend run dev`，访问 `http://127.0.0.1:4273`。
+- **模型服务**：将 `config/llm.example.properties` 复制到 `backend/config/llm.properties`，在私有文件中填写 OpenAI 兼容服务参数。支持 DeepSeek；未配置或调用失败时明确显示规则回退。见[小禾使用说明](docs/农场AI助手使用说明.md)。
+- **数据库**：默认使用本地 H2；核心业务接入 MySQL / 云库使用 `scripts/start-cloud.ps1`，填写私有 `config/database.properties`。独立经营模拟库另行配置，见[数据库指南](docs/云数据库接入与学术数据说明.md)。
+- **演示角色**：`demo-a` / `demo-b` 提供 `admin`、`operator`、`viewer`；平台管理使用租户 `platform`、账号 `platform`。初始演示密码相同，修改后以各账号实际密码为准。
+
+数据库、模型密钥和本地口令均由 Git 忽略，发布时使用空白配置模板。
+
+</details>
+
+## 架构与权限
+
+| 层次 | 技术与职责 |
+| :--- | :--- |
+| 界面 | Vue 3、Vite、Leaflet、ECharts；桌面与手机页面共用业务接口。 |
+| 三维 | Unity 6000.6.5f1 / WebGL 2 场景，Three.js 农场导览；按需加载。 |
+| 服务 | Spring Boot 4.1.1、Java 21+、JDBC；农事、监测、模拟与 SSE 模型网关。 |
+| 存储 | H2 本地演示 / MySQL 核心业务；支持独立经营模拟库。 |
+| 工程 | PowerShell 启动与验证、GitHub Actions、Android 原生容器。 |
+
+租户由已认证会话确定，业务查询、关联与写入均校验租户。农场主负责安排与复核，操作员处理授权任务，查看者只读；平台账号管理租户，不读取其经营数据。同租户的查看范围覆盖整个租户，任务负责人限制属于执行权限。
+
+## 验证与开发
+
+在仓库根目录执行：
 
 ```powershell
-.\scripts\start-demo.ps1 -SkipBuild
+npm.cmd --prefix frontend ci
+.\scripts\verify.ps1
 ```
 
-脚本在本机第一次初始化时生成随机密码并保存到 `.cache/demo-password.txt`；重启不会覆盖已有账户密码。初始演示租户为 `demo-a` / `demo-b`，成员为 `admin` / `operator` / `viewer`；平台账号为租户 `platform`、用户名 `platform`。保持终端运行，按 `Ctrl+C` 停止。
+统一验证包括后端测试、UTC 业务日历回归、前端测试与生产构建、包体与字体检查、Android 地址校验、敏感信息扫描和 MySQL 表结构一致性。主分支推送与 PR 运行[同一套 CI](https://github.com/Waker-visual/zhinong-platform/actions/workflows/verify.yml)。
 
-### 可选：独立 MySQL 经营模拟库
-
-需要将**核心业务**也放入 MySQL / 云数据库时，使用新入口 `scripts/start-cloud.ps1`，填写 Git 忽略的 `config/database.properties`。空白模板、证书要求、首次初始化与实际连接检查见 [云数据库接入与学术数据说明](docs/云数据库接入与学术数据说明.md)。这个入口与下面仅为模拟模块配置数据库的方式不同。
-
-核心业务默认使用 H2 文件数据库。未配置 MySQL 时，模拟模块使用同一个 H2 数据库中的独立模拟表；本次季度验收使用了独立 MySQL 数据库。
-
-```powershell
-# 将路径替换为本机 MySQL 安装目录；脚本使用独立数据目录和 3317 端口
-.\scripts\setup-simulation-db.ps1 -MySqlHome 'C:\tools\mysql'
-.\scripts\start-demo.ps1 -SkipBuild
-```
-
-也可按 [账号地图与经营模拟指南](docs/账号地图与经营模拟指南.md) 配置本机模拟库连接。当前仅接受 localhost / 127.0.0.1 的 MySQL 地址。
-
-### 业务时区
-
-“今天”、逾期任务、灌溉每日次数、在种计划有效期、生产统计截止日、经营简报日期以及 AI 提示中的日期，统一按 `FARM_ZONE`（`farm.zone`，默认 `Asia/Shanghai`）计算，与服务器和数据库会话时区无关；部署到 UTC 云主机无需改系统时区。取值须为 IANA 时区名，无效值会使服务启动失败，留空沿用默认值。详见 [服务稳定性与性能指南](docs/服务稳定性与性能指南.md#业务日历与时区)。
-
-### 开发与验证
-
-```powershell
-# 后端服务保持运行；另开终端启动前端开发服务器
-Set-Location frontend
-npm.cmd ci
-npm.cmd run dev
-# http://127.0.0.1:4273
-```
-
-项目根目录运行 `scripts/verify.ps1`，执行后端测试（含在 UTC 时区 JVM 中运行的业务日历回归）、前端构建、包体预算、界面字体子集、请求取消与超时、大屏渐进刷新、瓦片并发队列、地图坐标、业务日期统一时钟及项目公开范围检查。`.github/workflows/verify.yml` 在主分支推送和 Pull Request 中运行同一套验证（Windows、Java 21、Node 22）。独立 MySQL 验证仍在已配置的本机环境运行。若个人 Maven 镜像不可达，可通过 `-MavenSettings '绝对路径/settings.xml'` 指定自己的可用 HTTPS 镜像，不必修改全局配置。
-
-大屏与服务的性能基准、故障恢复规则、运行指标和部署边界见 [服务稳定性与性能指南](docs/服务稳定性与性能指南.md)。可重复运行 `node tools/benchmark_runtime.cjs` 比较同一农场和相同并发条件下的接口耗时，默认仅访问本机服务、保存匿名计时结果。
-
-2026-10-12 安全补丁：Vue 及同版本子包从 `3.5.27` 更新至 `3.5.43`，修复 [SSR 属性名校验漏洞](https://github.com/vuejs/core/security/advisories/GHSA-g2v6-rqmx-r4w6)；间接依赖 `source-map-js` 更新至 `1.2.2`，包含 [索引 source map 校验修复](https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2)。另外将 Vite 从 `7.3.6` 更新至 `7.3.7`，纳入其[文件访问边界修复](https://github.com/vitejs/vite/security/advisories/GHSA-rq7h-c2jc-7f22)。均未跨主要版本，锁文件已同步；运行 `npm.cmd ci --prefix frontend` 后可用 `npm.cmd audit --prefix frontend` 复核当时的完整依赖审计结果（需要联网）。
-
-前端把 Vue、地图、图表和图表渲染器分别拆包，保留 Vite 默认的 500 kB 告警阈值；验证脚本运行 `tools/check_bundle.cjs`，单个脚本块超过 500 kB、样式表超过 200 kB、字体切片超过 500 kB 或入口首屏脚本合计超过 1.4 MB 即失败。登录页约 1 MB 的字符画取样数据作为静态文件在登录场景挂载时请求，农历节日改查生成的日期表，均不进入桌面端主包。界面字体按 unicode-range 切片：登录页只下载首屏汉字切片和用到的拉丁字重，其余界面文字、GB 2312 常用字和其他字符分片按需加载。界面新增汉字后运行 `python tools/subset_fonts.py`（需要 `pip install fonttools brotli`）重新生成，`node tools/check_fonts.cjs` 核对前端源码和后端演示数据中的汉字都在界面切片内；升级 lunar-javascript 后运行 `node tools/generate_lunar_festivals.cjs`。AI 适配器静态复用同一个请求模块。默认 SSE 认证、取消与会话过期行为已纳入现有 Agent 测试。修改依赖或构建设置后，需要完整验证并检查桌面端、手机端、地图、图表和 AI 对话；有本机独立 MySQL 环境时，另运行 `scripts/verify-mysql.ps1`，它使用一次性测试库并自动清理。
-
-### AI 助手配置
-
-使用 `config/llm.example.properties` 配置模板，只在被 Git 忽略的 `backend/config/llm.properties` 中填写实际参数。前端入口为“农场 AI 助手”。所有接口使用登录会话；服务端在读取资料前核验农场归属，平台账号不能调用经营数据接口。
-
-未配置时可以查看确定性数据分析，问答显示规则回退。可通过 `FARM_LLM_URL`、`FARM_LLM_API_KEY`、`FARM_LLM_MODEL` 设置模型服务参数，`FARM_LLM_TIMEOUT` 设置请求超时。具体数据处理、配置和验证方式见使用说明。
-
-仅平台管理员可通过 `GET /api/ai/config` 查看脱敏配置，或通过 `POST /api/ai/config` 提交 `url`、`apiKey`、`model`。此配置对全平台生效，租户管理员不能修改。非空字段更新后会尝试保存至启动工作目录下的 `config/llm.properties`，重启时文件中的非空值覆盖环境变量；空字段保留原值。该文件包含密钥，已被 Git 忽略并纳入项目私密文件扫描，不能提交到仓库。
-
-## 角色与验收
-
-启动服务后，在项目根目录执行：
-
-```powershell
-node tools/prepare_farm_acceptance.cjs
-Get-Content .cache/farm-acceptance-accounts.md
-node tools/test_individual_farm.cjs
-```
-
-准备脚本仅允许访问本机，创建 `family-trial` 和 `neighbor-trial` 独立验收租户。它沿用平台账号，新增账号各自使用随机密码；若平台账号已改密，可通过当前终端的 `FARM_PLATFORM_PASSWORD` 提供新密码。浏览器验收需要本机 Microsoft Edge，会产生明确标注的验收业务记录。
-
-| 身份 | 主要可操作内容 | 限制 |
-|---|---|---|
-| 平台管理员 | 创建、启停租户 | 不访问租户经营数据 |
-| 农场主 / 租户管理员 | 农场资料、派发、复核、成员管理 | 仅本租户 |
-| 操作员 | 上报、自己负责的任务、产量和监测记录 | 不能修改其他操作员已分配的任务 |
-| 查看者 | 查看农场、任务、记录和模拟历史 | 不写入业务数据 |
-
-同租户成员的查看权限仍以整个租户为范围，任务负责人限制属于执行权限，不是地块级数据保密权限。
-
-## 🧩 架构
-
-```mermaid
-flowchart TB
-  UI[Vue 3 · 今日农场 / 地图 / 经营模拟] --> API[Spring Boot REST API]
-  API --> AUTH[会话认证 · 角色与租户校验]
-  AUTH --> FIELD[农场 / 地块 / 种植 / 任务 / 巡田问题]
-  FIELD --> CORE[(H2 / MySQL 核心业务库)]
-  AUTH --> DEVICE[设备凭据 · 指标 · 阈值告警]
-  DEVICE --> CORE
-  AUTH --> SIM[确定性季度 / 年度模拟]
-  SIM --> SIMDB[(独立 MySQL 模拟库 / H2 模拟表)]
-  API --> MAP[认证地图网关 · 有限缓存 · 重试]
-```
+配置本机独立 MySQL 环境后，可另运行 `scripts/verify-mysql.ps1`；小禾浏览器验收使用 `node tools/test_floating_assistant.cjs`，在一次性内存库中检查流式回答、重试、拖动、农场切换隔离及手机布局。当前阶段的改动与验证记录见 [CHANGELOG](CHANGELOG.md)。
 
 ```text
-backend/       业务 API、鉴权、作业闭环、设备接入与模拟
-frontend/      Vue 页面、Leaflet 地图、ECharts 图表与主题
-scripts/       Windows 启动、数据库准备与验证
-tools/         本机验收、截图与项目检查
-docs/          架构、操作说明、验收场景与展示截图
+backend/    业务 API、鉴权、设备协议、AI 网关与经营模拟
+frontend/   桌面工作台、手机页面、地图和大屏
+unity/      WebGL 场景工程
+android/    智禾随行原生容器
+scripts/    启动、构建、数据库准备与统一验证
+tools/      回归验收与项目检查
+docs/       使用指南、资产来源与展示截图
 ```
 
-## 继续了解
+## 文档导航
 
-本地演示启动现默认提供青禾及另外四个完整农场：独立影像估绘小田块、模拟设备和灌溉管网、四类农机型号档案与两年合成经营历史。旧示范/验收农场可从归档中恢复。农机工作台支持分步规划、地图手绘、固定确认下发入口及持久化模拟回执。详见 [单农场地图与作业指南](docs/单农场地图与作业指南.md)；实体农机导航接口尚未接入。
+| 主题 | 入口 |
+| :--- | :--- |
+| 日常经营与协作 | [场景与验收](docs/单农场场景与验收指南.md) · [地图与作业](docs/单农场地图与作业指南.md) |
+| 三维展示 | [WebGL 开发包](docs/WebGL开发包使用指南.md) · [场景资产来源](docs/WebGL资产来源说明.md) |
+| AI 小禾 | [对话、来源记录与模型配置](docs/农场AI助手使用说明.md) |
+| 设备接入 | [接口说明](docs/设备接入接口.md) · [现场验收](docs/smart-farm设备接入与现场验收.md) |
+| 数据与模拟 | [数据库与演示数据](docs/云数据库接入与学术数据说明.md) · [经营模拟](docs/账号地图与经营模拟指南.md) |
+| 移动端 | [智禾随行 Android](docs/智禾随行Android使用指南.md) |
+| 工程维护 | [架构](docs/架构与改造说明.md) · [稳定性与性能](docs/服务稳定性与性能指南.md) · [升级与回退](docs/设备校准与控制验收.md) |
 
-- [品牌标识与使用规范](docs/品牌标识说明.md)
-- [单农场场景与验收指南](docs/单农场场景与验收指南.md)
-- [账号、地图与经营模拟](docs/账号地图与经营模拟指南.md)
-- [设备接入接口](docs/设备接入接口.md)
-- [smart-farm 现场设备接入与验收](docs/smart-farm设备接入与现场验收.md)
-- [RDS 接入与模拟数据验收](docs/RDS接入与模拟数据验收.md)
-- [设备校准、控制与回退验收](docs/设备校准与控制验收.md)
-- [架构与改造说明](docs/架构与改造说明.md)
-- [依赖与权属说明](docs/依赖与权属说明.md)
-- [更新记录](CHANGELOG.md)
+## 数据与授权
 
-交互组织参考 [Farmbrite 任务管理](https://help.farmbrite.com/help/tasks-tasks) 的待办与负责人视角，以及 [AGRIVI Field Operations](https://www2.agrivi.com/blog/agrivi-presents-field-operations-new-way-seamlessly-manage-your-farm-operations) 的地块中心视角。界面与业务实现为本项目代码，未复制这些产品的图片或源码。
+本项目仅使用虚构经营数据。经营模拟基于明确假设及公开再分析天气，不是产量预测或生产处方；AI 建议需要人工核查，聊天不会直接控制设备。
 
-## 公开范围与权属
-
-本仓库公开源码、说明与虚构验收场景截图，未选择新的开源许可证。第三方依赖、地图和天气数据遵循各自许可及署名要求。公开展示不改变原项目授权、合作开发或委托开发等权利关系；具体权属仍以实际协议与证明为准。
-
-账号密码、运行数据库、会话、设备密钥、地图缓存和内部资料均不在公开版本中。
-
-当前版本可在本机完成流程和协议报文验收。“青禾设备联动演示场”仍使用构造的设备、坐标和数据。现场接入需登记设备、配置映射及凭据；可选 MQTT 网关默认关闭，每台设备的真实指令发送也默认关闭。本次改造未启用现场网关或操作实体设备。RDS 已完成直连、独立空库初始化、连续历史、租户隔离和季度模拟持久化验收；启动参数显式选择未加密连接，默认仍要求 TLS。公网生产部署需要另行完成依赖升级、HTTPS、备份恢复和容量验证。升级前请备份数据库，回退旧版程序时配套恢复旧数据库，详见控制验收指南。
+仓库公开源码用于展示，**尚未为业务源码授予开源许可证**。第三方依赖、字体、地图、天气及部分场景资产保留各自版权、许可和署名；Unity 场景的分发依据与资产范围见[场景资产来源](docs/WebGL资产来源说明.md)，其余见[依赖与权属说明](docs/依赖与权属说明.md)。公开展示不改变实际合作或委托协议中的权利关系。

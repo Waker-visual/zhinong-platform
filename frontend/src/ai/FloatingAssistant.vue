@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { api } from "../api.js";
 import { aiSession } from "./ai-session.js";
 import { visibleMessages } from "./agent-events.js";
@@ -11,7 +11,8 @@ import AiApprovalCard from "./AiApprovalCard.vue";
 import AppIcon from "../ui/AppIcon.vue";
 import SproutCompanion from "./SproutCompanion.vue";
 import AiSourceNote from "./AiSourceNote.vue";
-import { assistantPageContext, floatingTopics, prepareFloatingQuestion, sourceScopeLabel } from "./floating-assistant-model.js";
+import { assistantPageContext, assistantPanelPosition, clampAssistantPosition, fallbackQuestion, floatingTopics, prepareFloatingQuestion, sourceScopeLabel } from "./floating-assistant-model.js";
+import { diagnosticLabel } from "./diagnostics.js";
 import "./floating-assistant.css";
 
 const props = defineProps({
@@ -30,12 +31,59 @@ const sending = computed(() => creating.value || aiSession.state.sending);
 const elsewhereBusy = computed(() => aiSession.state.sending && !run.value);
 const unseenReply = ref(false);
 const scroller = ref(null), input = ref(null), trigger = ref(null), panel = ref(null), topicIndex = ref(0);
+const position = ref(null), dragging = ref(false), panelPlacement = ref({});
+const positionStyle = computed(() => position.value ? { left: `${position.value.x}px`, top: `${position.value.y}px`, right: "auto", bottom: "auto" } : {});
+let drag = null, suppressClick = false;
 const followOutput = ref(true), showJump = ref(false), contextOpen = ref(false);
 const focusBeforeOpen = ref(null);
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
 let alive = true, loadVersion = 0;
 let lockedBodyOverflow = "";
 const mobileSheet = () => typeof matchMedia === "function" && matchMedia("(max-width: 760px)").matches;
+const viewportSize = () => ({ width: window.innerWidth, height: window.innerHeight });
+function navigationInset() {
+  const navigation = mobileSheet() && document.querySelector("nav.tabbar");
+  return navigation ? Math.max(0, window.innerHeight - navigation.getBoundingClientRect().top) : 0;
+}
+function updatePanelPosition() {
+  if (!open.value || !panel.value || !trigger.value || mobileSheet()) { panelPlacement.value = {}; return; }
+  const point = assistantPanelPosition(trigger.value.getBoundingClientRect(), panel.value.getBoundingClientRect(), viewportSize());
+  panelPlacement.value = { left: `${point.x}px`, top: `${point.y}px`, right: "auto", bottom: "auto" };
+}
+function handleWindowResize() {
+  if (position.value && trigger.value) position.value = clampAssistantPosition(position.value, trigger.value.getBoundingClientRect(), viewportSize(), navigationInset());
+  nextTick(updatePanelPosition);
+}
+function startDrag(event) {
+  if (!event.isPrimary || event.button !== 0) return;
+  const box = trigger.value.getBoundingClientRect();
+  suppressClick = false;
+  drag = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, x: box.left, y: box.top, width: box.width, height: box.height };
+  trigger.value.setPointerCapture(event.pointerId);
+}
+function moveDrag(event) {
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  const dx = event.clientX - drag.startX, dy = event.clientY - drag.startY;
+  if (!dragging.value && Math.hypot(dx, dy) < 6) return;
+  dragging.value = true; suppressClick = true;
+  event.preventDefault();
+  position.value = clampAssistantPosition({ x: drag.x + dx, y: drag.y + dy }, drag, viewportSize(), navigationInset());
+  nextTick(updatePanelPosition);
+}
+function endDrag(event) {
+  if (!drag || (event?.pointerId != null && event.pointerId !== drag.pointerId)) return;
+  const pointerId = drag.pointerId;
+  const moved = dragging.value;
+  drag = null; dragging.value = false;
+  if (trigger.value?.hasPointerCapture(pointerId)) trigger.value.releasePointerCapture(pointerId);
+  if (moved) trigger.value?.focus({ preventScroll: true });
+}
+function activateTrigger(event) {
+  // A pointer release after dragging also generates click; keyboard activation still opens normally.
+  if (suppressClick && event.detail !== 0) { suppressClick = false; return; }
+  suppressClick = false;
+  open.value ? closeAssistant() : openAssistant();
+}
 function lockBodyScroll() {
   if (!mobileSheet() || typeof document === "undefined") return;
   lockedBodyOverflow = document.body.style.overflow;
@@ -96,6 +144,7 @@ async function openAssistant() {
   open.value = true; unseenReply.value = false;
   lockBodyScroll();
   await nextTick();
+  updatePanelPosition();
   addViewportListener();
   input.value?.focus();
   if (!conversation.value && !loading.value) await loadShortcut();
@@ -175,6 +224,14 @@ async function retry() {
   error.value = ""; question.value = "";
   await dispatch(() => aiSession.retry(), run.value?.question);
 }
+async function retryModel(message) {
+  const text = fallbackQuestion(message, messages.value);
+  if (!text || disabled.value || !conversation.value?.id) return;
+  error.value = ""; notice.value = "";
+  await scrollLatest();
+  // Completed rule replies are persisted: a fresh request must not replay that old result.
+  await dispatch(() => aiSession.send({ farmId: props.farmId, conversationId: conversation.value.id, question: text, context: context.value, origin: "floating" }), text);
+}
 // 生成中也可以打开完整 AI：运行属于共享会话，完整页选中同一会话后会直接接着显示增量。
 function openFull() {
   const payload = { conversationId: conversation.value?.id, question: question.value };
@@ -209,20 +266,21 @@ watch(() => props.farmId, () => {
   conversation.value = null; messages.value = []; question.value = ""; error.value = ""; notice.value = ""; open.value = false; loadVersion++;
   loading.value = false;
 });
-onUnmounted(() => { alive = false; unsubscribe(); removeViewportListener(); unlockBodyScroll(); });
+onMounted(() => { window.addEventListener("resize", handleWindowResize); window.addEventListener("blur", endDrag); });
+onUnmounted(() => { alive = false; endDrag(); window.removeEventListener("resize", handleWindowResize); window.removeEventListener("blur", endDrag); unsubscribe(); removeViewportListener(); unlockBodyScroll(); });
 </script>
 
 <template>
-  <div class="floating-assistant" :class="{ 'is-open': open }">
-    <button ref="trigger" type="button" class="floating-assistant-trigger" aria-label="打开小禾农场助手" :aria-expanded="open" title="打开小禾农场助手" @click="open ? closeAssistant() : openAssistant()">
+  <div class="floating-assistant" :class="{ 'is-open': open, 'is-dragging': dragging }" :style="positionStyle">
+    <button ref="trigger" type="button" class="floating-assistant-trigger" aria-label="打开小禾农场助手" :aria-expanded="open" title="点击打开小禾，左键拖动" @pointerdown="startDrag" @pointermove="moveDrag" @pointerup="endDrag" @pointercancel="endDrag" @lostpointercapture="endDrag" @click="activateTrigger">
       <SproutCompanion compact :interactive="false" :state="run ? (run.status === 'error' ? 'error' : run.status === 'completed' ? 'done' : 'thinking') : 'idle'" :message="run ? '' : ''" :disabled="disabled" />
       <span v-if="!open && (unseenReply || run?.status === 'error' || error)" class="floating-assistant-dot" :class="{ 'is-error': run?.status === 'error' || error }" aria-hidden="true"></span>
     </button>
     <div v-if="open && mobileSheet()" class="floating-assistant-backdrop" aria-hidden="true" @click="handleBackdropClick"></div>
-    <div v-if="open" ref="panel" class="floating-assistant-panel" role="dialog" aria-modal="false" aria-labelledby="floating-assistant-title" @keydown="handlePanelKeydown">
+    <div v-if="open" ref="panel" class="floating-assistant-panel" :style="panelPlacement" role="dialog" aria-modal="false" aria-labelledby="floating-assistant-title" @keydown="handlePanelKeydown">
       <header class="floating-assistant-header">
         <div><p id="floating-assistant-title">小禾 <span>· 农场小助手</span></p><small>{{ farmName }} · {{ pageLabel }}</small></div>
-        <div class="floating-assistant-header-actions"><span v-if="status" class="floating-assistant-status">{{ status.llm ? `云端模型 · ${status.model}` : "规则分析模式" }}</span><button type="button" class="floating-assistant-icon" aria-label="关闭小禾助手" @click="closeAssistant"><AppIcon name="close" /></button></div>
+        <div class="floating-assistant-header-actions"><span v-if="status" class="floating-assistant-status">{{ status.llm ? "云端微调模型" : "规则分析模式" }}</span><button type="button" class="floating-assistant-icon" aria-label="关闭小禾助手" @click="closeAssistant"><AppIcon name="close" /></button></div>
       </header>
       <button class="floating-assistant-context" type="button" :aria-expanded="contextOpen" aria-controls="floating-assistant-context-detail" @click="contextOpen = !contextOpen"><span>本次参考：{{ contextLabel }}</span><AppIcon name="chevronDown" /></button>
       <p v-if="contextOpen" id="floating-assistant-context-detail" class="floating-assistant-context-detail">发送问题时，服务端会按当前农场和页面范围重新读取有限资料；不会使用浏览器页面原文。每条回答下方会记录实际参考的页面资料。</p>
@@ -236,7 +294,14 @@ onUnmounted(() => { alive = false; unsubscribe(); removeViewportListener(); unlo
         <article v-for="(message,index) in displayed" v-else :key="message.id || 'tmp-'+index" class="floating-assistant-message" :class="message.role">
           <small>{{ message.role === 'user' ? '你' : '小禾' }}<span v-if="message.mode === 'rule'" class="ai-mode-badge">规则回退</span></small>
           <template v-if="message.pending"><AiActivityDisclosure :activities="message.run.activities" :run-status="message.run.status" /><AiApprovalCard v-for="activity in message.run.activities.filter(a => a.kind === 'approval')" :key="activity.id" :activity="activity" :writer="writer" @view-approval="openIrrigation" /><div class="floating-assistant-text"><AssistantText v-if="message.run.text" :text="message.run.text" :streaming="message.run.status === 'running'" /><div v-else class="ai-skeleton-lines" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span></div></div><AiStreamingStatus :status="message.run.status" :diagnostic="message.run.error" :can-retry="message.run.status === 'error'" :using-sync-fallback="message.run.adapter === 'sync'" @retry="retry" /></template>
-          <template v-else><AiApprovalCard v-for="activity in (message.activities || []).filter(a => a.kind === 'approval')" :key="activity.activityId || activity.id" :activity="activity" :writer="writer" @view-approval="openIrrigation" /><div class="floating-assistant-text"><AssistantText v-if="message.role === 'assistant'" :text="message.content" /><template v-else>{{ message.content }}</template></div><AiSourceNote v-if="message.role === 'assistant'" :activities="message.activities" compact /><AiMessageActions :id="message.id" :text="message.content" :role="message.role" :time="message.createdAt ? { display: time(message.createdAt), full: time(message.createdAt), iso: message.createdAt } : null" :conversation-id="conversation?.id" /></template>
+          <template v-else>
+            <AiApprovalCard v-for="activity in (message.activities || []).filter(a => a.kind === 'approval')" :key="activity.activityId || activity.id" :activity="activity" :writer="writer" @view-approval="openIrrigation" />
+            <div class="floating-assistant-text"><AssistantText v-if="message.role === 'assistant'" :text="message.content" /><template v-else>{{ message.content }}</template></div>
+            <p v-if="message.role === 'assistant' && message.diagnostic && message.diagnostic !== 'OK'" class="ai-diagnostic-note"><AppIcon name="info" />{{ diagnosticLabel(message.diagnostic) }}</p>
+            <button v-if="fallbackQuestion(message, messages)" type="button" class="floating-assistant-retry" :disabled="disabled" @click="retryModel(message)">重新请求模型</button>
+            <AiSourceNote v-if="message.role === 'assistant'" :activities="message.activities" compact />
+            <AiMessageActions :id="message.id" :text="message.content" :role="message.role" :time="message.createdAt ? { display: time(message.createdAt), full: time(message.createdAt), iso: message.createdAt } : null" :conversation-id="conversation?.id" />
+          </template>
         </article>
       </div>
       <button v-if="showJump" class="floating-assistant-jump" type="button" @click="scrollLatest()"><AppIcon name="arrowDown" />回到最新</button>

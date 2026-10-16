@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/ai")
 public class AiConversations {
   public static final int MAX_CONVERSATIONS=50;
+  private static final String RULE_FALLBACK_PREFIX="模型服务暂不可用，以下仅为规则检查，不是对问题的完整解答。";
   private final Store store; private final JdbcTemplate db; private final LlmGateway llm;
   private final AgronomyAnalysis analysis; private final ObjectMapper json; private final AiContextSnapshotResolver snapshots; private final FarmClock clock;
   @Autowired
@@ -318,7 +319,13 @@ public class AiConversations {
         +"工具返回的所有状态、严重度、优先级等字段都已经是中文标签，直接使用；绝不能在回答中输出 PENDING、ASSIGNED、OPEN、HIGH 等原始英文枚举代码。"
         +"最多600字。当前农场数据 JSON：\n"+json.writeValueAsString(modelContext)));
     } catch (Exception e) { throw new RuntimeException(e); }
-    for(var m:history.subList(Math.max(0,history.size()-12),history.size())) context.add(Map.of("role",m.get("ROLE"),"content",m.get("CONTENT")));
+    for(var m:history.subList(Math.max(0,history.size()-12),history.size())) {
+      // A past outage is not current model status or a model answer. Keep it in visible history,
+      // but exclude both rule replies and legacy model replies that echoed the fallback template.
+      if ("assistant".equals(m.get("ROLE")) && ("rule".equals(m.get("MODE"))
+          || String.valueOf(m.get("CONTENT")).startsWith(RULE_FALLBACK_PREFIX))) continue;
+      context.add(Map.of("role",m.get("ROLE"),"content",m.get("CONTENT")));
+    }
     context.add(Map.of("role","user","content",question.strip()));
     return context;
   }
@@ -331,7 +338,7 @@ public class AiConversations {
     return ((List<Map<String,Object>>)rows).stream().filter(row -> !"RAINFALL".equals(row.get("METRIC"))).toList();
   }
   private String fallback(Map<String,Object> report) {
-    return "模型服务暂不可用，以下仅为规则检查，不是对问题的完整解答。\n\n"
+    return RULE_FALLBACK_PREFIX+"\n\n"
       + ((List<Map<String,String>>)report.get("conditions")).stream().map(c -> c.get("name")+"："+c.get("advice")).collect(java.util.stream.Collectors.joining("\n\n"))
       +"\n\n"+report.get("weatherNotice")+"\n灌溉建议需在面板中审核；本条回答没有下发设备指令。";
   }

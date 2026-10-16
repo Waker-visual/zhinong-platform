@@ -48,3 +48,31 @@ export function pageSources(activities) {
 export function floatingSurfaceLabel(surface) {
   return surface === "floating" ? "小窗" : "";
 }
+
+export function fallbackQuestion(message, messages) {
+  if (message?.role !== "assistant" || message.mode !== "rule" || !message.requestId) return "";
+  return (messages.find(row => row.role === "user" && row.requestId === message.requestId)?.content || "").trim();
+}
+
+export function clampAssistantPosition(position, size, viewport, bottomInset = 0) {
+  const margin = 12;
+  return {
+    x: Math.max(margin, Math.min(position.x, viewport.width - size.width - margin)),
+    y: Math.max(margin, Math.min(position.y, viewport.height - bottomInset - size.height - margin)),
+  };
+}
+
+// Keep the dialog near its movable opener, choosing above, below or beside it before clamping.
+export function assistantPanelPosition(anchor, size, viewport) {
+  const margin = 12, gap = 12;
+  let x = anchor.right - size.width, y = anchor.top - gap - size.height;
+  if (y < margin) {
+    if (anchor.bottom + gap + size.height <= viewport.height - margin) y = anchor.bottom + gap;
+    else {
+      y = anchor.top;
+      if (anchor.left - gap - size.width >= margin) x = anchor.left - gap - size.width;
+      else if (anchor.right + gap + size.width <= viewport.width - margin) x = anchor.right + gap;
+    }
+  }
+  return clampAssistantPosition({ x, y }, size, viewport);
+}

@@ -42,6 +42,7 @@ const STREAM = '**/api/ai/conversations/*/stream';
     await context.addInitScript(value => sessionStorage.setItem('zhinong-session', value), token);
     const page = await context.newPage();
     page.on('pageerror', e => errors.push(e.message));
+    page.on('console', message => { if (message.type() === 'error' || message.type() === 'warning' && message.text().includes('Unhandled error')) errors.push(message.text()); });
     await page.goto(base);
     await page.getByRole('button', { name: '打开小禾农场助手' }).waitFor();
     return page;
@@ -57,6 +58,17 @@ const STREAM = '**/api/ai/conversations/*/stream';
     await page.locator('#floating-question').fill(text);
     await panel(page).getByRole('button', { name: '发送', exact: true }).click();
   }
+  async function dragLauncher(page, point) {
+    const box = await page.locator('.floating-assistant-trigger').boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(point.x, point.y, { steps: 8 });
+    await page.mouse.up();
+  }
+  async function assertPanelFits(page) {
+    const box = await panel(page).boundingBox(), viewport = page.viewportSize();
+    assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= viewport.width && box.y + box.height <= viewport.height, 'dialog stays on screen near a dragged opener');
+  }
 
   try {
     for (let n = 0; n < 120; n++) {
@@ -69,6 +81,42 @@ const STREAM = '**/api/ai/conversations/*/stream';
 
     // ── 1. 生成中切换到完整 AI：同一次运行在完整页继续显示，完成后两侧都拿到落库消息和来源记录 ──
     const page = await newPage({ viewport: { width: 1440, height: 960 } });
+    const sentQuestions = [];
+    page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/stream')) sentQuestions.push(JSON.parse(request.postData())); });
+    const launcher = page.locator('.floating-assistant-trigger');
+    const art = await launcher.locator('.sprout-art').boundingBox();
+    assert.equal(art.width, 96); assert.equal(art.height, 108);
+    const initial = await launcher.boundingBox();
+    await dragLauncher(page, { x: initial.x + initial.width / 2 - 160, y: initial.y + initial.height / 2 - 180 });
+    const moved = await launcher.boundingBox();
+    assert.equal(Math.round(initial.x - moved.x), 160); assert.equal(Math.round(initial.y - moved.y), 180);
+    assert.equal(await panel(page).count(), 0, 'releasing a drag never opens the assistant');
+    await page.mouse.move(100, 100);
+    assert.deepEqual(await launcher.boundingBox(), moved, 'the opener stops moving after release');
+    await page.mouse.move(moved.x + moved.width / 2, moved.y + moved.height / 2);
+    await page.mouse.down({ button: 'right' });
+    await page.mouse.move(200, 200); await page.mouse.up({ button: 'right' });
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await launcher.boundingBox(), moved, 'right-button motion cannot move the opener');
+    // Small hand movement is still a click; Enter remains available immediately after a drag.
+    await page.mouse.move(moved.x + moved.width / 2, moved.y + moved.height / 2);
+    await page.mouse.down(); await page.mouse.move(moved.x + moved.width / 2 + 2, moved.y + moved.height / 2 + 2); await page.mouse.up();
+    await panel(page).waitFor(); await page.keyboard.press('Escape');
+    for (const point of [{ x: 0, y: 0 }, { x: 1439, y: 959 }, { x: 720, y: 480 }]) {
+      await dragLauncher(page, point);
+      assert.equal(await panel(page).count(), 0);
+      await launcher.focus(); await page.keyboard.press('Enter'); await panel(page).waitFor();
+      await assertPanelFits(page); await page.keyboard.press('Escape');
+    }
+    await openFloating(page);
+    await dragLauncher(page, { x: 80, y: 80 });
+    assert.equal(await panel(page).count(), 1, 'an open dialog follows a dragged opener');
+    await assertPanelFits(page); await page.keyboard.press('Escape');
+    await dragLauncher(page, { x: 1439, y: 959 });
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.waitForFunction(() => { const box = document.querySelector('.floating-assistant-trigger').getBoundingClientRect(); return box.right <= innerWidth && box.bottom <= innerHeight; });
+    await openFloating(page); await assertPanelFits(page); await page.keyboard.press('Escape');
+    await page.setViewportSize({ width: 1440, height: 960 });
     const held = await holdResponse(page, STREAM);
     await askFloating(page, '验收一：今天优先做什么？');
     await held.ready;
@@ -93,6 +141,30 @@ const STREAM = '**/api/ai/conversations/*/stream';
     await panel(page).getByText('验收一：今天优先做什么？').waitFor();
     await panel(page).locator('.ai-source-note', { hasText: '参考页面：今日农场' }).waitFor();
 
+    // A completed rule fallback needs a fresh request, rather than an idempotent replay of the outage.
+    await panel(page).getByText('模型服务尚未配置', { exact: true }).waitFor();
+    const originalRequestId = sentQuestions[0].requestId;
+    let recoveredRequest;
+    const captureRecovery = async route => { recoveredRequest = JSON.parse(route.request().postData()); await route.continue(); };
+    await page.route(STREAM, captureRecovery);
+    await page.locator('#floating-question').fill('重试时保留的草稿');
+    const beforeRecovery = await panel(page).locator('.floating-assistant-message.assistant').count();
+    await panel(page).getByRole('button', { name: '重新请求模型', exact: true }).click();
+    await page.waitForFunction(count => document.querySelectorAll('.floating-assistant-panel .floating-assistant-message.assistant').length > count && !document.querySelector('.floating-assistant-panel [aria-label="停止生成"]'), beforeRecovery);
+    await page.unroute(STREAM, captureRecovery);
+    assert.equal(recoveredRequest.question, '验收一：今天优先做什么？');
+    assert.notEqual(recoveredRequest.requestId, originalRequestId, 'a completed fallback is retried as a new request');
+    assert.equal(await page.locator('#floating-question').inputValue(), '重试时保留的草稿');
+
+    const failedRecovery = async route => route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' },
+      body: 'data: {"sequence":1,"type":"run.started"}\n\ndata: {"sequence":2,"type":"run.error","error":"模型服务繁忙","diagnostic":"BUSY"}\n\n' });
+    await page.route(STREAM, failedRecovery);
+    await page.locator('#floating-question').fill('');
+    await panel(page).getByRole('button', { name: '重新请求模型', exact: true }).first().click();
+    await panel(page).getByRole('button', { name: '重试本次回答' }).waitFor();
+    await page.waitForFunction(() => document.querySelector('#floating-question').value === '验收一：今天优先做什么？');
+    await page.unroute(STREAM, failedRecovery);
+
     // ── 2. 失败重试：沿用同一个 requestId，第二次走真实服务端并成功 ──
     const requestIds = [];
     let failOnce = true;
@@ -105,10 +177,10 @@ const STREAM = '**/api/ai/conversations/*/stream';
       } else await route.continue();
     };
     await page.route(STREAM, failing);
-    const answersBefore = await panel(page).locator('.floating-assistant-message.assistant').count();
+    const answersBefore = await panel(page).locator('.floating-assistant-message.assistant').filter({ hasNot: page.locator('.ai-streaming-status') }).count();
     await askFloating(page, '验收二：核查设备异常');
     await panel(page).getByRole('button', { name: '重试本次回答' }).click();
-    await page.waitForFunction(count => document.querySelectorAll('.floating-assistant-panel .floating-assistant-message.assistant').length > count && !document.querySelector('.floating-assistant-panel [aria-label="停止生成"]'), answersBefore);
+    await page.waitForFunction(count => document.querySelectorAll('.floating-assistant-panel .floating-assistant-message.assistant:not(:has(.ai-streaming-status))').length > count && !document.querySelector('.floating-assistant-panel [aria-label="停止生成"]'), answersBefore);
     await page.unroute(STREAM, failing);
     assert.equal(requestIds.length, 2);
     assert.equal(requestIds[0], requestIds[1], 'retry reuses the same requestId');
@@ -141,6 +213,10 @@ const STREAM = '**/api/ai/conversations/*/stream';
       const trigger = mobile.getByRole('button', { name: '打开小禾农场助手' });
       const triggerBox = await trigger.boundingBox(), tabbar = await mobile.locator('nav.tabbar').boundingBox();
       if (tabbar) assert.ok(triggerBox.y + triggerBox.height <= tabbar.y, 'entry stays above the bottom tab bar');
+      await dragLauncher(mobile, { x: width - 1, y: 843 });
+      const dragged = await trigger.boundingBox();
+      if (tabbar) assert.ok(dragged.y + dragged.height <= tabbar.y, 'dragging cannot cover the mobile navigation');
+      assert.equal(await panel(mobile).count(), 0, 'mobile drag does not open the panel');
       await openFloating(mobile);
       const sheet = await panel(mobile).boundingBox();
       assert.equal(Math.round(sheet.width), width, 'sheet spans the viewport');
@@ -151,7 +227,7 @@ const STREAM = '**/api/ai/conversations/*/stream';
         .map(b => ({ name: b.getAttribute('aria-label') || b.textContent.trim(), w: b.getBoundingClientRect().width, h: b.getBoundingClientRect().height }))
         .filter(b => b.h < 44 || b.w < 44 && !b.name));
       assert.deepEqual(small, [], 'touch targets are at least 44px tall');
-      await panel(mobile).getByText('验收一：今天优先做什么？').waitFor();
+      await panel(mobile).getByText('验收一：今天优先做什么？').first().waitFor();
       await mobile.screenshot({ path: path.join(output, `floating-mobile-${width}-dark.png`) });
       await mobile.keyboard.press('Escape');
       assert.equal(await panel(mobile).count(), 0);

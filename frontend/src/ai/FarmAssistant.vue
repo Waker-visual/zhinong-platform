@@ -321,7 +321,7 @@ onUnmounted(()=>{alive=false;unsubscribe();if(aiSession.state.sending && !keepsR
     <div class="ai-context">
       <p><strong>{{report?.farmName || '正在读取农场'}}</strong><span>虚构学术演示数据</span></p>
       <span v-if="status===null" class="ai-model-state ai-model-state-skeleton skeleton" aria-hidden="true"></span>
-      <span v-else class="ai-model-state">{{status.llm?`云端模型 · ${status.model}`:'规则分析模式'}}</span>
+      <span v-else class="ai-model-state">{{status.llm?'云端微调模型':'规则分析模式'}}</span>
     </div>
     <nav class="ai-tabs" aria-label="助手功能">
       <button v-for="t in [['chat','农事对话'],['analysis','天气与四情'],['irrigation','灌溉管理']]" :key="t[0]" :aria-pressed="panel===t[0]" @click="panel=t[0]">{{t[1]}}</button>

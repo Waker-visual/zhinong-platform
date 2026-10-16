@@ -104,6 +104,23 @@ class AiIntegrationTest {
     call(admin,"GET","/ai/conversations/"+id+"/messages",null,404);
   }
 
+  @Test void recoveredModelNeverReceivesPastRuleFailuresAsAssistantAnswers() throws Exception {
+    String id=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
+    var fallback=call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","今天优先做什么","requestId","unavailable-turn"),200);
+    assertEquals("rule",fallback.path("mode").asText());
+    String outageText=fallback.path("answer").asText();
+    llm.answer=Optional.of(new LlmGateway.LlmResponse("连接恢复后依据当前资料整理的建议。",List.of()));
+    call(admin,"POST","/ai/conversations/"+id+"/messages",Map.of("question","请重新回答","requestId","recovered-turn"),200);
+    assertTrue(llm.lastMessages.stream().anyMatch(m -> "今天优先做什么".equals(m.get("content"))));
+    assertFalse(llm.lastMessages.stream().anyMatch(m -> outageText.equals(m.get("content"))),"a rule fallback must not enter the recovered model's history");
+    // Existing histories can contain a model reply that copied the earlier fallback verbatim.
+    db.update("UPDATE ai_messages SET mode='llm',diagnostic='OK' WHERE tenant_id=? AND conversation_id=? AND request_id=? AND role='assistant'",tenant(),id,"unavailable-turn");
+    streamEvents(admin,id,Map.of("question","继续整理优先事项","requestId","stream-recovered-turn"),200);
+    assertFalse(llm.lastMessages.stream().anyMatch(m -> outageText.equals(m.get("content"))),"streaming must also exclude legacy echoed failures");
+    assertTrue(llm.lastMessages.stream().anyMatch(m -> "连接恢复后依据当前资料整理的建议。".equals(m.get("content"))),"successful model answers remain useful conversation context");
+    assertEquals(6,call(admin,"GET","/ai/conversations/"+id+"/messages",null,200).size(),"visible conversation history is retained");
+  }
+
   @Test void activitySummariesPersistOrderedStayTenantIsolatedAndSurviveDeletion() throws Exception {
     String id=call(admin,"POST","/ai/conversations",Map.of("farmId",farmId),200).path("id").asText();
     llm.answer=Optional.of(new LlmGateway.LlmResponse("测试回答。",List.of()));
