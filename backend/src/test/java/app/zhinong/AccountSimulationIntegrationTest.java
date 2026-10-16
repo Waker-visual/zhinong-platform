@@ -3,7 +3,7 @@ package app.zhinong;
 import static org.junit.jupiter.api.Assertions.*;
 
 import app.zhinong.simulation.*;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.*;
 import java.net.URI;
 import java.net.http.*;
 import java.time.LocalDate;
@@ -422,12 +422,12 @@ class AccountSimulationIntegrationTest {
     var days = result.path("result").path("scenarios").get(0).path("days");
     assertEquals(365, days.size());
     var invalid = json.valueToTree(input(f, 1, 50));
-    ((com.fasterxml.jackson.databind.node.ObjectNode) invalid).put(
+    ((tools.jackson.databind.node.ObjectNode) invalid).put(
       "startDate",
       "2026-06-01"
     );
     call(admin, "POST", "/simulations", invalid, 400);
-    ((com.fasterxml.jackson.databind.node.ObjectNode) invalid).put(
+    ((tools.jackson.databind.node.ObjectNode) invalid).put(
       "startDate",
       "2025-06-01"
     ).put("days", 91);

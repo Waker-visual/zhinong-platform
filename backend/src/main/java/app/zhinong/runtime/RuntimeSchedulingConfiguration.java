@@ -20,6 +20,12 @@ public class RuntimeSchedulingConfiguration {
     return scheduler("irrigation-safety-", 1);
   }
 
+  /** A first retention pass over a large demo database can take minutes; it must not occupy a business timer thread. */
+  @Bean
+  public ThreadPoolTaskScheduler demoRetentionScheduler() {
+    return scheduler("demo-retention-", 1);
+  }
+
   private static ThreadPoolTaskScheduler scheduler(String prefix, int threads) {
     var scheduler = new ThreadPoolTaskScheduler();
     scheduler.setPoolSize(threads);

@@ -3,7 +3,7 @@ package app.zhinong;
 import static org.junit.jupiter.api.Assertions.*;
 
 import app.zhinong.workspace.DeviceAlertMonitor;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.*;
 import java.net.URI;
 import java.net.http.*;
 import java.time.*;
@@ -216,13 +216,13 @@ class DeviceAlertIntegrationTest {
     String alertId = opened.get(0).path("id").asText();
     var updated = db.queryForObject("SELECT updated_at FROM device_alerts WHERE tenant_id=? AND id=?", OffsetDateTime.class, tenant, alertId);
     long after = audits();
-    assertTrue(call(admin, "GET", "/alerts", null, 200).findValuesAsText("id").contains(alertId), "tenant-wide reads return saved incidents");
+    assertTrue(call(admin, "GET", "/alerts", null, 200).findValuesAsString("id").contains(alertId), "tenant-wide reads return saved incidents");
     saved(farm);
     assertEquals(updated, db.queryForObject("SELECT updated_at FROM device_alerts WHERE tenant_id=? AND id=?", OffsetDateTime.class, tenant, alertId),
       "reading a saved incident must not refresh it");
     assertEquals(after, audits());
     call(other, "GET", "/alerts?farmId=" + farm, null, 404);
-    assertFalse(call(other, "GET", "/alerts", null, 200).findValuesAsText("id").contains(alertId), "another tenant never sees the incident");
+    assertFalse(call(other, "GET", "/alerts", null, 200).findValuesAsString("id").contains(alertId), "another tenant never sees the incident");
   }
 
   long count(String id, String metric, boolean history) {

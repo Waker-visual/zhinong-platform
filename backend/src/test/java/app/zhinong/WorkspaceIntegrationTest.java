@@ -3,7 +3,7 @@ package app.zhinong;
 import static org.junit.jupiter.api.Assertions.*;
 
 import app.zhinong.bootstrap.WorkspaceData;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.*;
 import java.net.URI;
 import java.net.http.*;
 import java.time.Instant;

@@ -2,7 +2,7 @@ package app.zhinong.security;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.*;
 import java.sql.Timestamp;

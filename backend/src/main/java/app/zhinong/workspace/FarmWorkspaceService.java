@@ -4,8 +4,8 @@ import app.zhinong.api.ApiException;
 import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.*;
@@ -350,7 +350,7 @@ public class FarmWorkspaceService {
           shape.plotId(),
           json.writeValueAsString(shape.boundary())
         );
-      } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+      } catch (tools.jackson.core.JacksonException e) {
         throw new IllegalArgumentException(e);
       }
     }

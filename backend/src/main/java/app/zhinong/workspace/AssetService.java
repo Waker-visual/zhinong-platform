@@ -113,8 +113,8 @@ public class AssetService {
     if ("CAMERA".equals(row.get("deviceType"))) row.put("camera", cameras.read(tenant, id));
     if("MACHINERY".equals(row.get("deviceType"))) {
       var profiles=db.queryForList("SELECT profile_json FROM machinery_profiles WHERE tenant_id=? AND device_id=?",String.class,tenant,id);
-      if(!profiles.isEmpty())try {row.put("machinery",new com.fasterxml.jackson.databind.ObjectMapper().readValue(profiles.getFirst(),Map.class));}
-      catch(com.fasterxml.jackson.core.JsonProcessingException e){throw new IllegalStateException("Invalid machinery profile",e);}
+      if(!profiles.isEmpty())try {row.put("machinery",new tools.jackson.databind.ObjectMapper().readValue(profiles.getFirst(),Map.class));}
+      catch(tools.jackson.core.JacksonException e){throw new IllegalStateException("Invalid machinery profile",e);}
     }
     var channels = channels(tenant, id);
     Instant sampled = null;

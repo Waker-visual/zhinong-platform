@@ -1,7 +1,7 @@
 package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.ByteArrayOutputStream;
 import java.nio.ByteBuffer;
@@ -393,8 +393,9 @@ public class MapTileService {
       json.writeValue(temp.toFile(), tile);
       Files.move(temp, file, StandardCopyOption.REPLACE_EXISTING);
       trim();
-    } catch (IOException ignored) {
-      /* A full/read-only cache must not prevent a successful live tile from displaying. */
+    } catch (IOException | tools.jackson.core.JacksonException ignored) {
+      /* A full/read-only cache must not prevent a successful live tile from displaying.
+         Jackson 3 reports writeValue I/O failures as unchecked JacksonIOException. */
     } finally {
       if (temp != null) try {
         Files.deleteIfExists(temp);

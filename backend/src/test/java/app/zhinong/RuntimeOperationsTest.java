@@ -2,13 +2,13 @@ package app.zhinong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.*;
 import java.util.Map;
 import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
+import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -23,7 +23,7 @@ import org.springframework.web.bind.annotation.*;
   "spring.datasource.url=jdbc:h2:mem:runtime-ops-tests;DB_CLOSE_DELAY=-1",
   "farm.demo=true", "farm.demo-rich=false", "farm.bootstrap-password=Test-Only-Password-429!"
 })
-@AutoConfigureObservability
+@AutoConfigureMetrics
 @Import(RuntimeOperationsTest.FailureConfiguration.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RuntimeOperationsTest {

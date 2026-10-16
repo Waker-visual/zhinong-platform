@@ -2,7 +2,7 @@ package app.zhinong.simulation;
 
 import app.zhinong.api.ApiException;
 import app.zhinong.security.Identity;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.*;
 import jakarta.annotation.PreDestroy;
 import java.sql.Timestamp;
