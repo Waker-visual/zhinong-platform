@@ -3,7 +3,7 @@ package app.zhinong.device;
 import app.zhinong.api.ApiException;
 import app.zhinong.workspace.MetricCatalog;
 import app.zhinong.workspace.WorkspaceInputs;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
 import java.time.Instant;

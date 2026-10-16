@@ -20,6 +20,8 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+      # Jackson 3 rejects omitted primitive fields; request records rely on Jackson 2's 0/false defaults.
+      fail-on-null-for-primitives: false
 management:
   endpoints:
     web:

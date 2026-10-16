@@ -6,8 +6,8 @@ import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
 import app.zhinong.workspace.*;
 import app.zhinong.device.SmartFarmProtocol.Binding;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.*;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import java.time.*;
@@ -149,7 +149,7 @@ public class SmartFarmIntegration {
     if (input.measuredAt().isAfter(Instant.now()) || input.measuredAt().isBefore(Instant.parse("2000-01-01T00:00:00Z")))
       throw new ApiException(400,"采样时间无效");
     if (config.adapterType().equals("LAN_DTU") && input.payload().has("deviceAddr") &&
-        !input.externalId().equals(input.payload().get("deviceAddr").asText())) throw new ApiException(403,"局域网报文设备编号不匹配");
+        !input.externalId().equals(input.payload().get("deviceAddr").asString(""))) throw new ApiException(403,"局域网报文设备编号不匹配");
     String hash = TelemetryService.hash(input.measuredAt()+"|"+input.externalId()+"|"+input.topic()+"|"+canonical(input.payload()));
     var prior = store.db().queryForList("SELECT payload_hash,reading_count FROM device_ingest_events WHERE tenant_id=? AND device_id=? AND message_id=?",
       device.tenant(),device.id(),input.messageId());
@@ -192,7 +192,7 @@ public class SmartFarmIntegration {
     var config=bound(device,input.externalId(),input.topic());
     validatePayload(input.payload());
     JsonNode rw=input.payload().path("rw_prot");
-    if (!rw.isObject() || !id.equals(rw.path("id").asText()) || !"up".equals(rw.path("dir").asText()))
+    if (!rw.isObject() || !id.equals(rw.path("id").asString("")) || !"up".equals(rw.path("dir").asString("")))
       throw new ApiException(400,"回执编号或方向不匹配");
     var rows=store.db().queryForList("SELECT id AS \"id\",action AS \"action\",command_value AS \"value\" FROM device_commands WHERE tenant_id=? AND device_id=? AND id=?",
       device.tenant(),device.id(),id);
@@ -203,7 +203,7 @@ public class SmartFarmIntegration {
     if(!actual.isArray() || actual.size()!=1 || !wanted.path("name").equals(actual.get(0).path("name")))
       throw new ApiException(400,"回执缺少对应的写入确认");
     try {
-      if(new java.math.BigDecimal(wanted.path("value").asText()).compareTo(new java.math.BigDecimal(actual.get(0).path("value").asText()))!=0)
+      if(new java.math.BigDecimal(wanted.path("value").asString("")).compareTo(new java.math.BigDecimal(actual.get(0).path("value").asString("")))!=0)
         throw new NumberFormatException();
     } catch(NumberFormatException e) { throw new ApiException(400,"回执确认值与指令不一致"); }
     return commands.receipt(key,id,new DeviceCommandService.Receipt("SUCCEEDED","设备已确认写入；实际开度和运行状态以监测反馈为准"));
@@ -214,7 +214,7 @@ public class SmartFarmIntegration {
   }
   private JsonNode canonical(JsonNode value) {
     if(value.isObject()) {
-      var sorted=json.createObjectNode(); var names=new TreeSet<String>(); value.fieldNames().forEachRemaining(names::add);
+      var sorted=json.createObjectNode(); var names=new TreeSet<String>(); names.addAll(value.propertyNames());
       names.forEach(n -> sorted.set(n,canonical(value.get(n)))); return sorted;
     }
     if(value.isArray()) { var array=json.createArrayNode(); value.forEach(v -> array.add(canonical(v))); return array; }

@@ -8,7 +8,7 @@ import app.zhinong.api.ApiException;
 import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
 import app.zhinong.security.Identity;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;

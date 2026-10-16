@@ -2,8 +2,8 @@ package app.zhinong.bootstrap;
 
 import app.zhinong.workspace.FieldGeometry;
 import app.zhinong.workspace.MetricCatalog;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.*;
 import java.nio.charset.StandardCharsets;
 import java.time.*;
 import java.util.*;

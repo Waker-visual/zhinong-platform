@@ -1,7 +1,7 @@
 package app.zhinong.device;
 
 import app.zhinong.api.ApiException;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.*;
 import jakarta.annotation.PreDestroy;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -100,8 +100,9 @@ public class SmartFarmMqttGateway {
 
   static Instant sampleTime(JsonNode payload,Instant received,ZoneId zone) {
     JsonNode stamp=payload.path("params").get("sys_time");
-    if(stamp==null || stamp.isNull() || stamp.asText().isBlank()) return received;
-    String text=stamp.asText();
+    // asString("") keeps a non-scalar sys_time on the received-time path instead of throwing (Jackson 3).
+    if(stamp==null || stamp.isNull() || stamp.asString("").isBlank()) return received;
+    String text=stamp.asString("");
     try {
       Instant result;
       if(text.matches("\\d{13}")) result=Instant.ofEpochMilli(Long.parseLong(text));
@@ -138,7 +139,7 @@ public class SmartFarmMqttGateway {
     try {
       JsonNode rw=pending.packet().payload().path("rw_prot");
       if(rw.has("w_data")) {
-        integrations.receipt(secret(pending.deviceKeyEnv()),rw.path("id").asText(),
+        integrations.receipt(secret(pending.deviceKeyEnv()),rw.path("id").asString(""),
           new SmartFarmIntegration.NativeReceipt(pending.packet().externalId(),pending.packet().topic(),pending.packet().payload()));
         if(rw.path("r_data").isArray() && !rw.path("r_data").isEmpty()) integrations.ingest(secret(pending.deviceKeyEnv()),pending.packet());
       } else integrations.ingest(secret(pending.deviceKeyEnv()),pending.packet());

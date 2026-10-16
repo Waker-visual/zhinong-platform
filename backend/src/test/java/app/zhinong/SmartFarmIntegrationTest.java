@@ -3,7 +3,7 @@ package app.zhinong;
 import static org.junit.jupiter.api.Assertions.*;
 import app.zhinong.device.SmartFarmProtocol;
 import app.zhinong.workspace.MetricCatalog;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.*;
 import java.net.URI;
 import java.net.http.*;
 import java.time.Instant;
@@ -85,6 +85,11 @@ class SmartFarmIntegrationTest {
     assertEquals("1",polled.at("/commands/0/payload/rw_prot/w_data/0/value").asText());
     String id=cmd.path("id").asText();
     var receipt=Map.of("externalId",d.external(),"topic",d.topic(),"payload",Map.of("rw_prot",Map.of("dir","up","id",id,"w_data",List.of(Map.of("name","mainPumpManual","value","1")))));
+    // Non-scalar fields from the device are rejected as bad receipts, never surfaced as server errors.
+    var nestedId=Map.of("externalId",d.external(),"topic",d.topic(),"payload",Map.of("rw_prot",Map.of("dir","up","id",Map.of("v",id),"w_data",List.of(Map.of("name","mainPumpManual","value","1")))));
+    call(null,"POST","/ingest/smart-farm/commands/"+id+"/receipt",nestedId,400,"X-Device-Key",d.key());
+    var nestedValue=Map.of("externalId",d.external(),"topic",d.topic(),"payload",Map.of("rw_prot",Map.of("dir","up","id",id,"w_data",List.of(Map.of("name","mainPumpManual","value",Map.of("v","1"))))));
+    call(null,"POST","/ingest/smart-farm/commands/"+id+"/receipt",nestedValue,400,"X-Device-Key",d.key());
     call(null,"POST","/ingest/smart-farm/commands/"+id+"/receipt",receipt,200,"X-Device-Key",d.key());
     assertTrue(call(null,"POST","/ingest/smart-farm/commands/"+id+"/receipt",receipt,200,"X-Device-Key",d.key()).path("duplicate").asBoolean());
     assertEquals(0,channel(detail(d),"PUMP_RUNNING").at("/latest/value").asInt());

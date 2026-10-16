@@ -2,7 +2,7 @@ package app.zhinong.ai;
 import static org.junit.jupiter.api.Assertions.*;
 import app.zhinong.api.ApiException;
 import com.sun.net.httpserver.HttpServer;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
