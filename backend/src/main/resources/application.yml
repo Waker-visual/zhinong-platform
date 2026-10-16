@@ -51,6 +51,14 @@ farm:
   demo-stream:
     enabled: ${FARM_DEMO_STREAM_ENABLED:false}
     days: ${FARM_DEMO_STREAM_DAYS:30}
+  # Ages out SIMULATED demo telemetry on demo farms (only when farm.demo=true); see docs/服务稳定性与性能指南.md.
+  demo-retention:
+    enabled: ${FARM_DEMO_RETENTION_ENABLED:true}
+    full-days: ${FARM_DEMO_RETENTION_FULL_DAYS:2}
+    dense-days: ${FARM_DEMO_RETENTION_DENSE_DAYS:30}
+    daily-days: ${FARM_DEMO_RETENTION_DAILY_DAYS:731}
+    batch-size: ${FARM_DEMO_RETENTION_BATCH_SIZE:500}
+    delay-ms: ${FARM_DEMO_RETENTION_DELAY_MS:3600000}
   bootstrap-password: ${FARM_BOOTSTRAP_PASSWORD:}
   llm:
     url: ${FARM_LLM_URL:}
