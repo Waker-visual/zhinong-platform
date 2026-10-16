@@ -5,3 +5,17 @@
 从已认证用户推导租户；业务查询、关联和写入均需租户条件。平台账号不读取经营数据。新增功能须实现、验证并更新相关使用说明。
 
 运行 scripts/verify.ps1 验证后端、前端及项目检查工具。账号口令、数据库、会话、设备密钥和内部文档不得提交到 Git。保留第三方许可证与数据署名。
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues (`Waker-visual/zhinong-platform`, via the `gh` CLI). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one root `GLOSSARY.md` plus `docs/adr/`. See `docs/agents/domain.md`.
