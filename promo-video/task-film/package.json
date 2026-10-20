@@ -1,0 +1,27 @@
+{
+  "name": "task-film",
+  "version": "1.0.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "智禾农场 · 灌溉任务设备联动演示（80 秒，答辩 PPT 用）",
+  "dependencies": {
+    "@fontsource/iosevka-aile": "^5.3.0",
+    "@fontsource/noto-sans-sc": "^5.3.1",
+    "@fontsource/noto-serif-sc": "^5.3.1",
+    "@remotion/cli": "4.0.534",
+    "@remotion/media": "4.0.534",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.534",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/three": "0.186.0",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "render": "remotion render TaskFilm out/task-film.mp4"
+  }
+}
