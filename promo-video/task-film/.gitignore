@@ -1,0 +1,6 @@
+node_modules/
+out/
+public/shots/
+public/audio/
+audio/out/
+audio/tts/
