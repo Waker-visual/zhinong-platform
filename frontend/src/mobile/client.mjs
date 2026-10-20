@@ -124,9 +124,9 @@ export const statuses = {
 export function freshness(device) {
   return (
     {
-      FRESH: "上报正常",
-      STALE: "上报过期",
-      NO_DATA: "尚无上报",
+      FRESH: "有有效指标",
+      STALE: "暂无有效指标",
+      NO_DATA: "尚无观测",
       MAINTENANCE: "维护中",
       DISABLED: "已停用",
     }[device?.freshness] || "状态未知"

@@ -193,7 +193,7 @@ function saveModelConfig() {
 async function clearModelKey() {
   const ok = await confirmAction({
     title: "清除模型密钥",
-    message: "清除后云端微调模型将不可用，需重新配置密钥才能恢复为启用状态。",
+    message: "清除后云端模型将不可用，需重新配置密钥才能恢复为启用状态。",
     confirmLabel: "清除密钥",
     danger: true,
   });
@@ -682,7 +682,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
         </section>
         <form v-validate v-if="tab === 'model'" class="model-settings" @submit.prevent="saveModelConfig">
           <p class="model-settings-intro">
-            <span v-if="modelInfo" class="model-status" :class="{ on: modelInfo.cloudEnabled }">{{ modelInfo.cloudEnabled ? "已启用云端微调模型" : "未配置" }}</span>
+            <span v-if="modelInfo" class="model-status" :class="{ on: modelInfo.cloudEnabled }">{{ modelInfo.cloudEnabled ? "已启用云端模型" : "未配置" }}</span>
             <span class="muted">全局配置对所有租户生效；密钥只保存在本机私有配置文件中，不会下发到前端或显示原文。</span>
           </p>
           <div class="model-settings-grid">
@@ -802,7 +802,7 @@ onBeforeUnmount(() => applyAppearance(props.account));
             </div>
             <div v-if="aiStatus">
               <dt>AI 模型服务</dt>
-              <dd>{{ aiStatus.llm ? "云端微调模型已启用" : "未配置，AI 助手使用规则回退" }}</dd>
+              <dd>{{ aiStatus.llm ? "云端模型已启用" : "未配置，AI 助手使用规则回退" }}</dd>
               <dd v-if="!isPlatformAdmin" class="muted">由平台管理员在“模型服务”中配置</dd>
             </div>
           </dl>

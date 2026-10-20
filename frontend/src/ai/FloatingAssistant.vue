@@ -280,7 +280,7 @@ onUnmounted(() => { alive = false; endDrag(); window.removeEventListener("resize
     <div v-if="open" ref="panel" class="floating-assistant-panel" :style="panelPlacement" role="dialog" aria-modal="false" aria-labelledby="floating-assistant-title" @keydown="handlePanelKeydown">
       <header class="floating-assistant-header">
         <div><p id="floating-assistant-title">小禾 <span>· 农场小助手</span></p><small>{{ farmName }} · {{ pageLabel }}</small></div>
-        <div class="floating-assistant-header-actions"><span v-if="status" class="floating-assistant-status">{{ status.llm ? "云端微调模型" : "规则分析模式" }}</span><button type="button" class="floating-assistant-icon" aria-label="关闭小禾助手" @click="closeAssistant"><AppIcon name="close" /></button></div>
+        <div class="floating-assistant-header-actions"><span v-if="status" class="floating-assistant-status">{{ status.llm ? "云端模型" : "规则分析模式" }}</span><button type="button" class="floating-assistant-icon" aria-label="关闭小禾助手" @click="closeAssistant"><AppIcon name="close" /></button></div>
       </header>
       <button class="floating-assistant-context" type="button" :aria-expanded="contextOpen" aria-controls="floating-assistant-context-detail" @click="contextOpen = !contextOpen"><span>本次参考：{{ contextLabel }}</span><AppIcon name="chevronDown" /></button>
       <p v-if="contextOpen" id="floating-assistant-context-detail" class="floating-assistant-context-detail">发送问题时，服务端会按当前农场和页面范围重新读取有限资料；不会使用浏览器页面原文。每条回答下方会记录实际参考的页面资料。</p>

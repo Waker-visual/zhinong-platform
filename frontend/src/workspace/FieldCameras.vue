@@ -4,6 +4,7 @@ import { api, loadError } from "../api";
 import AppIcon from "../ui/AppIcon.vue";
 import CameraPlayer from "./CameraPlayer.vue";
 import { stateNames, timeText } from "./presentation";
+import { deviceSnapshot } from "../metrics/measurement-model.js";
 const props = defineProps({
   farmId: String,
   revision: Number,
@@ -17,7 +18,8 @@ const data = ref(null),
 let sequence = 0,
   timer,
   alive = true;
-const devices = computed(() => data.value?.devices || []);
+const clock = ref(Date.now());
+const devices = computed(() => (data.value?.devices || []).map(device => deviceSnapshot(device, clock.value)));
 const selected = computed(() =>
   devices.value.find((d) => d.id === selectedId.value),
 );
@@ -28,6 +30,7 @@ const modes = {
   VIDEO: "视频源",
 };
 async function load(clear = false) {
+  clock.value = Date.now();
   const current = ++sequence,
     farm = props.farmId;
   if (clear) {
@@ -39,6 +42,7 @@ async function load(clear = false) {
   try {
     const result = await api(`/farms/${encodeURIComponent(farm)}/cameras`);
     if (!alive || current !== sequence || farm !== props.farmId) return;
+    clock.value = Date.now();
     data.value = result;
     if (!result.devices.some((d) => d.id === selectedId.value))
       selectedId.value =
@@ -118,7 +122,7 @@ onBeforeUnmount(() => {
             <dd>{{ selected.plotName || "公共区域" }}</dd>
           </div>
           <div>
-            <dt>设备上报</dt>
+            <dt>设备指标状态</dt>
             <dd>
               {{ stateNames[selected.freshness] }}
             </dd>

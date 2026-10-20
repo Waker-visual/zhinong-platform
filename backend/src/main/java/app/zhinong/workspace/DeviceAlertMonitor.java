@@ -1,6 +1,7 @@
 package app.zhinong.workspace;
 
 import app.zhinong.database.DatabaseTime;
+import app.zhinong.business.FarmClock;
 import java.math.BigDecimal;
 import java.time.*;
 import java.util.*;
@@ -18,11 +19,13 @@ public class DeviceAlertMonitor {
   private final JdbcTemplate db;
   private final AssetService assets;
   private final TransactionTemplate transactions;
+  private final FarmClock clock;
 
-  public DeviceAlertMonitor(JdbcTemplate db, AssetService assets, PlatformTransactionManager transactions) {
+  public DeviceAlertMonitor(JdbcTemplate db, AssetService assets, PlatformTransactionManager transactions, FarmClock clock) {
     this.db = db;
     this.assets = assets;
     this.transactions = new TransactionTemplate(transactions);
+    this.clock = clock;
   }
 
   public static long thresholdSeconds(int intervalSeconds) {
@@ -66,7 +69,7 @@ public class DeviceAlertMonitor {
       """, tenant, id);
     if (rows.isEmpty()) return;
     var profile = rows.getFirst();
-    var now = OffsetDateTime.now(ZoneOffset.UTC);
+    var now = clock.now();
     if (!"ACTIVE".equals(profile.get("LIFECYCLE")) || "MANUAL".equals(profile.get("PROTOCOL")) || profile.get("ARCHIVED_FARM") != null) {
       resolve(tenant, id, "OFFLINE", "设备已退出自动监测范围（维护、停用、手工录入或农场归档）", now);
       resolve(tenant, id, "DATA_STALE", "设备已退出自动监测范围（维护、停用、手工录入或农场归档）", now);
@@ -99,9 +102,10 @@ public class DeviceAlertMonitor {
     for (var channel : assets.channels(tenant, id)) {
       String metric = channel.get("metric").toString();
       var latest = assets.latest(tenant, id, metric);
+      var quality=AssetService.quality(latest,metric,profile.get("PROTOCOL").toString(),profile.get("LIFECYCLE").toString(),((Number)profile.get("INTERVAL_SECONDS")).intValue(),now.toInstant());
       long age = latest == null ? Math.max(0, Duration.between(baseline.toInstant(), now.toInstant()).getSeconds())
-        : Math.max(0, Duration.between(DatabaseTime.offset(latest.get("time")).toInstant(), now.toInstant()).getSeconds());
-      if (age >= threshold || latest != null && !profile.get("PROTOCOL").equals(latest.get("source"))) {
+        : Math.max(0, quality.ageSeconds());
+      if (latest == null ? age>=threshold : !quality.fresh()) {
         stale.add(MetricCatalog.get(metric).name());
         worstAge = Math.max(worstAge, age);
       }
@@ -109,7 +113,7 @@ public class DeviceAlertMonitor {
     if (!stale.isEmpty()) {
       String names = String.join("、", stale);
       if (names.length() > 150) names = names.substring(0, 150) + "等";
-      upsert(tenant, id, "DATA_STALE", worstAge, "设备仍在上报，但以下通道缺测、过期或来源不匹配：" + names, now);
+      upsert(tenant, id, "DATA_STALE", worstAge, "设备仍在上报，但以下通道缺测、过期、时间或数值异常、来源不匹配：" + names, now);
     } else resolve(tenant, id, "DATA_STALE", "所有已配置通道均已恢复当前接入方式的新鲜采样", now);
   }
 

@@ -293,9 +293,10 @@ class WorkspaceIntegrationTest {
     db.update(insert, UUID.randomUUID().toString(), tenant, otherDevice, "SOIL_MOISTURE", 90, now.minusSeconds(30), now);
     var report = data(request(a, "GET", "/farms/" + farm + "/operations?hours=24", null), 200);
     assertEquals(3, report.at("/summary/activeDevices").asInt());
-    assertEquals(1, report.at("/summary/freshDevices").asInt());
+    assertEquals(0, report.at("/summary/freshDevices").asInt(), "the latest future-dated sample blocks a current-health claim while valid historical samples remain charted");
+    assertEquals(0, report.at("/summary/currentHealth").asInt());
     assertEquals(1, report.at("/summary/silentDevices").asInt());
-    for (int i = 0; i < 99; i++) assertTrue(report.path("slices").get(i).path("moisture").isNull());
+    for (int i = 0; i < 99; i++) assertTrue(report.path("slices").get(i).path("moisture").isNull(),"unexpected moisture at slice "+i+": "+report.path("slices").get(i)+"; fixture now="+now+"; window="+report.path("window"));
     assertEquals(30.0, report.at("/slices/99/moisture").asDouble(), "another farm in the same tenant must not alter the mean");
     assertEquals(2, report.at("/slices/99/observed").asInt(), "history preceding the window still distinguishes old from unseen devices");
     assertEquals(50, report.at("/slices/99/health").asInt());

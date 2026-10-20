@@ -1455,6 +1455,8 @@
   }
   .farm-display .display-view-bar nav {
     width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .farm-display .display-view-bar nav button {
     flex: 1;
@@ -1714,64 +1716,6 @@
   .farm-display .display-stage .display-footer {
     padding: 10px 0;
   }
-  .farm-display .display-agronomy-stage .display-agronomy-intro,
-  .farm-display .display-agronomy-stage .display-metrics {
-    flex: 0 0 auto;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-intro {
-    margin: 3px 0 14px;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-intro h2 {
-    font-size: 22px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics {
-    margin-bottom: 14px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics article {
-    padding: 14px 20px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics strong {
-    font-size: 36px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics article > p {
-    margin: 8px 0 3px;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-grid {
-    flex: 1 1 0;
-    min-height: 0;
-    grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-grid > section {
-    min-height: 0;
-  }
-  .farm-display .display-agronomy-stage .display-condition-panel,
-  .farm-display .display-agronomy-stage .display-recommendations {
-    overflow: auto;
-  }
-  .farm-display .display-agronomy-stage .display-trend-large {
-    display: flex;
-    flex-direction: column;
-  }
-  .farm-display .display-agronomy-stage .display-trend-large .data-chart {
-    flex: 1 1 0;
-    min-height: 0;
-    height: auto;
-  }
-  .farm-display
-    .display-agronomy-stage
-    .display-trend-large
-    > .display-section-heading,
-  .farm-display
-    .display-agronomy-stage
-    .display-trend-large
-    > .display-source-note,
-  .farm-display .display-agronomy-stage .display-trend-large > button {
-    flex: 0 0 auto;
-  }
-  .farm-display .display-agronomy-stage .display-trend-large > button {
-    align-self: flex-start;
-    margin-top: 8px;
-  }
 }
 @media (min-width: 1121px) and (max-height: 850px) {
   .farm-display
@@ -1821,58 +1765,6 @@
   }
   .farm-display .display-stage .display-footer {
     padding-block: 8px;
-    font-size: 10px;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-intro {
-    margin: 2px 0 10px;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-intro h2 {
-    font-size: 19px;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-intro p {
-    margin-top: 4px;
-    font-size: 12px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics {
-    margin-bottom: 10px;
-    gap: 12px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics article {
-    padding: 10px 16px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics strong {
-    font-size: 30px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics article > p {
-    margin: 4px 0 1px;
-  }
-  .farm-display .display-agronomy-stage .display-metrics small {
-    font-size: 11px;
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-grid {
-    gap: 12px;
-    grid-template-rows: minmax(0, 1.3fr) minmax(0, 1fr);
-  }
-  .farm-display .display-agronomy-stage .display-agronomy-grid > section {
-    padding: 12px 16px;
-  }
-  .farm-display .display-agronomy-stage .display-section-heading h2 {
-    font-size: 15px;
-  }
-  .farm-display .display-agronomy-stage .display-section-heading p {
-    margin-top: 3px;
-    font-size: 11px;
-  }
-  .farm-display .display-agronomy-stage .display-conditions article {
-    padding: 9px 0;
-  }
-  .farm-display .display-agronomy-stage .display-conditions {
-    gap: 6px 20px;
-  }
-  .farm-display
-    .display-agronomy-stage
-    .display-trend-large
-    > .display-source-note {
     font-size: 10px;
   }
 }

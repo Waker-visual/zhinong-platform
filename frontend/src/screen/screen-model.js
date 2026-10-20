@@ -1,22 +1,83 @@
 import { assetPlanPoint } from "../workspace/coordinates.js";
-
-export function numeric(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === "" ||
-    typeof value === "boolean"
-  )
-    return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
+import { numeric } from "../metrics/measurement-model.js";
+export { numeric, deviceCounts } from "../metrics/measurement-model.js";
 
 export function numberText(value, digits = 1) {
   const number = numeric(value);
   return number === null
     ? "—"
     : number.toLocaleString("zh-CN", { maximumFractionDigits: digits });
+}
+
+const forecastStates = new Set(["READY", "STALE", "UNAVAILABLE", "UNCONFIGURED", "DISABLED"]);
+export function forecastPresentation(data, resource = {}, now = Date.now()) {
+  let status = data?.status;
+  if (!forecastStates.has(status)) status = resource.loading ? "LOADING" : "UNAVAILABLE";
+  if (data && data.dataKind !== "PUBLIC_FORECAST") status = "UNAVAILABLE";
+  const dates = new Set();
+  const days = ["READY", "STALE"].includes(status)
+    ? (data?.days || []).filter(day => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day.date || "")) return false;
+      const at = Date.parse(day.date + "T00:00:00Z");
+      if (!Number.isFinite(at) || new Date(at).toISOString().slice(0, 10) !== day.date || dates.has(day.date)) return false;
+      dates.add(day.date);
+      return true;
+    }).sort((a,b) => a.date.localeCompare(b.date)).slice(0, 7)
+    : [];
+  const expiry = Date.parse(data?.expiresAt);
+  let today;
+  try { today = new Intl.DateTimeFormat("sv-SE", {timeZone:data?.timeZone || "Asia/Shanghai"}).format(new Date(now)); }
+  catch { today = new Date(now).toISOString().slice(0,10); }
+  const expired = status === "STALE" || (Number.isFinite(expiry) && now >= expiry) || (!!days[0] && days[0].date < today);
+  if (status === "READY" && (resource.error || expired)) status = "STALE";
+  if (["READY", "STALE"].includes(status) && !days.length) status = "UNAVAILABLE";
+  return {
+    status, days, expired,
+    label: status === "STALE" && resource.error && !expired ? "更新失败，保留旧预报" : { READY: "预报已更新", STALE: "预报已过期", UNAVAILABLE: "天气服务暂不可用", UNCONFIGURED: "参考位置待配置", DISABLED: "天气服务未启用", LOADING: "正在读取预报" }[status],
+  };
+}
+
+export function forecastWeatherType(code) {
+  const value = numeric(code);
+  if (value === null) return "unknown";
+  if (value === 0) return "sun";
+  if ([1, 2, 3].includes(value)) return "cloud";
+  if ([45, 48].includes(value)) return "fog";
+  if ([71, 73, 75, 77, 85, 86].includes(value)) return "snow";
+  if ([95, 96, 99].includes(value)) return "storm";
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(value)) return "rain";
+  return "unknown";
+}
+
+export const riskSources = { WEATHER: "天气风险", DEVICE: "设备预警", FIELD: "现场问题", DATA_QUALITY: "数据缺口" };
+export const riskSeverities = { HIGH: "优先处理", WARNING: "需要跟进", INFO: "参考信息" };
+const riskRank = { HIGH: 0, WARNING: 1, INFO: 2 };
+export function riskCoversDate(item, date) {
+  if (!date) return true;
+  if (Array.isArray(item.affectedDates)) return item.affectedDates.includes(date);
+  return !!item.affectedDate && item.affectedDate <= date && (item.endDate || item.affectedDate) >= date;
+}
+export function riskForecastFreshness(data, now = Date.now()) {
+  const expiry = Date.parse(data?.forecastExpiresAt);
+  return data?.forecastStatus === "READY" && Number.isFinite(expiry) && now >= expiry ? "STALE" : data?.forecastStatus || "UNAVAILABLE";
+}
+export function prioritizedRisks(data, { source = "ALL", highOnly = false, date = "" } = {}) {
+  const seen = new Set();
+  return (data?.items || []).filter(item => {
+    const key = `${item.source}:${item.id}`;
+    if (!item.id || seen.has(key)) return false;
+    seen.add(key);
+    return (source === "ALL" || item.source === source) && (!highOnly || item.severity === "HIGH") && (!date || (item.source === "WEATHER" && riskCoversDate(item, date)));
+  }).sort((a,b) => (riskRank[a.severity] ?? 2) - (riskRank[b.severity] ?? 2) || String(a.affectedDate || "9999").localeCompare(String(b.affectedDate || "9999")));
+}
+
+export function weatherRisksOnDate(data, date) {
+  return prioritizedRisks(data, { source: "WEATHER", date });
+}
+
+export function publicWebUrl(value) {
+  try { const url = new URL(value); return ["https:", "http:"].includes(url.protocol) ? url.href : null; }
+  catch { return null; }
 }
 
 export function canReadFarm(role, farmId, farms) {
@@ -43,7 +104,7 @@ function recent(value, seconds, now) {
   return (
     !!value &&
     Number.isFinite(time) &&
-    time <= now + 60000 &&
+    time <= now &&
     time > now - seconds * 1000
   );
 }
@@ -52,12 +113,11 @@ function recent(value, seconds, now) {
 export function metricSummary(sensors, metric, now = Date.now()) {
   const rows = (sensors || []).filter((sensor) => sensor.metric === metric);
   const fresh = rows.filter((sensor) => {
-    const seconds = Math.min(numeric(sensor.freshnessSeconds) ?? 900, 900);
+    const seconds = numeric(sensor.freshnessSeconds) ?? 180;
     return (
       sensor.fresh === true &&
       numeric(sensor.value) !== null &&
-      recent(sensor.time, seconds, now) &&
-      recent(sensor.lastReceivedAt || sensor.readingReceivedAt, seconds, now)
+      recent(sensor.time, seconds, now)
     );
   });
   const values = fresh.map((sensor) => numeric(sensor.value));
@@ -71,33 +131,10 @@ export function metricSummary(sensors, metric, now = Date.now()) {
     min: values.length ? Math.min(...values) : null,
     max: values.length ? Math.max(...values) : null,
     fresh: values.length,
-    observed: rows.length,
-    stale: rows.length - fresh.length,
+    observed: rows.filter(sensor => numeric(sensor.value) !== null).length,
+    stale: rows.filter(sensor => numeric(sensor.value) !== null).length - fresh.length,
     latest: timestamps.sort((a, b) => new Date(b) - new Date(a))[0] || null,
-    state: values.length ? "FRESH" : rows.length ? "STALE" : "NO_DATA",
-  };
-}
-
-export function deviceCounts(devices, now = Date.now()) {
-  if (!Array.isArray(devices))
-    return { total: null, monitored: null, fresh: null, late: null };
-  const monitored = devices.filter(
-    (device) => device.lifecycle === "ACTIVE" && device.protocol !== "MANUAL",
-  );
-  const fresh = monitored.filter(
-    (device) =>
-      device.connectionState === "FRESH" &&
-      recent(
-        device.lastReceivedAt,
-        Math.max(180, (numeric(device.intervalSeconds) ?? 60) * 3),
-        now,
-      ),
-  ).length;
-  return {
-    total: devices.length,
-    monitored: monitored.length,
-    fresh,
-    late: monitored.length - fresh,
+    state: values.length ? "FRESH" : rows.some(sensor => numeric(sensor.value) !== null) ? "STALE" : "NO_DATA",
   };
 }
 

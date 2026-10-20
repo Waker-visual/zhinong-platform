@@ -4,6 +4,7 @@ import { api } from '../api';
 import { confirmAction } from '../ui/confirm';
 import { irrigationApproveConfirm } from './agent-events.js';
 import IrrigationMapPreview from './IrrigationMapPreview.vue';
+import { numeric } from '../metrics/measurement-model.js';
 const props=defineProps({farmId:String,role:String,data:Object,highlightedRunId:String});
 const emit=defineEmits(['updated','farm']);
 let alive=true;onUnmounted(()=>{alive=false;});
@@ -82,7 +83,7 @@ async function stopJob(job){await perform(async farm=>{await api(`/farms/${farm}
         <h4>{{p.name}} <span class="muted">· {{p.activeCrops?.join('、')||p.crop}}</span></h4>
         <p>{{zonesFor(p.id).length}} 个地图覆盖区 · {{sensorsFor(p.id).length}} 个土壤测点</p>
         <div class="ai-zone-chips"><button v-for="z in zonesFor(p.id)" :key="z.id" :aria-pressed="zoneId===z.id" @click="zoneId=z.id">{{z.name.replace(' 灌溉分区','')}}</button></div>
-        <p v-for="d in sensorsFor(p.id)" :key="d.id">{{d.name}}<br><strong>{{d.soilMoisture?Number(d.soilMoisture.value).toFixed(1)+'%':'无读数'}}</strong> · {{d.moistureFresh?'读数有效':'读数缺失或过期'}}<small>{{time(d.soilMoisture?.time)}}</small></p>
+        <p v-for="d in sensorsFor(p.id)" :key="d.id">{{d.name}}<br><strong>{{numeric(d.soilMoisture?.value)!=null?numeric(d.soilMoisture.value).toFixed(1)+'%':'无读数'}}</strong> · {{d.moistureFresh?'指标有效':'读数缺失或过期'}}<small>{{time(d.soilMoisture?.time)}}<template v-if="d.moistureFresh && d.controlMoistureFresh === false"> · 超过控制所需的15分钟，请补充观测</template></small></p>
         <template v-if="policyFor(p.id)"><p>{{policyFor(p.id).mode==='AUTO'?'自动模拟模式':'人工确认模式'}} · 阈值 {{policyFor(p.id).thresholdValue}}% · {{policyFor(p.id).durationSeconds}} 秒</p><small>作用范围：{{zones.find(z=>z.id===policyFor(p.id).zoneId)?.name||'旧策略未绑定地图覆盖区'}}</small></template>
         <p v-else>AI 策略待配置；设备与地图数据已接入。</p>
         <p class="ai-water-diagnosis">{{p.diagnosis}}</p>

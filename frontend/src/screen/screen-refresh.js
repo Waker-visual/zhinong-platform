@@ -21,6 +21,8 @@ export const screenResources = [
   },
   { key: "geo", label: "地图定位", path: (id) => `/farms/${id}/map-config` },
   { key: "spatial", label: "田块边界", path: (id) => `/farms/${id}/field-map` },
+  { key: "forecast", label: "天气预报", path: (id) => `/farms/${id}/weather-forecast` },
+  { key: "risks", label: "综合预警", path: (id) => `/farms/${id}/risk-overview` },
 ];
 
 const emptyResource = () => ({
@@ -65,7 +67,7 @@ export function createScreenRefresh({ request, onUpdate, now = Date.now }) {
     );
     publish();
   }
-  function refresh(farmId, { onlyFailed = false, liveOnly = false } = {}) {
+  function refresh(farmId, { onlyFailed = false, liveOnly = false, keys = null } = {}) {
     if (disposed) return Promise.resolve();
     if (!farmId) {
       reset();
@@ -75,8 +77,9 @@ export function createScreenRefresh({ request, onUpdate, now = Date.now }) {
     if (active) return active.promise;
     const selected = screenResources.filter(
       ({ key }) =>
+        (!keys || keys.includes(key)) &&
         (!onlyFailed || resources[key].error) &&
-        (!liveOnly || ["workspace", "spatial"].includes(key)),
+        (!liveOnly || ["workspace", "spatial", "risks"].includes(key)),
     );
     if (!selected.length) return Promise.resolve();
     const controller = new AbortController(),

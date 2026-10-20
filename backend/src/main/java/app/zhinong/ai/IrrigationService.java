@@ -40,7 +40,8 @@ public class IrrigationService {
       String id=d.get("ID").toString();var detail=assets.detail(id);
       d.put("freshness",detail.get("freshness"));d.put("alertCount",detail.get("alertCount"));
       d.put("soilMoisture",assets.latest(tenant,id,"SOIL_MOISTURE"));
-      d.put("moistureFresh",fresh(assets.latest(tenant,id,"SOIL_MOISTURE")));
+      d.put("moistureFresh",fresh(assets.latest(tenant,id,"SOIL_MOISTURE"),"SOIL_MOISTURE",detail,false));
+      d.put("controlMoistureFresh",fresh(assets.latest(tenant,id,"SOIL_MOISTURE"),"SOIL_MOISTURE",detail,true));
       d.put("pumpRunning",assets.latest(tenant,id,"PUMP_RUNNING"));
     }
     var policies=db.queryForList("SELECT p.*,b.zone_id FROM ai_irrigation_policies p LEFT JOIN ai_irrigation_zone_bindings b ON b.tenant_id=p.tenant_id AND b.plot_id=p.plot_id WHERE p.tenant_id=? AND p.farm_id=? ORDER BY p.plot_id",tenant,farmId);
@@ -127,12 +128,12 @@ public class IrrigationService {
     if(zone!=null)validateZone(p.get("FARM_ID").toString(),plot,pumpId,zone);
     else if(db.queryForObject("SELECT COUNT(*) FROM farm_map_parcels p JOIN farm_map_zones z ON z.tenant_id=p.tenant_id AND z.parcel_id=p.id WHERE p.tenant_id=? AND p.farm_id=? AND p.plot_id=?",Integer.class,tenant,p.get("FARM_ID"),plot)>0)throw new ApiException(409,"请在策略中选择地图灌溉覆盖区，避免只启泵而未指定作用范围");
     var reading=assets.latest(tenant,sensorId,"SOIL_MOISTURE");
-    if(!fresh(reading)) throw new ApiException(409,"土壤测点超过15分钟未更新或缺少读数，暂停灌溉");
+    if(!fresh(reading,"SOIL_MOISTURE",sensor,true)) throw new ApiException(409,"土壤测点缺少符合来源、设备状态和15分钟控制窗口的有效读数，暂停灌溉");
     var moisture=new BigDecimal(reading.get("value").toString());
     if(moisture.compareTo(BigDecimal.ZERO)<0 || moisture.compareTo(BigDecimal.valueOf(100))>0 || moisture.compareTo(new BigDecimal(p.get("THRESHOLD_VALUE").toString()))>=0) throw new ApiException(409,"土壤水分未低于启灌阈值，无需启动");
     for(String metric:List.of("REMOTE_ENABLED","FAULT","PUMP_RUNNING")) {
       var latest=assets.latest(tenant,pumpId,metric);
-      if(!fresh(latest) || new BigDecimal(latest.get("value").toString()).compareTo(BigDecimal.valueOf(metric.equals("REMOTE_ENABLED")?1:0))!=0) throw new ApiException(409,"水泵必须处于新鲜反馈的远程、无故障、停机状态");
+      if(!fresh(latest,metric,pump,true) || new BigDecimal(latest.get("value").toString()).compareTo(BigDecimal.valueOf(metric.equals("REMOTE_ENABLED")?1:0))!=0) throw new ApiException(409,"水泵必须处于新鲜反馈的远程、无故障、停机状态");
     }
     if(db.queryForObject("SELECT COUNT(*) FROM field_issues WHERE tenant_id=? AND plot_id=? AND severity='HIGH' AND status<>'RESOLVED'",Long.class,tenant,plot)>0) throw new ApiException(409,"地块有高严重度问题，请先排查");
     if(db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND pump_id=? AND (status='RUNNING' OR started_at>?)",Long.class,tenant,pumpId,now.minusMinutes(number(p,"COOLDOWN_MINUTES")))>0) throw new ApiException(409,"水泵正在运行或仍在灌溉冷却期");
@@ -143,7 +144,11 @@ public class IrrigationService {
     if(aiCount+mapCount>=number(p,"DAILY_LIMIT")) throw new ApiException(409,"已达到此水泵今日灌溉次数上限（含地图人工灌溉）");
     return moisture;
   }
-  private boolean fresh(Map<String,Object> r) {if(r==null) return false;var t=DatabaseTime.offset(r.get("time")).toInstant();var now=clock.instant();return t.isAfter(now.minusSeconds(900)) && !t.isAfter(now.plusSeconds(60));}
+  private boolean fresh(Map<String,Object> r,String metric,Map<String,Object> asset,boolean control) {
+    if(!(asset.get("channels") instanceof List<?> channels) || channels.stream().noneMatch(c -> c instanceof Map<?,?> channel && metric.equals(channel.get("metric"))))return false;
+    if(!AssetService.quality(r,metric,asset.get("protocol").toString(),asset.get("lifecycle").toString(),((Number)asset.get("intervalSeconds")).intValue(),clock.instant()).fresh())return false;
+    return !control || DatabaseTime.instant(r.get("time")).isAfter(clock.instant().minusSeconds(900));
+  }
   public Map<String,Object> propose(String plot,boolean automatic) {
     Identity.require("ADMIN","OPERATOR");var p=policy(plot);lockTenant();store.lock("devices",p.get("PUMP_ID").toString());
     var moisture=eligible(p);String tenant=Identity.tenant();

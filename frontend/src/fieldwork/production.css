@@ -1,0 +1,36 @@
+.production-form-note {
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 12px 0;
+}
+.production-history {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0;
+}
+.production-history li {
+  border-left: 2px solid var(--border-strong);
+  padding: 0 0 20px 16px;
+}
+.production-history h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+}
+.production-history h3 small {
+  margin-left: 8px;
+  font-weight: 400;
+}
+.production-history p {
+  font-size: 13px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.production-history small {
+  color: var(--text-2);
+  font-size: 12px;
+}
+.badge.void {
+  color: var(--text-2);
+  background: var(--neutral-bg);
+}

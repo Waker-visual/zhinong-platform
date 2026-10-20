@@ -66,6 +66,10 @@ const openIssues = computed(() =>
 );
 const overdue = (t) =>
   ["PENDING", "RUNNING"].includes(t.status) && t.dueDate < data.value.today;
+const priorityTask = computed(() => [...myPending.value].sort((a, b) =>
+  Number(overdue(b)) - Number(overdue(a)) ||
+  Number(Boolean(b.blockedReason)) - Number(Boolean(a.blockedReason)) ||
+  a.dueDate.localeCompare(b.dueDate))[0]);
 // 任务状态的语义色，与徽章文字一一对应：逾期红色，受阻橙色，执行中蓝色，其余中性。
 // 既逾期又受阻时按逾期处理，农场主先看到已经超期的事项。
 function statusTone(t) {
@@ -207,13 +211,14 @@ watch(
   () => [props.farmId, props.revision],
   ([farm], previous) => {
     if (!previous || farm !== previous[0])
-      data.value = { tasks: [], issues: [], crew: [], today: "" };
+      { data.value = { tasks: [], issues: [], crew: [], today: "" }; research.value = null; }
     load();
   },
   { immediate: true },
 );
 // 首次读取（还没有服务器日期）时显示骨架屏，而不是 0 或“暂无”
 const firstLoad = computed(() => loading.value && !data.value.today);
+const dataReady = computed(() => !!data.value.today);
 onBeforeUnmount(() => {
   alive = false;
   ++seq;
@@ -361,17 +366,9 @@ async function history(row) {
   <div class="daily-farm" :aria-busy="loading">
     <section class="daily-hero">
       <div>
-        <p class="eyebrow">
-          {{
-            identity.role === "OPERATOR"
-              ? "田间作业"
-              : identity.role === "VIEWER"
-                ? "经营查看"
-                : "日常经营"
-          }}
-        </p>
         <h2>{{ farm?.name || "从你的第一座农场开始" }}</h2>
-        <p>
+        <button v-if="priorityTask && canWork(priorityTask)" class="daily-priority-link" :disabled="loading" @click="open('progress', priorityTask, priorityTask.status === 'PENDING' ? 'RUNNING' : 'COMPLETED')">处理优先任务：{{ priorityTask.title }}</button>
+        <p v-else>
           {{
             admin
               ? "先处理风险，再安排今天的农事。"
@@ -380,25 +377,9 @@ async function history(row) {
                 : "查看农场进展、现场问题与作业记录。"
           }}
         </p>
-        <small v-if="farm"
-          >{{ farmPlots.length }} 块田 · {{ area }} 亩 ·
-          {{ identity.displayName }}，欢迎回来</small
-        >
       </div>
+      <small v-if="farm">{{ farmPlots.length }} 块田 · {{ area }} 亩<br />{{ identity.displayName }}</small>
     </section>
-    <p v-if="farm?.operatingDemo" class="panel daily-empty">
-      经营演示场景：种植、农事、巡田与收获记录均为虚构，可实际操作并保留处理结果。
-      {{ farm.demoLive ? "模拟设备每分钟采集；每日补充巡检待办，刷新可查看最新状态。" : "持续演示已关闭，可在设备详情手动模拟采集。" }}
-    </p>
-    <details v-if="research?.available" class="panel disclosure">
-      <summary>两年学术演示 · {{ research.consistent ? "数据关联检查通过" : "有记录需要复核" }}</summary>
-      <div class="disclosure-content">
-        <p>{{ research.manifest.historyStart }} 至 {{ research.manifest.asOfDate }}，包含 {{ research.counts.farmTasks }} 项农事、{{ research.counts.production }} 条收获和 {{ research.counts.plantings }} 条种植记录。</p>
-        <p>{{ research.note }}</p>
-        <p>水稻按单季安排，冬季保留巡检与休耕；叶菜按设施栽培安排。历史监测为日快照，近 30 天为半小时采样。农场概览可选择“近两年”查看产量。</p>
-        <p v-if="!research.consistent">请核对种植周期重叠、收获与任务关联、未来日期及地块监测配置。</p>
-      </div>
-    </details>
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
     </p>
@@ -447,12 +428,12 @@ async function history(row) {
       <div :class="['daily-kpis', { 'numbers-loading': firstLoad }]">
         <article>
           <small>{{ mine ? "我的待办（含未分配）" : "农场待办" }}</small
-          ><strong>{{ myPending.length }}<span>项</span></strong>
+          ><strong>{{ dataReady ? myPending.length : '—' }}<span>项</span></strong>
           <p>待执行与执行中</p>
         </article>
         <article :class="{ 'attention danger': pending.some(overdue) }">
           <small>农场逾期任务</small
-          ><strong>{{ pending.filter(overdue).length }}<span>项</span></strong>
+          ><strong>{{ dataReady ? pending.filter(overdue).length : '—' }}<span>项</span></strong>
           <p>按农场日期 {{ data.today || "…" }}</p>
         </article>
         <article
@@ -460,18 +441,18 @@ async function history(row) {
         >
           <small>资源或现场受阻</small
           ><strong
-            >{{ pending.filter((t) => t.blockedReason).length
+            >{{ dataReady ? pending.filter((t) => t.blockedReason).length : '—'
             }}<span>项</span></strong
           >
           <p>优先协调设备与人员</p>
         </article>
         <article>
           <small>待跟进现场问题</small
-          ><strong>{{ openIssues.length }}<span>项</span></strong>
+          ><strong>{{ dataReady ? openIssues.length : '—' }}<span>项</span></strong>
           <p>处理后仍需农场主复核</p>
         </article>
       </div>
-      <details class="stat-notes disclosure">
+      <details class="stat-notes disclosure daily-data-notes">
         <summary>统计口径</summary>
         <div class="disclosure-content">
           <ul>
@@ -533,6 +514,7 @@ async function history(row) {
               <span class="skeleton skeleton-button"></span>
             </div>
           </div>
+          <p v-else-if="!dataReady" class="daily-empty">农事数据尚未读取，请重新加载后查看。</p>
           <div v-else-if="!taskList.length" class="daily-empty empty-state">
             <template v-if="search">
               <p>没有匹配“{{ search }}”的任务。</p>
@@ -623,18 +605,20 @@ async function history(row) {
           </article>
         </section>
         <aside class="daily-right">
+          <slot name="briefing" />
           <section class="panel daily-risk">
             <div class="daily-section-title">
               <div>
                 <h3>现场问题</h3>
               </div>
-              <span class="count">{{ openIssues.length }}</span>
+              <span class="count">{{ dataReady ? openIssues.length : '—' }}</span>
             </div>
             <p class="muted">上报 → 安排 → 作业回执 → 复核关闭</p>
             <div v-if="firstLoad" aria-hidden="true" class="skeleton-issues">
               <span class="skeleton" style="width: 64%"></span>
               <span class="skeleton" style="width: 88%"></span>
             </div>
+            <p v-else-if="!dataReady" class="daily-empty">现场问题数据尚未读取。</p>
             <p v-else-if="!openIssues.length" class="daily-empty">
               暂无待跟进问题。巡田发现异常时可随时上报。
             </p>
@@ -722,6 +706,21 @@ async function history(row) {
           </section>
         </aside>
       </div>
+      <details v-if="farm?.operatingDemo || farm?.telemetryLive || research?.available" class="panel disclosure daily-demo-note">
+        <summary>演示数据说明{{ research?.available ? ` · ${research.consistent ? '数据关联检查通过' : '有记录需要复核'}` : '' }}</summary>
+        <div class="disclosure-content">
+          <p v-if="farm?.operatingDemo">种植、农事、巡田与收获记录均为虚构，可操作并保留处理结果。</p>
+          <p v-if="farm?.demoLive">模拟设备持续采集；每日补充巡检待办。</p>
+          <p v-else-if="farm?.telemetryLive">演示遥测实时更新，约每分钟追加当前读数；不补历史、不新增经营待办。</p>
+          <p v-else-if="farm?.operatingDemo">自动模拟采集已关闭，可在设备详情手动模拟采集。</p>
+          <template v-if="research?.available">
+            <p>{{ research.manifest.historyStart }} 至 {{ research.manifest.asOfDate }}，包含 {{ research.counts.farmTasks }} 项农事、{{ research.counts.production }} 条收获和 {{ research.counts.plantings }} 条种植记录。</p>
+            <p>{{ research.note }}</p>
+            <p>水稻按单季安排，冬季保留巡检与休耕；叶菜按设施栽培安排。历史监测为日快照，近 30 天为半小时采样。农场概览可选择“近两年”查看产量。</p>
+            <p v-if="!research.consistent">请核对种植周期重叠、收获与任务关联、未来日期及地块监测配置。</p>
+          </template>
+        </div>
+      </details>
     </template>
     <dialog
       ref="dialogElement"

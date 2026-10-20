@@ -225,6 +225,35 @@ abstract class ResearchScenarioContract {
     assertTrue(call(token,"GET","/farms/"+id+"/research-data",null,200).path("consistent").asBoolean());
   }
 
+  @Test void ordinaryHarvestDoesNotInvalidateResearchFixtureLineage() throws Exception {
+    String token=login("demo-a","admin"),f=farm();
+    String plot=db.queryForObject("SELECT id FROM plots WHERE tenant_id=? AND farm_id=? ORDER BY id LIMIT 1",String.class,tenant(),f);
+    String id=call(token,"POST","/production",Map.of("plotId",plot,"recordDate",LocalDate.now().toString(),
+      "yieldKg",12,"note","用户登记的虚构验收收获","requestId",UUID.randomUUID().toString()),200).path("ID").asText();
+    try {
+      var report=call(token,"GET","/farms/"+f+"/research-data",null,200);
+      assertEquals(0,report.at("/checks/harvestLinkProblems").asInt(),report.toString());
+      assertTrue(report.path("consistent").asBoolean(),report.toString());
+      call(token,"POST","/production/"+id+"/void",Map.of("reason","演练结束","expectedRevision",0),200);
+      assertTrue(call(token,"GET","/farms/"+f+"/research-data",null,200).path("consistent").asBoolean());
+    } finally {
+      db.update("DELETE FROM production WHERE tenant_id=? AND id=?",tenant(),id);
+    }
+  }
+
+  @Test void historicalHarvestCropDoesNotHaveToMatchTheCurrentPlotCrop() throws Exception {
+    String token=login("demo-a","admin"),f=farm();
+    var plot=db.queryForMap("SELECT id,crop FROM plots WHERE tenant_id=? AND farm_id=? ORDER BY id LIMIT 1",tenant(),f);
+    try {
+      db.update("UPDATE plots SET crop='虚构轮作后的当前作物' WHERE tenant_id=? AND id=?",tenant(),plot.get("ID"));
+      var report=call(token,"GET","/farms/"+f+"/research-data",null,200);
+      assertEquals(0,report.at("/checks/harvestLinkProblems").asInt(),report.toString());
+      assertTrue(report.path("consistent").asBoolean(),report.toString());
+    } finally {
+      db.update("UPDATE plots SET crop=? WHERE tenant_id=? AND id=?",plot.get("CROP"),tenant(),plot.get("ID"));
+    }
+  }
+
   @Test void startupReadinessPreventsPrematureEmptyBusinessResponses() throws Exception {
     assertTrue(call(null,"GET","/health",null,200).path("ready").asBoolean());
     org.springframework.boot.availability.AvailabilityChangeEvent.publish(context,org.springframework.boot.availability.ReadinessState.REFUSING_TRAFFIC);

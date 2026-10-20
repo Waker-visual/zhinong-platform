@@ -44,10 +44,7 @@ public class FarmDecisionSupport {
       item.put("severity", "HIGH".equals(row.get("severity")) ? "优先处理" : "常规跟进");
       return item;
     }).toList();
-    long count = store.db().queryForObject("""
-      SELECT COUNT(*) FROM device_alerts a JOIN devices d ON d.tenant_id=a.tenant_id AND d.id=a.device_id
-      WHERE a.tenant_id=? AND d.farm_id=? AND a.status<>'RESOLVED'
-      """, Long.class, Identity.tenant(), farmId);
+    long count = ((Number)telemetry.alertSummary(farmId).get("activeAlerts")).longValue();
     return Map.of("activeAlertCount", count, "alerts", evidence, "displayLimit", 30,
       "truncated", count > evidence.size(),
       "notice", "告警来自规则检查。离线或过期读数不可当作当前环境；先恢复采集并现场核验，再决定生产调整。确认知晓不等于已修复。设备指令和派工均需人工确认。");
@@ -64,6 +61,7 @@ public class FarmDecisionSupport {
     result.put("byPlot", store.db().queryForList("""
       SELECT p.name AS "plotName",COUNT(*) AS "records",SUM(r.yield_kg) AS "yieldKg"
       FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
+      AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id AND x.status='VOID')
       WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<?
       GROUP BY p.id,p.name ORDER BY p.name
       """, tenant, farmId, end.minusDays(30), end));
@@ -75,6 +73,7 @@ public class FarmDecisionSupport {
     var row = store.db().queryForMap("""
       SELECT COUNT(*) AS "records",COALESCE(SUM(r.yield_kg),0) AS "yieldKg"
       FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
+      AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id AND x.status='VOID')
       WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<?
       """, tenant, farmId, start, end);
     row.put("startDate", start);

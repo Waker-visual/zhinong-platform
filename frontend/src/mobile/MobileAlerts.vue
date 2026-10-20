@@ -5,6 +5,7 @@ import { useAlertState } from "./alert-state.mjs";
 
 const props = defineProps({
   alerts: { type: Array, default: () => [] },
+  total: { type: Number, default: null },
   client: { type: Object, required: true },
   role: { type: String, default: "VIEWER" },
   initialId: { type: String, default: "" },
@@ -21,14 +22,14 @@ const { selectedId, selected, note, busy, error, canHandle, select, handle } =
       <header class="sheet-header">
         <div>
           <p class="eyebrow">FIELD ALERTS</p>
-          <h2 id="alert-sheet-title">待处理告警</h2>
+          <h2 id="alert-sheet-title">未关闭告警</h2>
         </div>
         <button class="icon-button" type="button" aria-label="关闭告警" @click="emit('close')">
           <AppIcon name="close" />
         </button>
       </header>
       <p class="muted sheet-summary">
-        {{ alerts.length ? `当前有 ${alerts.length} 条告警，先确认再安排现场处理。` : "当前没有待处理告警。" }}
+        {{ alerts.length ? `当前有 ${total ?? alerts.length} 条未关闭告警，展示最近 ${alerts.length} 条，含已确认事项。` : "当前没有未关闭告警。" }}
       </p>
       <p v-if="error" class="error" role="alert">{{ error }}</p>
       <div v-if="alerts.length" class="alert-list" aria-label="告警列表">
@@ -49,12 +50,12 @@ const { selectedId, selected, note, busy, error, canHandle, select, handle } =
             <p class="eyebrow">{{ selected.metric || "设备状态" }}</p>
             <h3>{{ selected.message || "请核对设备状态" }}</h3>
           </div>
-          <span class="tag">待处理</span>
+          <span class="tag">{{ selected.status === 'ACKNOWLEDGED' ? '已确认，待处理' : '待确认' }}</span>
         </div>
         <dl class="facts">
           <dt>设备</dt><dd>{{ selected.deviceName || "—" }}</dd>
           <dt>发生时间</dt><dd>{{ time(selected.openedAt || selected.updatedAt) }}</dd>
-          <dt>当前读数</dt><dd>{{ selected.value ?? "—" }}</dd>
+          <dt>告警发生时读数</dt><dd>{{ selected.value ?? "—" }} {{ selected.unit }}</dd>
         </dl>
         <button class="full" type="button" @click="emit('device', selected.deviceId)">查看设备状态</button>
         <template v-if="canHandle">
@@ -63,7 +64,7 @@ const { selectedId, selected, note, busy, error, canHandle, select, handle } =
             <textarea v-model="note" rows="3" maxlength="300" :disabled="busy" placeholder="例如：已通知田间人员前往查看"></textarea>
           </label>
           <div class="button-row">
-            <button type="button" :disabled="busy || locked" @click="handle('ACKNOWLEDGED')">{{ busy ? "保存中…" : "确认告警" }}</button>
+            <button v-if="selected.status === 'OPEN'" type="button" :disabled="busy || locked" @click="handle('ACKNOWLEDGED')">{{ busy ? "保存中…" : "确认告警" }}</button>
             <button class="primary" type="button" :disabled="busy || locked" @click="handle('RESOLVED')">处理完成</button>
           </div>
         </template>

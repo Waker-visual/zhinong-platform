@@ -95,6 +95,9 @@ class FarmBriefingIntegrationTest {
     var report = call(viewer, "GET", "/ai/briefings/today?farmId=" + farm, null, 200);
     assertEquals(100, report.path("metrics").path("yieldKg7d").asInt());
     assertEquals(2, report.path("metrics").path("productionRecords7d").asInt());
+    assertEquals("DAILY_SNAPSHOT",report.path("dataMode").asText());
+    assertEquals(report.path("generatedAt"),report.path("snapshotAt"));
+    assertFalse(report.path("snapshotOutdated").asBoolean());
     assertEquals(1, report.path("metrics").path("overdueTasks").asInt());
     assertTrue(report.path("dataGaps").toString().contains("利润"));
     assertTrue(report.path("dataGaps").toString().contains("天气预报"));
@@ -106,7 +109,9 @@ class FarmBriefingIntegrationTest {
     assertTrue(completed.path("aiSummary").isNull());
     // A later record does not silently rewrite an already issued daily snapshot.
     production(tenant, plot, date, 1000);
-    assertEquals(100, call(admin, "GET", "/ai/briefings/today?farmId=" + farm, null, 200).path("metrics").path("yieldKg7d").asInt());
+    var later=call(admin, "GET", "/ai/briefings/today?farmId=" + farm, null, 200);
+    assertEquals(100,later.path("metrics").path("yieldKg7d").asInt());
+    assertTrue(later.path("snapshotOutdated").asBoolean());
   }
 
   @Test void foreignTenantsAndPlatformCannotReadOrTriggerModel() throws Exception {

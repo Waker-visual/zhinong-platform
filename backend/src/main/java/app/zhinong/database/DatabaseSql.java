@@ -24,6 +24,12 @@ public class DatabaseSql {
       : "CAST(FORMATDATETIME("+column+",'yyyy-MM-dd','en','"+zone.getId()+"') AS DATE)";
   }
   public String timestamp(String expression) { return "CAST(" + expression + " AS " + (mysql ? "DATETIME(6)" : "TIMESTAMP WITH TIME ZONE") + ")"; }
+  /** Legacy observations keep UTC DATETIME fields on MySQL and server-local TIMESTAMP on H2.
+   * Project MySQL's UTC fields into the session zone before mixing them with TIMESTAMP columns;
+   * Connector/J then reconstructs their real instant using that same session zone. */
+  public String observationTime(String expression) {
+    return mysql ? "CONVERT_TZ("+expression+",'+00:00',@@session.time_zone)" : timestamp(expression);
+  }
   public String bucket(String column, boolean minute) {
     return mysql ? "CAST(DATE_FORMAT(" + column + ",'" + (minute ? "%Y-%m-%d %H:%i:00" : "%Y-%m-%d %H:00:00") + "') AS DATETIME)"
       : "DATE_TRUNC('" + (minute ? "MINUTE" : "HOUR") + "'," + column + ")";

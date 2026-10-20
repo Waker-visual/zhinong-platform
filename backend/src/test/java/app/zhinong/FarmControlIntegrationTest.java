@@ -299,6 +299,20 @@ class FarmControlIntegrationTest {
     call(admin, "POST", "/assets", invalid, 400);
   }
 
+  @Test void futureWrongSourceAndFractionalFeedbackCannotAuthorizeStartingButStoppingRemainsAvailable() throws Exception {
+    String id=device(admin,"PUMP","HTTP_PUSH"),key=key(id);interlocks(key,"PUMP");
+    String tenant=db.queryForObject("SELECT tenant_id FROM devices WHERE id=?",String.class,id);
+    var future=java.time.OffsetDateTime.now().plusSeconds(30);
+    db.update("UPDATE telemetry_readings SET measured_at=? WHERE tenant_id=? AND device_id=? AND metric='REMOTE_ENABLED'",future,tenant,id);
+    call(admin,"POST","/assets/"+id+"/commands",command("PUMP_START",null),409);
+    db.update("UPDATE telemetry_readings SET measured_at=?,source='MANUAL' WHERE tenant_id=? AND device_id=? AND metric='REMOTE_ENABLED'",future.minusSeconds(31),tenant,id);
+    call(admin,"POST","/assets/"+id+"/commands",command("PUMP_START",null),409);
+    db.update("UPDATE telemetry_readings SET source='HTTP_PUSH',measured_value=0.5 WHERE tenant_id=? AND device_id=? AND metric='REMOTE_ENABLED'",tenant,id);
+    call(admin,"POST","/assets/"+id+"/commands",command("PUMP_START",null),409);
+    assertEquals(0L,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=?",Long.class,tenant,id));
+    assertEquals("PENDING",call(admin,"POST","/assets/"+id+"/commands",command("PUMP_STOP",null),200).path("status").asText());
+  }
+
   @Test void schemaCanBeReappliedWithoutLosingDeviceData() throws Exception {
     String id = device(admin, "SOIL", "SIMULATED");
     call(admin, "POST", "/assets/" + id + "/collect", null, 200);

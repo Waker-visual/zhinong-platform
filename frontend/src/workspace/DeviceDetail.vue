@@ -8,6 +8,7 @@ import {
   watch,
 } from "vue";
 import { api } from "../api";
+import { readingState, deviceSnapshot } from "../metrics/measurement-model.js";
 import { confirmAction, promptText } from "../ui/confirm";
 import { failure, reportFailure, toast } from "../ui/feedback";
 import DataChart from "./DataChart.vue";
@@ -44,13 +45,15 @@ let alive = true,
   sequence = 0,
   refreshTimer;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
+const clock = ref(Date.now());
+const currentDevice = computed(() => device.value ? deviceSnapshot(device.value, clock.value) : null);
 const hoursOptions = [
   { value: 24, label: "近 24 小时" },
   { value: 168, label: "近 7 天" },
   { value: 720, label: "近 30 天" },
 ];
 const chart = computed(() =>
-  lineOption(history.value?.points || [], history.value?.metric?.unit || ""),
+  lineOption(history.value?.points || [], history.value?.metric?.unit || "", false, {intervalSeconds:device.value?.intervalSeconds,aggregation:history.value?.aggregation}),
 );
 const example = computed(() =>
   JSON.stringify(
@@ -68,8 +71,10 @@ const example = computed(() =>
   ),
 );
 async function refresh() {
+  clock.value = Date.now();
   const result = await api("/assets/" + props.id);
   if (!alive) return;
+  clock.value = Date.now();
   device.value = result;
   if (!metric.value) metric.value = preferredMetric(result);
   result.channels.forEach((c) => {
@@ -253,8 +258,8 @@ onBeforeUnmount(() => {
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <template v-if="device">
         <div class="detail-meta">
-          <span class="status-chip" :class="device.freshness.toLowerCase()">{{
-            stateNames[device.freshness]
+          <span class="status-chip" :class="currentDevice.freshness.toLowerCase()">{{
+            stateNames[currentDevice.freshness]
           }}</span
           ><span>{{ typeNames[device.deviceType] }}</span
           ><span>{{ sourceNames[device.protocol] }}</span
@@ -357,14 +362,16 @@ onBeforeUnmount(() => {
               }}<small>{{ c.unit }}</small></strong
             ><small
               >{{ c.latest ? sourceNames[c.latest.source] : "尚无监测数据" }} ·
-              {{ stateNames[c.freshness] }}</small
-            ><small>{{ timeText(c.latest?.time) }}</small>
+              {{ readingState(device,c,clock).reason }}</small
+            ><small>观测：{{ timeText(c.latest?.time) }}</small>
+            <small v-if="c.latest?.receivedAt">接收：{{ timeText(c.latest.receivedAt) }}</small>
+            <small v-else-if="c.latest?.receivedAtKnown === false">旧记录未保留接收时刻</small>
           </button>
         </div>
         <DeviceControl
           v-if="['GATE', 'PUMP'].includes(device.deviceType)"
           :key="device.id"
-          :device="device"
+          :device="currentDevice"
           :role="role"
           @changed="controlChanged"
         />
@@ -404,7 +411,7 @@ onBeforeUnmount(() => {
               history.sources
                 .map((s) => `${sourceNames[s.source]} ${s.count} 条`)
                 .join("、") || "无"
-            }}。滚轮或底部滑块可缩放时间范围。
+            }}。<template v-if="history.samplePolicy">{{ history.samplePolicy }}。</template>滚轮或底部滑块可缩放时间范围。
           </p>
         </section>
         <div

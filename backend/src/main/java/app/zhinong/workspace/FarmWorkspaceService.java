@@ -25,6 +25,9 @@ public class FarmWorkspaceService {
   private final ObjectMapper json;
   private final FarmClock clock;
   @Value("#{${farm.demo:false} && ${farm.demo-rich:true} && ${farm.demo-live:false}}") private boolean demoLive;
+  @Value("${farm.demo:false}") private boolean demoEnabled;
+  @Value("${farm.demo-stream.enabled:false}") private boolean demoStreamEnabled;
+  @Value("${farm.demo-stream.live-only:false}") private boolean telemetryLiveOnly;
 
   public FarmWorkspaceService(
     Store store,
@@ -59,7 +62,13 @@ public class FarmWorkspaceService {
         COALESCE(p.demo,FALSE) AS "demo",COALESCE(p.layout_revision,0) AS "layoutRevision",
         (COALESCE(p.demo,FALSE) AND EXISTS(SELECT 1 FROM demo_operating_farms r
           WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id)) AS "operatingDemo",
-        EXISTS(SELECT 1 FROM demo_research_farms r WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id) AS "researchDemo"
+        EXISTS(SELECT 1 FROM demo_research_farms r WHERE r.tenant_id=f.tenant_id AND r.farm_id=f.id) AS "researchDemo",
+        (COALESCE(p.demo,FALSE) AND EXISTS(SELECT 1 FROM devices d
+          JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+          JOIN tenants t ON t.id=d.tenant_id AND t.enabled=TRUE AND t.code IN ('demo-a','demo-b')
+          WHERE d.tenant_id=f.tenant_id AND d.farm_id=f.id AND d.adapter='SIMULATED'
+            AND a.protocol='SIMULATED' AND a.lifecycle='ACTIVE'
+            AND (a.code LIKE 'DEMO-%%' OR a.code LIKE 'POINT-%%'))) AS "telemetryDemoEligible"
       FROM farms f LEFT JOIN farm_profiles p ON p.tenant_id=f.tenant_id AND p.farm_id=f.id
       WHERE f.tenant_id=? AND %sEXISTS(SELECT 1 FROM farm_archives a WHERE a.tenant_id=f.tenant_id AND a.farm_id=f.id)
       %s ORDER BY COALESCE(p.demo,FALSE) DESC,f.name
@@ -68,7 +77,11 @@ public class FarmWorkspaceService {
     );
     for (var row : rows) {
       row.put("archived",archived);
-      row.put("demoLive", demoLive && Boolean.TRUE.equals(row.get("operatingDemo")));
+      boolean operating = flag(row.get("operatingDemo"));
+      boolean eligible = flag(row.remove("telemetryDemoEligible"));
+      row.put("demoLive", demoLive && operating);
+      boolean stream = demoStreamEnabled && (demoEnabled || telemetryLiveOnly) && (telemetryLiveOnly || !operating);
+      row.put("telemetryLive", !archived && eligible && (stream || demoLive && operating));
       Object demo = row.get("demo");
       row.put("demo", Boolean.TRUE.equals(demo) || demo instanceof Number number && number.intValue() != 0);
       String id = row.get("id").toString();
@@ -105,6 +118,10 @@ public class FarmWorkspaceService {
       );
     }
     return rows;
+  }
+
+  private static boolean flag(Object value) {
+    return Boolean.TRUE.equals(value) || value instanceof Number number && number.intValue() != 0;
   }
 
   public void restore(String farm) {
@@ -149,25 +166,19 @@ public class FarmWorkspaceService {
       .filter(f -> id.equals(f.get("id")))
       .findFirst()
       .orElseThrow(ApiException::missing);
-    return Map.of(
-      "farm",
-      farm,
-      "coordinateSystem",
-      "LOCAL_PLAN",
-      "width",
-      1000,
-      "height",
-      700,
-      "plots",
-      farm.get("plots"),
-      "devices",
-      assets.list(id),
-      "analytics",
-      analytics(id, days),
-      "alerts",
-      telemetry.savedAlerts(id, null),
-      "tasks",
-      db.queryForList(
+    var result = new LinkedHashMap<String, Object>();
+    var analytics = analytics(id, days);
+    var alerts = telemetry.savedAlerts(id, null);
+    long alertTotal = db.queryForObject("""
+      SELECT COUNT(*) FROM device_alerts a JOIN devices d ON d.tenant_id=a.tenant_id AND d.id=a.device_id
+      JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
+      WHERE a.tenant_id=? AND d.farm_id=? AND a.status<>'RESOLVED'
+      """, Long.class, Identity.tenant(), id);
+    result.put("farm", farm); result.put("coordinateSystem", "LOCAL_PLAN");
+    result.put("width", 1000); result.put("height", 700); result.put("plots", farm.get("plots"));
+    result.put("devices", assets.list(id)); result.put("analytics", analytics);
+    result.put("alerts", alerts); result.put("alertTotal", alertTotal); result.put("alertsTruncated", alertTotal > alerts.size());
+    result.put("tasks", db.queryForList(
         """
         SELECT t.id AS "id",t.title AS "title",t.status AS "status",t.task_type AS "taskType",
           t.due_date AS "dueDate",p.name AS "plotName",p.id AS "plotId"
@@ -176,8 +187,14 @@ public class FarmWorkspaceService {
         """,
         Identity.tenant(),
         id
-      )
-    );
+      ));
+    @SuppressWarnings("unchecked") var summary = (Map<String, Object>) analytics.get("summary");
+    result.put("taskTotal", summary.get("tasks"));
+    result.put("tasksTruncated", ((Number) summary.get("tasks")).longValue() > 100);
+    result.put("generatedAt", clock.now());
+    result.put("window", Map.of("fromDate", analytics.get("from"), "toDate", analytics.get("to"),
+      "days", days, "includesToday", true, "productionUnit", "kg", "taskScope", "ALL_RECORDED_TASKS"));
+    return result;
   }
 
   public Map<String, Object> analytics(String id, int days) {
@@ -206,9 +223,10 @@ public class FarmWorkspaceService {
     );
     var production = db.queryForList(
       """
-      SELECT r.record_date AS "date",SUM(r.yield_kg) AS "value" FROM production r
+      SELECT r.record_date AS "date",SUM(r.yield_kg) AS "value",COUNT(*) AS "records" FROM production r
       JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
       WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<=?
+        AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id AND x.status='VOID')
       GROUP BY r.record_date ORDER BY r.record_date
       """,
       tenant,
@@ -231,6 +249,7 @@ public class FarmWorkspaceService {
       SELECT p.name AS "name",COALESCE(SUM(r.yield_kg),0) AS "value"
       FROM plots p LEFT JOIN production r ON r.tenant_id=p.tenant_id AND r.plot_id=p.id
         AND r.record_date>=? AND r.record_date<=?
+        AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id AND x.status='VOID')
       WHERE p.tenant_id=? AND p.farm_id=? GROUP BY p.id,p.name ORDER BY SUM(r.yield_kg) DESC
       """,
       start,
@@ -253,6 +272,7 @@ public class FarmWorkspaceService {
         .map(v -> (BigDecimal) v.get("value"))
         .reduce(BigDecimal.ZERO, BigDecimal::add)
     );
+    summary.put("productionRecords", production.stream().mapToLong(v -> ((Number) v.get("records")).longValue()).sum());
     summary.put(
       "tasks",
       status
@@ -268,6 +288,12 @@ public class FarmWorkspaceService {
         .mapToLong(v -> ((Number) v.get("value")).longValue())
         .sum()
     );
+    long cancelled = status.stream().filter(v -> "CANCELLED".equals(v.get("code")))
+      .mapToLong(v -> ((Number) v.get("value")).longValue()).sum();
+    long open = status.stream().filter(v -> Set.of("PENDING", "RUNNING").contains(v.get("code")))
+      .mapToLong(v -> ((Number) v.get("value")).longValue()).sum();
+    summary.put("cancelledTasks", cancelled); summary.put("openTasks", open);
+    summary.put("completionEligibleTasks", ((Number) summary.get("tasks")).longValue() - cancelled);
     return Map.of(
       "days",
       days,
@@ -286,7 +312,10 @@ public class FarmWorkspaceService {
       "productionTrend",
       production,
       "productionByPlot",
-      productionPlots
+      productionPlots,
+      "scopes",
+      Map.of("production", "ACTIVE_REGISTERED_HARVEST_WITHIN_INCLUSIVE_DATES", "tasks", "ALL_RECORDED_TASKS",
+        "area", "CURRENT_PLOT_AREA_MU", "yield", "REGISTERED_KG_NOT_YIELD_PER_MU")
     );
   }
 

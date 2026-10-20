@@ -5,6 +5,7 @@ import { confirmAction } from "../ui/confirm";
 import { toast } from "../ui/feedback";
 import SelectMenu from "../ui/SelectMenu.vue";
 import { timeText, num, stateNames } from "./presentation";
+import { numeric } from "../metrics/measurement-model.js";
 
 const props = defineProps({ device: Object, role: String });
 const emit = defineEmits(["changed"]);
@@ -52,7 +53,7 @@ const feedback = computed(() =>
   ),
 );
 function feedbackText(channel) {
-  if (!channel.latest) return "—";
+  if (numeric(channel.latest?.value) === null) return "—";
   const flags = {
     FAULT: ["正常", "故障"],
     REMOTE_ENABLED: ["本地模式", "远程模式"],

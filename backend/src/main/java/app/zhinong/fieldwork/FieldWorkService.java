@@ -259,7 +259,7 @@ public class FieldWorkService {
         "完成时必须确认实际作业方式"
       );
       BigDecimal area = (BigDecimal) store
-        .get("plots", task.get("PLOT_ID").toString())
+        .lock("plots", task.get("PLOT_ID").toString())
         .get("AREA_MU");
       if (
         input.actualAreaMu().signum() <= 0 ||
@@ -289,9 +289,12 @@ public class FieldWorkService {
     if (next.equals("COMPLETED")) store
       .db()
       .update(
-        "UPDATE task_fieldwork SET completion_note=?,actual_area_mu=?,completed_at=CURRENT_TIMESTAMP WHERE tenant_id=? AND task_id=?",
+        "UPDATE task_fieldwork SET completion_note=?,actual_area_mu=?,completed_at=? WHERE tenant_id=? AND task_id=?",
         input.note(),
         input.actualAreaMu(),
+        // H2/MySQL store microseconds. Truncate before JDBC writes, so rounding
+        // cannot place completion a fraction of a microsecond in the future.
+        clock.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS),
         Identity.tenant(),
         id
       );

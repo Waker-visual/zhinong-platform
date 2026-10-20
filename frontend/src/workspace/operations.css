@@ -492,3 +492,15 @@
     transform: none;
   }
 }
+.ops-data-quality {
+  padding: 18px 20px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.ops-data-quality > summary { cursor: pointer; font-weight: 600; }
+.ops-quality-body { display: grid; gap: 12px; padding-top: 16px; }
+.ops-quality-body > button { justify-self: start; }
+.ops-quality-checks { margin: 0; padding-left: 20px; }
+.ops-quality-checks > li { padding: 9px 0; border-bottom: 1px solid var(--border); }
+.ops-quality-checks small { margin-left: 8px; color: var(--text-2); }
+.ops-quality-checks ul { padding-left: 18px; color: var(--text-2); overflow-wrap: anywhere; }

@@ -105,6 +105,12 @@ public final class MetricCatalog {
 
   /** Units are explicit; a numeric magnitude never implies a unit. */
   public static BigDecimal normalize(String metric, BigDecimal value, String unit) {
+    var normalized=convert(metric,value,unit);
+    validate(metric,normalized);
+    return normalized;
+  }
+
+  private static BigDecimal convert(String metric, BigDecimal value, String unit) {
     if (value == null) throw new ApiException(400, "缺测值不能当作零上报");
     String expected = get(metric).unit();
     if (unit == null || unit.equals(expected)) return value;
@@ -114,7 +120,7 @@ public final class MetricCatalog {
     if (metric.equals("FLOW") && unit.equals("L/min")) return value.multiply(new BigDecimal("0.06"));
     if (metric.startsWith("SOIL_EC") && unit.equals("mS/cm")) return value.multiply(BigDecimal.valueOf(1000));
     if (metric.startsWith("SOIL_EC") && unit.equals("μS/cm")) return value;
-    if (expected.equals("%") && unit.equals("%RH") && (metric.equals("HUMIDITY") || metric.startsWith("SOIL_MOISTURE"))) return value;
+    if (unit.equals("%RH") && metric.equals("HUMIDITY")) return value;
     if (expected.equals("℃") && unit.equals("°C")) return value;
     throw new ApiException(400, get(metric).name() + "的单位不受支持，标准单位为 " + expected);
   }
@@ -138,5 +144,13 @@ public final class MetricCatalog {
     if (discrete(metric) && value.stripTrailingZeros().scale() > 0) {
       throw new ApiException(400, spec.name() + "必须为整数");
     }
+    if (value.stripTrailingZeros().scale() > 3) throw new ApiException(400, spec.name()+"换算为标准单位后最多保留3位小数");
+  }
+
+  /** Internal SQL columns only: aggregate the same physical ranges and discrete values as ingestion. */
+  static String validSampleSql(String metricColumn,String valueColumn) {
+    return "("+METRICS.stream().map(m -> "("+metricColumn+"='"+m.code()+"' AND "+valueColumn+" BETWEEN "+
+      BigDecimal.valueOf(m.min()).toPlainString()+" AND "+BigDecimal.valueOf(m.max()).toPlainString()+
+      (discrete(m.code())?" AND "+valueColumn+"=FLOOR("+valueColumn+")":"")+")").collect(java.util.stream.Collectors.joining(" OR "))+")";
   }
 }

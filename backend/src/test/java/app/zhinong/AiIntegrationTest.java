@@ -242,6 +242,8 @@ class AiIntegrationTest {
     String pest = createDevice(plot, "PEST");
     var devices = List.of(weather, soil, pest);
     var metrics = List.of("TEMPERATURE", "HUMIDITY", "WIND_SPEED", "RAINFALL", "SOIL_MOISTURE", "PEST_COUNT");
+    var configured=Map.of(weather,Set.of("TEMPERATURE","HUMIDITY","WIND_SPEED","RAINFALL"),soil,Set.of("SOIL_MOISTURE"),pest,Set.of("TEMPERATURE","HUMIDITY","PEST_COUNT"));
+    var sentinels=Map.of("TEMPERATURE",38.0,"HUMIDITY",75.0,"WIND_SPEED",12.0,"RAINFALL",20.0,"SOIL_MOISTURE",25.0,"PEST_COUNT",105.0);
     String tenantId = tenant();
     var now = java.time.OffsetDateTime.now();
     var rnd = new Random(42);
@@ -261,18 +263,18 @@ class AiIntegrationTest {
         }
       }
     }
-    // One designated latest reading per (device,metric): fresh (<15min) for weather/soil, stale for pest,
+    // One designated latest reading per configured (device,metric): fresh for weather/soil, stale for pest,
     // so both freshness branches are exercised with a known expected value.
     for (String device : devices) {
       for (String metric : metrics) {
         boolean fresh = !device.equals(pest);
-        long secondsAgo = fresh ? 30 : 1000; // stale sentinel is still newer than every noise row (>=2000s) but older than the 900s fresh cutoff
-        double value = 900.0 + metrics.indexOf(metric);
+        long secondsAgo = fresh ? 30 : 1000; // all devices use 60-second intervals, hence a 180-second validity window
+        double value = sentinels.get(metric);
         var t = now.minusSeconds(secondsAgo);
         String suffix = UUID.randomUUID().toString().substring(1);
-        batch.add(new Object[]{"0" + suffix, tenantId, device, metric, value - 100, t, t.plusSeconds(5)});
+        batch.add(new Object[]{"0" + suffix, tenantId, device, metric, value + 1, t, t.plusSeconds(5)});
         batch.add(new Object[]{"f" + suffix, tenantId, device, metric, value, t, t});
-        expected.put(device + "|" + metric, new double[]{value, fresh ? 1 : 0});
+        if(configured.get(device).contains(metric))expected.put(device + "|" + metric, new double[]{value+1, fresh ? 1 : 0});
       }
     }
     db.batchUpdate("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')", batch);
@@ -300,7 +302,7 @@ class AiIntegrationTest {
     System.out.println("[perf] GET /ai/analysis over " + batch.size() + " seeded telemetry rows took " + httpElapsedMs + "ms");
 
     var sensors = report.path("sensors");
-    assertEquals(devices.size() * metrics.size(), sensors.size(), "expected exactly one latest row per (device,metric)");
+    assertEquals(expected.size(), sensors.size(), "only configured channels contribute, even when invalid raw rows exist for other metrics");
     var byKey = new HashMap<String, JsonNode>();
     for (var s : sensors) byKey.put(s.path("deviceId").asText() + "|" + s.path("METRIC").asText(), s);
     for (var e : expected.entrySet()) {
@@ -382,7 +384,8 @@ class AiIntegrationTest {
   }
   void reading(String device,String metric,int value,int secondsAgo) {
     db.update("DELETE FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=?",tenant(),device,metric);
-    var now=java.time.OffsetDateTime.now().minusSeconds(secondsAgo);
+    // A deliberately past fixture avoids database microsecond rounding making a zero-age value future.
+    var now=java.time.OffsetDateTime.now().minusSeconds(secondsAgo==0?1:secondsAgo).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",UUID.randomUUID().toString(),tenant(),device,metric,value,now,now);
   }
   String propose(Map<String,Object> p) throws Exception {return call(operator,"POST","/ai/irrigation/plots/"+p.get("plotId")+"/propose",null,200).path("ID").asText();}
@@ -495,6 +498,18 @@ class AiIntegrationTest {
     call(admin,"POST","/ai/irrigation/runs/"+id+"/approve",null,409);
     p.put("durationSeconds",301);call(admin,"PUT","/ai/irrigation/policy",p,400);
     assertEquals(0,db.queryForObject("SELECT COUNT(*) FROM device_commands WHERE tenant_id=? AND device_id=?",Integer.class,tenant(),p.get("pumpId")));
+  }
+
+  @Test void irrigationRejectsFutureOrWrongSourceMoistureAndFuturePumpFeedback() throws Exception {
+    var p=irrigationFixture();call(admin,"PUT","/ai/irrigation/policy",p,200);
+    String sensor=p.get("sensorId").toString(),pump=p.get("pumpId").toString(),route="/ai/irrigation/plots/"+p.get("plotId")+"/propose";
+    reading(sensor,"SOIL_MOISTURE",20,-30);call(operator,"POST",route,null,409);
+    reading(sensor,"SOIL_MOISTURE",20,1);
+    db.update("UPDATE telemetry_readings SET source='MANUAL' WHERE tenant_id=? AND device_id=? AND metric='SOIL_MOISTURE'",tenant(),sensor);
+    call(operator,"POST",route,null,409);
+    db.update("UPDATE telemetry_readings SET source='SIMULATED' WHERE tenant_id=? AND device_id=? AND metric='SOIL_MOISTURE'",tenant(),sensor);
+    reading(pump,"FAULT",0,-30);call(operator,"POST",route,null,409);
+    assertEquals(0L,db.queryForObject("SELECT COUNT(*) FROM ai_irrigation_runs WHERE tenant_id=? AND plot_id=?",Long.class,tenant(),p.get("plotId")));
   }
 
   @Test void automaticModeRunsWithoutModelAndStopsWhenOwnerDisabled() throws Exception {
@@ -1231,8 +1246,8 @@ class AiIntegrationTest {
 
     @Bean
     @Primary
-    TestAiStreamTools testAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, app.zhinong.ai.FarmDecisionSupport decisions) {
-      return new TestAiStreamTools(farmWorkspace, fieldWork, analysis, json, decisions);
+    TestAiStreamTools testAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, app.zhinong.ai.FarmDecisionSupport decisions, app.zhinong.weather.WeatherForecastService forecasts) {
+      return new TestAiStreamTools(farmWorkspace, fieldWork, analysis, json, decisions, forecasts);
     }
   }
 
@@ -1241,8 +1256,8 @@ class AiIntegrationTest {
   static class TestAiStreamTools extends AiStreamTools {
     volatile String forcedFailureTool;
 
-    TestAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, app.zhinong.ai.FarmDecisionSupport decisions) {
-      super(farmWorkspace, fieldWork, analysis, json, decisions);
+    TestAiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, app.zhinong.ai.FarmDecisionSupport decisions, app.zhinong.weather.WeatherForecastService forecasts) {
+      super(farmWorkspace, fieldWork, analysis, json, decisions, forecasts);
     }
 
     @Override

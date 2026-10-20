@@ -42,9 +42,32 @@ public final class Records {
 
   public record Production(
     @NotBlank String plotId,
-    @NotNull @PastOrPresent LocalDate recordDate,
-    @NotNull @DecimalMin("0.01") @DecimalMax("999999999") BigDecimal yieldKg,
-    @NotNull @Size(max = 500) String note
+    @NotNull LocalDate recordDate,
+    @NotNull @DecimalMin("0.01") @DecimalMax("999999999") @Digits(integer = 9, fraction = 2) BigDecimal yieldKg,
+    @NotNull @Size(max = 500) String note,
+    @Size(max = 36) String plantingId,
+    @Size(max = 36) String taskId,
+    @Pattern(regexp = "[A-Za-z0-9._:-]{1,80}") String requestId
+  ) {
+    public Production(String plotId, LocalDate recordDate, BigDecimal yieldKg, String note) {
+      this(plotId, recordDate, yieldKg, note, null, null, null);
+    }
+  }
+
+  public record ProductionCorrection(
+    @NotBlank String plotId,
+    @NotNull LocalDate recordDate,
+    @NotNull @DecimalMin("0.01") @DecimalMax("999999999") @Digits(integer = 9, fraction = 2) BigDecimal yieldKg,
+    @NotNull @Size(max = 500) String note,
+    @Size(max = 36) String plantingId,
+    @Size(max = 36) String taskId,
+    @NotBlank @Size(max = 500) String reason,
+    @NotNull @Min(0) Integer expectedRevision
+  ) {}
+
+  public record ProductionVoid(
+    @NotBlank @Size(max = 500) String reason,
+    @NotNull @Min(0) Integer expectedRevision
   ) {}
 
   public record Device(
@@ -57,8 +80,8 @@ public final class Records {
   ) {}
 
   public record Observation(
-    @NotNull BigDecimal value,
-    @NotNull @PastOrPresent LocalDateTime measuredAt
+    @NotNull @Digits(integer = 11, fraction = 3) BigDecimal value,
+    @NotNull LocalDateTime measuredAt
   ) {}
 
   public record Status(@NotBlank String status) {}

@@ -2,6 +2,9 @@ package app.zhinong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import app.zhinong.business.TenantService;
+import app.zhinong.security.AuthService;
+import app.zhinong.security.Identity;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -11,6 +14,9 @@ import org.junit.jupiter.api.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @SpringBootTest(
   webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -28,6 +34,11 @@ class TenantIsolationTest {
 
   @Autowired
   ObjectMapper json;
+
+  @Autowired TenantService tenants;
+  @Autowired AuthService auth;
+  @Autowired JdbcTemplate db;
+  @Autowired PlatformTransactionManager transactions;
 
   final HttpClient client = HttpClient.newHttpClient();
   String a, b, operator, viewer, platform;
@@ -337,7 +348,7 @@ class TenantIsolationTest {
   }
 
   @Test
-  void disabledTenantInvalidatesExistingSession() throws Exception {
+  void tenantDisablePermanentlyRevokesAllSessionsAndReenableRequiresLogin() throws Exception {
     String code = "test-" + UUID.randomUUID().toString().substring(0, 8);
     String id = data(
       request(
@@ -351,9 +362,26 @@ class TenantIsolationTest {
       .get("id")
       .asText();
     String token = login(code, "admin");
+    String secondToken = login(code, "admin");
+    data(
+      request(token, "POST", "/members", Map.of("username", "worker", "displayName", "测试成员", "password", "Test-Only-Password-429!", "role", "OPERATOR")),
+      200
+    );
+    String workerToken = login(code, "worker");
     data(request(token, "GET", "/farms", null), 200);
+    data(request(a, "PATCH", "/platform/tenants/" + id, Map.of("enabled", false)), 403);
+    data(request(token, "GET", "/auth/me", null), 200);
     data(request(platform, "PATCH", "/platform/tenants/" + id, Map.of("enabled", false)), 200);
-    data(request(token, "GET", "/farms", null), 401);
+    for (String oldToken : List.of(token, secondToken, workerToken)) data(request(oldToken, "GET", "/auth/me", null), 401);
+    data(request(null, "POST", "/auth/login", Map.of("tenantCode", code, "username", "admin", "password", "Test-Only-Password-429!")), 401);
+    data(request(a, "GET", "/auth/me", null), 200);
+    data(request(b, "GET", "/auth/me", null), 200);
+    data(request(platform, "GET", "/platform/tenants", null), 200);
+
+    data(request(platform, "PATCH", "/platform/tenants/" + id, Map.of("enabled", true)), 200);
+    for (String oldToken : List.of(token, secondToken, workerToken)) data(request(oldToken, "GET", "/auth/me", null), 401);
+    data(request(login(code, "admin"), "GET", "/farms", null), 200);
+    data(request(login(code, "worker"), "GET", "/farms", null), 200);
   }
 
   @Test
@@ -380,10 +408,64 @@ class TenantIsolationTest {
       .get("id")
       .asText();
     String token = login("demo-a", username);
+    String secondToken = login("demo-a", username);
     assertFalse(data(request(a, "GET", "/members", null), 200).toString().contains("PASSWORD"));
     data(request(b, "PATCH", "/members/" + id, Map.of("enabled", false)), 404);
+    data(request(token, "GET", "/auth/me", null), 200);
+    data(request(operator, "PATCH", "/members/" + id, Map.of("enabled", false)), 403);
     data(request(a, "PATCH", "/members/" + id, Map.of("enabled", false)), 200);
-    data(request(token, "GET", "/farms", null), 401);
+    for (String oldToken : List.of(token, secondToken)) data(request(oldToken, "GET", "/auth/me", null), 401);
+    data(request(null, "POST", "/auth/login", Map.of("tenantCode", "demo-a", "username", username, "password", "Test-Only-Password-429!")), 401);
+    data(request(a, "GET", "/auth/me", null), 200);
+    data(request(b, "GET", "/auth/me", null), 200);
+    data(request(operator, "GET", "/auth/me", null), 200);
+
+    data(request(a, "PATCH", "/members/" + id, Map.of("enabled", true)), 200);
+    for (String oldToken : List.of(token, secondToken)) data(request(oldToken, "GET", "/auth/me", null), 401);
+    data(request(login("demo-a", username), "GET", "/farms", null), 200);
+  }
+
+  @Test
+  void currentAdminAndPlatformTenantCannotBeDisabled() throws Exception {
+    String adminId = data(request(a, "GET", "/auth/me", null), 200).path("memberId").asText();
+    data(request(a, "PATCH", "/members/" + adminId, Map.of("enabled", false)), 409);
+    data(request(a, "GET", "/auth/me", null), 200);
+    String platformTenant = data(request(platform, "GET", "/auth/me", null), 200).path("tenantId").asText();
+    data(request(platform, "PATCH", "/platform/tenants/" + platformTenant, Map.of("enabled", false)), 404);
+    data(request(platform, "GET", "/platform/tenants", null), 200);
+  }
+
+  @Test
+  void revocationAndDisableRollBackTogether() throws Exception {
+    String code = "test-" + UUID.randomUUID().toString().substring(0, 8);
+    String tenantId = data(
+      request(platform, "POST", "/platform/tenants", Map.of("code", code, "name", "回滚测试租户", "adminPassword", "Test-Only-Password-429!")),
+      200
+    ).path("id").asText();
+    String token = login(code, "admin");
+    data(
+      request(token, "POST", "/members", Map.of("username", "manager", "displayName", "测试管理员", "password", "Test-Only-Password-429!", "role", "ADMIN")),
+      200
+    );
+    Identity member = auth.authenticate(token), platformActor = auth.authenticate(platform);
+    Identity manager = auth.authenticate(login(code, "manager"));
+    var transaction = new TransactionTemplate(transactions);
+    transaction.executeWithoutResult(status -> {
+      Identity.runAs(manager, () -> tenants.memberEnabled(member.memberId(), false));
+      assertEquals(0L, db.queryForObject("SELECT COUNT(*) FROM sessions WHERE member_id=?", Long.class, member.memberId()));
+      assertFalse(db.queryForObject("SELECT enabled FROM members WHERE tenant_id=? AND id=?", Boolean.class, tenantId, member.memberId()));
+      status.setRollbackOnly();
+    });
+    data(request(token, "GET", "/auth/me", null), 200);
+
+    transaction.executeWithoutResult(status -> {
+      Identity.runAs(platformActor, () -> tenants.enabled(tenantId, false));
+      assertEquals(0L, db.queryForObject("SELECT COUNT(*) FROM sessions WHERE member_id=?", Long.class, member.memberId()));
+      assertFalse(db.queryForObject("SELECT enabled FROM tenants WHERE id=?", Boolean.class, tenantId));
+      status.setRollbackOnly();
+    });
+    data(request(token, "GET", "/auth/me", null), 200);
+    data(request(login(code, "admin"), "GET", "/auth/me", null), 200);
   }
 
   @Test

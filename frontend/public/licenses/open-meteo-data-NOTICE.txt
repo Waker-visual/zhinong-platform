@@ -1,0 +1,16 @@
+Public regional forecast data: Open-Meteo
+https://open-meteo.com/
+API documentation: https://open-meteo.com/en/docs
+
+Weather data licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+https://creativecommons.org/licenses/by/4.0/
+
+Zhihe Farm converts weather codes to Chinese labels, selects seven farm-calendar
+days, keeps explicit metric units and derives separately labelled screening rules.
+These changes do not create official weather warnings or field measurements.
+The data remain attributed to Open-Meteo and its underlying model providers.
+
+Hosted free API terms are separate from the data licence:
+https://open-meteo.com/en/terms
+The free hosted API is for non-commercial evaluation/prototypes. Commercial
+deployment or additional capacity requires checking the provider's current plan.

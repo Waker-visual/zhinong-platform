@@ -3,6 +3,7 @@ package app.zhinong.workspace;
 import app.zhinong.api.ApiException;
 import app.zhinong.business.FarmClock;
 import app.zhinong.business.Store;
+import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
 import java.math.*;
 import java.nio.charset.StandardCharsets;
@@ -41,7 +42,7 @@ public class TelemetryService {
     var asset = assets.detail(id);
     active(asset, "SIMULATED");
     var values = simulatedReadings(Identity.tenant(), id);
-    write(Identity.tenant(), id, Instant.now(), values, "SIMULATED", Identity.current().username());
+    write(Identity.tenant(), id, clock.instant(), values, "SIMULATED", Identity.current().username());
     return assets.detail(id);
   }
 
@@ -65,16 +66,32 @@ public class TelemetryService {
       var latest = db.queryForList("SELECT measured_at FROM telemetry_readings" + store.sql().useIndex("ix_telemetry_device_time")
         + " WHERE tenant_id=? AND device_id=? ORDER BY tenant_id,device_id,measured_at DESC LIMIT 1",
         OffsetDateTime.class, tenant, id).stream().findFirst().orElse(null);
-      if (latest != null && latest.toInstant().isAfter(Instant.now().minusSeconds(55))) continue;
-      write(tenant, id, Instant.now(), simulatedReadings(tenant, id), "SIMULATED", "DEMO_SIMULATOR");
+      if (latest != null && latest.toInstant().isAfter(clock.instant().minusSeconds(55))) continue;
+      write(tenant, id, clock.instant(), simulatedReadings(tenant, id), "SIMULATED", "DEMO_SIMULATOR");
     }
   }
 
   private List<WorkspaceInputs.Reading> simulatedReadings(String tenant, String id) {
-    var now = Instant.now();
+    return simulatedReadings(tenant, id, Long.MAX_VALUE);
+  }
+
+  /** Indexed current-slot admission across both modern readings and legacy observations. */
+  boolean liveSlotOccupied(String tenant, String id, String metric, Instant slot) {
+    var latest = assets.latest(tenant, id, metric);
+    return latest != null && !DatabaseTime.instant(latest.get("time")).isBefore(slot);
+  }
+
+  /** Internal live-only sampler; the caller owns scope checks and the device lock. */
+  List<WorkspaceInputs.Reading> liveSimulatedReadings(String tenant, String id, long elapsedSeconds) {
+    return simulatedReadings(tenant, id, Math.max(0, Math.min(60, elapsedSeconds)));
+  }
+
+  private List<WorkspaceInputs.Reading> simulatedReadings(String tenant, String id, long maxElapsedSeconds) {
+    var now = clock.instant();
     var profile = db.queryForMap("SELECT d.farm_id,p.device_type FROM devices d JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id WHERE d.tenant_id=? AND d.id=?", tenant, id);
     var channels = assets.channels(tenant, id);
     var previous = new HashMap<String, BigDecimal>();
+    var unknownCounters = new HashSet<String>();
     Instant last = now;
     for (var channel : channels) {
       String metric = channel.get("metric").toString();
@@ -83,24 +100,28 @@ public class TelemetryService {
         previous.put(metric, (BigDecimal) prior.get("value"));
         Instant at = app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant();
         if (at.isBefore(last)) last = at;
+      } else if (prior != null && maxElapsedSeconds != Long.MAX_VALUE && Set.of("RAINFALL", "ENERGY", "WATER_TOTAL").contains(metric)) {
+        // A source mismatch is a data gap, not permission to restart a saved counter at a default value.
+        unknownCounters.add(metric);
       }
     }
     var sample = SyntheticTelemetry.sample(profile.get("DEVICE_TYPE").toString(), profile.get("FARM_ID").toString(),
-      now, clock.zone(), previous, Duration.between(last, now).getSeconds());
+      now, clock.zone(), previous, Math.min(maxElapsedSeconds, Duration.between(last, now).getSeconds()));
     var research = db.queryForList("""
       SELECT q.name FROM devices d JOIN demo_research_farms r ON r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id
       JOIN asset_profiles p ON p.tenant_id=d.tenant_id AND p.device_id=d.id
       LEFT JOIN plots q ON q.tenant_id=p.tenant_id AND q.id=p.plot_id WHERE d.tenant_id=? AND d.id=?
       """, tenant, id);
-    var clock = LocalDateTime.now();
+    var sampleClock = clock.now();
     return channels
       .stream()
+      .filter(channel -> !unknownCounters.contains(channel.get("metric").toString()))
       .map(c -> {
         var m = MetricCatalog.get(c.get("metric").toString());
         double number = sample.get(m.code()).doubleValue();
         boolean feedback = Set.of("GATE_OPENING", "PUMP_RUNNING", "STANDBY_RUNNING", "PUMP_FREQUENCY", "REMOTE_ENABLED", "FAULT", "CURRENT", "FLOW", "ENERGY", "WATER_TOTAL", "EMERGENCY_STOP", "PARAMETER_WRITE_ENABLED", "RAINFALL").contains(m.code());
-        if (!research.isEmpty() && !feedback) number = app.zhinong.bootstrap.ResearchSignals.reading(m.code(), clock.toLocalDate(),
-          clock.getHour()+clock.getMinute()/60.0, Objects.toString(research.getFirst().get("NAME"), ""));
+        if (!research.isEmpty() && !feedback) number = app.zhinong.bootstrap.ResearchSignals.reading(m.code(), sampleClock.toLocalDate(),
+          sampleClock.getHour()+sampleClock.getMinute()/60.0, Objects.toString(research.getFirst().get("NAME"), ""));
         if (MetricCatalog.discrete(m.code())) number = Math.round(number);
         return new WorkspaceInputs.Reading(
           m.code(),
@@ -189,7 +210,7 @@ public class TelemetryService {
       id,
       input.messageId(),
       payload,
-      OffsetDateTime.now(ZoneOffset.UTC)
+      clock.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS)
     );
     return Map.of("accepted", true, "duplicate", false, "count", input.readings().size());
   }
@@ -202,7 +223,8 @@ public class TelemetryService {
     String source,
     String actor
   ) {
-    if (time.isAfter(Instant.now())) throw new ApiException(400, "采集时间不能晚于当前时间");
+    if (time.isAfter(clock.instant())) throw new ApiException(400, "采集时间不能晚于当前时间");
+    time=time.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     readings = readings.stream().map(r -> new WorkspaceInputs.Reading(r.metric(),
       MetricCatalog.normalize(r.metric(), r.value(), r.unit()))).toList();
     var channels = assets.channels(tenant, id);
@@ -214,11 +236,9 @@ public class TelemetryService {
       ) throw new ApiException(400, "上报指标未在设备中配置");
       MetricCatalog.validate(r.metric(), r.value());
     }
-    var now = OffsetDateTime.now(ZoneOffset.UTC);
+    var now = clock.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     Integer interval = db.queryForObject("SELECT interval_seconds FROM asset_profiles WHERE tenant_id=? AND device_id=?", Integer.class, tenant, id);
-    boolean current = time.isAfter(now.toInstant().minusSeconds(Math.max(180, interval * 3L)));
     for (var r : readings) {
-      var prior = assets.latest(tenant, id, r.metric());
       db.update(
         """
         INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source)
@@ -233,13 +253,15 @@ public class TelemetryService {
         now,
         source
       );
-      if (current && (prior == null || !time.isBefore(app.zhinong.database.DatabaseTime.offset(prior.get("time")).toInstant()))) {
+      var latest=assets.latest(tenant,id,r.metric());
+      if (latest!=null && time.equals(DatabaseTime.instant(latest.get("time"))) &&
+          AssetService.quality(latest,r.metric(),source,"ACTIVE",interval,now.toInstant()).fresh()) {
         var channel = channels
           .stream()
           .filter(c -> r.metric().equals(c.get("metric")))
           .findFirst()
           .orElseThrow();
-        evaluateAlert(tenant, id, r, channel, now);
+        evaluateAlert(tenant, id, new WorkspaceInputs.Reading(r.metric(),new BigDecimal(latest.get("value").toString())), channel, now);
       }
     }
     db.update(
@@ -256,8 +278,28 @@ public class TelemetryService {
       actor,
       "TELEMETRY_" + source,
       id,
-      java.sql.Timestamp.from(Instant.now())
+      java.sql.Timestamp.from(now.toInstant())
     );
+  }
+
+  /** Call after writing one legacy observation in the same transaction; never writes a telemetry copy. */
+  public void legacyRecorded(String id,String metric,BigDecimal value,Instant observedAt,String source) {
+    Identity.require("ADMIN","OPERATOR");
+    if(!Set.of("MANUAL","SIMULATED").contains(source))throw new ApiException(400,"旧观测来源无效");
+    var device=store.lock("devices",id);
+    if(!metric.equals(device.get("METRIC")))throw new ApiException(400,"观测指标与设备主通道不一致");
+    active(assets.detail(id),source); MetricCatalog.validate(metric,value);
+    if(observedAt.isAfter(clock.instant()))throw new ApiException(400,"采集时间不能晚于当前时间");
+    var channels=assets.channels(Identity.tenant(),id);
+    var channel=channels.stream().filter(c -> metric.equals(c.get("metric"))).findFirst().orElseThrow(() -> new ApiException(400,"观测指标未在设备中配置"));
+    var latest=assets.latest(Identity.tenant(),id,metric);
+    int interval=db.queryForObject("SELECT interval_seconds FROM asset_profiles WHERE tenant_id=? AND device_id=?",Integer.class,Identity.tenant(),id);
+    var quality=AssetService.quality(latest,metric,source,"ACTIVE",interval,clock.instant());
+    var now=clock.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    if(quality.fresh() && latest!=null && observedAt.equals(DatabaseTime.instant(latest.get("time"))))
+      evaluateAlert(Identity.tenant(),id,new WorkspaceInputs.Reading(metric,new BigDecimal(latest.get("value").toString())),channel,now);
+    db.update("UPDATE asset_profiles SET last_received_at=? WHERE tenant_id=? AND device_id=?",now,Identity.tenant(),id);
+    monitor.checkDevice(Identity.tenant(),id);
   }
 
   static String canonical(List<WorkspaceInputs.Reading> readings) {
@@ -338,6 +380,48 @@ public class TelemetryService {
     return readAlerts(alertScope(farmId, status), farmId, status);
   }
 
+  /** Risk overview folds linked incidents into their field issue and selects urgent alarms first. */
+  @Transactional(readOnly=true)
+  public List<Map<String,Object>> riskAlerts(String farmId) {
+    return readAlerts(alertScope(farmId,null),farmId,null,true);
+  }
+
+  @Transactional(readOnly=true)
+  public Map<String,Object> riskAlertSummary(String farmId) { return alertSummary(farmId,true); }
+
+  /** Full scoped totals share the visible alert scope but never inherit the display's 200-row limit. */
+  @Transactional(readOnly = true)
+  public Map<String,Object> alertSummary(String farmId) {
+    return alertSummary(farmId,false);
+  }
+
+  private Map<String,Object> alertSummary(String farmId,boolean risk) {
+    String tenant=alertScope(farmId,null);
+    var args=new ArrayList<Object>();args.add(tenant);
+    String filter;
+    if(AssetService.blank(farmId)!=null){filter=" AND d.farm_id=?";args.add(farmId);}
+    else filter=" AND NOT EXISTS(SELECT 1 FROM farm_archives x WHERE x.tenant_id=d.tenant_id AND x.farm_id=d.farm_id)";
+    return db.queryForMap("""
+      SELECT COUNT(*) AS "activeAlerts",
+        COUNT(CASE WHEN a.metric IN ('OFFLINE','FAULT','EMERGENCY_STOP') THEN 1 END) AS "highAlerts",
+        COUNT(DISTINCT CASE WHEN a.metric='OFFLINE' THEN a.device_id END) AS "offlineDevices",
+        COUNT(DISTINCT CASE WHEN a.metric='DATA_STALE' THEN a.device_id END) AS "staleDevices"
+      FROM device_alerts a JOIN devices d ON d.tenant_id=a.tenant_id AND d.id=a.device_id
+      JOIN farms f ON f.tenant_id=d.tenant_id AND f.id=d.farm_id
+      JOIN asset_profiles p ON p.tenant_id=a.tenant_id AND p.device_id=a.device_id
+      WHERE a.tenant_id=? AND a.status<>'RESOLVED'
+      """+filter+(risk?unlinkedRiskScope():""),args.toArray());
+  }
+
+  private static String unlinkedRiskScope() {
+    return """
+      AND NOT EXISTS(SELECT 1 FROM alert_field_issues link
+        JOIN field_issues issue ON issue.tenant_id=link.tenant_id AND issue.id=link.issue_id
+        JOIN plots ip ON ip.tenant_id=issue.tenant_id AND ip.id=issue.plot_id
+        WHERE link.tenant_id=a.tenant_id AND link.alert_id=a.id AND issue.status<>'RESOLVED' AND ip.farm_id=d.farm_id)
+      """;
+  }
+
   private String alertScope(String farmId, String status) {
     String tenant = Identity.tenant();
     if (farmId != null && !farmId.isBlank()) store.get("farms", farmId);
@@ -348,6 +432,10 @@ public class TelemetryService {
   }
 
   private List<Map<String, Object>> readAlerts(String tenant, String farmId, String status) {
+    return readAlerts(tenant,farmId,status,false);
+  }
+
+  private List<Map<String,Object>> readAlerts(String tenant,String farmId,String status,boolean risk) {
     String sql = """
       SELECT a.id AS "id",a.device_id AS "deviceId",d.name AS "deviceName",d.farm_id AS "farmId",
         f.name AS "farmName",a.metric AS "metric",a.measured_value AS "value",a.message AS "message",
@@ -376,7 +464,9 @@ public class TelemetryService {
       sql += " AND a.status=?";
       args.add(status);
     }
-    var rows = db.queryForList(sql + " ORDER BY a.opened_at DESC LIMIT 200", args.toArray());
+    if(risk)sql+=unlinkedRiskScope();
+    String order=risk?"CASE WHEN a.metric IN ('OFFLINE','FAULT','EMERGENCY_STOP') THEN 0 ELSE 1 END,":"";
+    var rows = db.queryForList(sql + " ORDER BY "+order+" a.opened_at DESC,a.id LIMIT 200", args.toArray());
     rows.forEach(TelemetryService::explainAlert);
     return rows;
   }

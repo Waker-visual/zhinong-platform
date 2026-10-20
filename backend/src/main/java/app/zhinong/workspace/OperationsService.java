@@ -31,10 +31,12 @@ public class OperationsService {
 
   private final Store store;
   private final FarmClock clock;
+  private final AssetService assets;
 
-  public OperationsService(Store store, FarmClock clock) {
+  public OperationsService(Store store, FarmClock clock, AssetService assets) {
     this.store = store;
     this.clock = clock;
+    this.assets = assets;
   }
 
   /** 与设备台账“正常上报”同一口径：最近一次上报在间隔的 3 倍以内，至少 3 分钟。 */
@@ -48,8 +50,12 @@ public class OperationsService {
     String tenant = Identity.tenant();
     var db = store.db();
     // Both supported databases retain microseconds; align bucket boundaries to that precision.
-    var end = OffsetDateTime.now(ZoneOffset.UTC).truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    var end = clock.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
     var start = end.minusHours(hours);
+    // H2 TIMESTAMPDIFF compares wall-clock fields even for offset timestamps. Both
+    // operands must use UTC, including legacy rows retaining the server's offset.
+    var elapsedStart=start.withOffsetSameInstant(ZoneOffset.UTC);
+    String elapsedReading=store.sql().mysql()?"r.measured_at":"(r.measured_at AT TIME ZONE 'UTC')";
     long sliceSeconds = hours * 3600L / SLICES;
 
     var devices = db.queryForList(
@@ -62,72 +68,52 @@ public class OperationsService {
       farmId
     );
     var reports = new HashMap<String, List<Instant>>();
-    // Indexed predecessor lookup: do not scan all retained history before the window.
-    db.query(
-      """
-      SELECT d.id,(SELECT MAX(r.measured_at) FROM telemetry_readings r
-        WHERE r.tenant_id=d.tenant_id AND r.device_id=d.id AND r.measured_at<?) AS latest
-      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
-      """,
-      (RowCallbackHandler) rs -> {
-        var latest = rs.getObject(2, java.time.OffsetDateTime.class);
-        if (latest != null) reports
-          .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
-          .add(DatabaseTime.instant(latest));
-      },
-      start,
-      tenant,
-      farmId
-    );
+    var metricCodes=new HashSet<String>();MetricCatalog.METRICS.forEach(m -> metricCodes.add(m.code()));
+    // Select the canonical last correction before filtering its protocol, just as inside the window.
+    for(var reading:assets.farmReadings(tenant,farmId,metricCodes,start)) {
+      @SuppressWarnings("unchecked") var latest=(Map<String,Object>)reading.get("latest");
+      if(latest==null || !"ACTIVE".equals(reading.get("lifecycle")) || !Objects.equals(reading.get("protocol"),latest.get("source")))continue;
+      try {MetricCatalog.validate(reading.get("metric").toString(),new BigDecimal(latest.get("value").toString()));}
+      catch(ApiException | NumberFormatException invalid) {continue;}
+      var samples=reports.computeIfAbsent(reading.get("deviceId").toString(),k -> new ArrayList<>());
+      Instant at=DatabaseTime.instant(latest.get("time"));
+      if(samples.isEmpty())samples.add(at);else if(at.isAfter(samples.getFirst()))samples.set(0,at);
+    }
     // For health at a slice's closing boundary only its last sample matters. Keep
     // at most 100 timestamps per device instead of every channel's historical rows.
     // Anchor tenant + farm on devices below so H2 can start with that small indexed
     // set; the tenant-equal joins then constrain every telemetry/asset read.
-    db.query(
-      """
+    var windowHistory=assets.farmHistory(tenant,farmId,Set.of(),start,end);
+    var reportArgs=new ArrayList<Object>();reportArgs.add(elapsedStart);reportArgs.add(sliceSeconds*1_000_000L);reportArgs.addAll(windowHistory.arguments());
+    db.query(("""
       SELECT r.device_id,MAX(r.measured_at),
-        GREATEST(0,CEILING(TIMESTAMPDIFF(MICROSECOND,?,r.measured_at)/CAST(? AS DECIMAL(20,3)))-1) AS bucket
-      FROM telemetry_readings r
-      JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
-      JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE' AND r.measured_at>=? AND r.measured_at<=?
+        GREATEST(0,CEILING(TIMESTAMPDIFF(MICROSECOND,?,%s)/CAST(? AS DECIMAL(20,3)))-1) AS bucket
+      FROM (%s) r WHERE r.lifecycle='ACTIVE' AND r.source=r.protocol
       GROUP BY r.device_id,bucket ORDER BY MAX(r.measured_at)
-      """,
+      """).formatted(elapsedReading,windowHistory.sql()),
       (RowCallbackHandler) rs ->
         reports
           .computeIfAbsent(rs.getString(1), k -> new ArrayList<>())
           .add(DatabaseTime.instant(rs.getObject(2, java.time.OffsetDateTime.class))),
-      start,
-      sliceSeconds * 1_000_000L,
-      tenant,
-      farmId,
-      start,
-      end
+      reportArgs.toArray()
     );
 
     double[] moistureSum = new double[SLICES];
     long[] moistureCount = new long[SLICES];
     // Return at most 100 aggregates, rather than shipping every retained sample to Java.
-    db.query(
-      """
-      SELECT FLOOR(TIMESTAMPDIFF(SECOND,?,r.measured_at)/?) AS bucket,SUM(r.measured_value),COUNT(*) FROM telemetry_readings r
-      JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
-      WHERE d.tenant_id=? AND d.farm_id=? AND r.metric=? AND r.measured_at>=? AND r.measured_at<?
+    var moistureHistory=assets.farmHistory(tenant,farmId,Set.of(MOISTURE),start,end);
+    var moistureArgs=new ArrayList<Object>();moistureArgs.add(elapsedStart);moistureArgs.add(sliceSeconds);moistureArgs.addAll(moistureHistory.arguments());
+    db.query(("""
+      SELECT FLOOR(TIMESTAMPDIFF(SECOND,?,%s)/?) AS bucket,SUM(r.measured_value),COUNT(*) FROM (%s) r
+      WHERE r.source=r.protocol
       GROUP BY bucket
-      """,
+      """).formatted(elapsedReading,moistureHistory.sql()),
       (RowCallbackHandler) rs -> {
         int index = Math.min(SLICES - 1, Math.max(0, rs.getInt(1)));
         moistureSum[index] += rs.getBigDecimal(2).doubleValue();
         moistureCount[index] += rs.getLong(3);
       },
-      start,
-      sliceSeconds,
-      tenant,
-      farmId,
-      MOISTURE,
-      start,
-      end
+      moistureArgs.toArray()
     );
 
     var slices = new ArrayList<Map<String, Object>>();
@@ -146,8 +132,7 @@ public class OperationsService {
         cursor.put(id, i);
         if (i < 0) continue;
         observed++;
-        long silence = Duration.between(times.get(i), sliceEnd.toInstant()).getSeconds();
-        if (silence <= tolerance((Number) d.get("interval"))) onTime++;
+        if (times.get(i).isAfter(sliceEnd.toInstant().minusSeconds(tolerance((Number) d.get("interval"))))) onTime++;
       }
       Integer health = observed == 0 ? null : Math.round(onTime * 100f / observed);
       if (health != null) {
@@ -169,15 +154,14 @@ public class OperationsService {
       slices.add(slice);
     }
 
-    int fresh = 0, silent = 0;
-    for (var d : devices) {
-      var times = reports.get((String) d.get("id"));
-      if (times == null || times.isEmpty()) silent++;
-      else if (
-        Duration.between(times.getLast(), end.toInstant()).getSeconds() <=
-        tolerance((Number) d.get("interval"))
-      ) fresh++;
+    var freshIds=new HashSet<String>();var observedIds=new HashSet<String>();
+    for(var reading:assets.farmReadings(tenant,farmId,metricCodes)) {
+      if(!"ACTIVE".equals(reading.get("lifecycle")))continue;
+      @SuppressWarnings("unchecked") var latest=(Map<String,Object>)reading.get("latest");
+      String id=reading.get("deviceId").toString();if(latest!=null)observedIds.add(id);
+      if(AssetService.quality(latest,reading.get("metric").toString(),reading.get("protocol").toString(),"ACTIVE",((Number)reading.get("intervalSeconds")).intValue(),end.toInstant()).fresh())freshIds.add(id);
     }
+    int fresh=freshIds.size(),silent=devices.size()-observedIds.size();
     LocalDate today = clock.today();
     var tasks = db.queryForMap(
       """
@@ -205,6 +189,7 @@ public class OperationsService {
 
     var summary = new LinkedHashMap<String, Object>();
     summary.put("health", healthSlices == 0 ? null : Math.round((float) healthSum / healthSlices));
+    summary.put("currentHealth",devices.isEmpty()?null:Math.round(fresh*100f/devices.size()));
     summary.put("activeDevices", devices.size());
     summary.put("freshDevices", fresh);
     summary.put("silentDevices", silent);
@@ -220,13 +205,15 @@ public class OperationsService {
     pipeline.put("protection", work(tenant, farmId, "PROTECTION"));
     var harvest = db.queryForMap(
       """
-      SELECT COUNT(*) AS "records",MAX(r.record_date) AS "latest"
+      SELECT COUNT(*) AS "records",MAX(r.record_date) AS "latest",COALESCE(SUM(r.yield_kg),0) AS "yieldKg"
       FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
-      WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=?
+      WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<=?
+        AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id AND x.status='VOID')
       """,
       tenant,
       farmId,
-      today.minusDays(29)
+      today.minusDays(29),
+      today
     );
     var harvestWork = work(tenant, farmId, "HARVEST");
     pipeline.put(
@@ -236,6 +223,12 @@ public class OperationsService {
         harvest.get("records"),
         "latest",
         text(harvest.get("latest")),
+        "yieldKg",
+        harvest.get("yieldKg"),
+        "fromDate",
+        today.minusDays(29),
+        "toDate",
+        today,
         "open",
         harvestWork.get("open")
       )
@@ -291,16 +284,16 @@ public class OperationsService {
     var readings = new HashMap<String, Map<LocalDate, Map<String, double[]>>>();
     // Day cells follow the farm calendar on both engines, whatever the server or RDS session zone.
     String dayBucket = store.sql().calendarDate("r.measured_at", zone);
-    db.query(
-      """
+    var history=assets.farmHistory(tenant,farmId,Set.of(MOISTURE),first.atStartOfDay(zone).toOffsetDateTime(),clock.now());
+    db.query(("""
       SELECT a.plot_id,r.device_id,%s,MIN(r.measured_value),MAX(r.measured_value),c.lower_limit,c.upper_limit
-      FROM telemetry_readings r
+      FROM (%s) r
       JOIN devices d ON d.tenant_id=r.tenant_id AND d.id=r.device_id
       JOIN asset_profiles a ON a.tenant_id=r.tenant_id AND a.device_id=r.device_id
       LEFT JOIN device_channels c ON c.tenant_id=r.tenant_id AND c.device_id=r.device_id AND c.metric=r.metric
-      WHERE d.tenant_id=? AND d.farm_id=? AND r.metric=? AND a.plot_id IS NOT NULL AND r.measured_at>=? AND r.measured_at<?
+      WHERE a.plot_id IS NOT NULL AND r.source=r.protocol
       GROUP BY a.plot_id,r.device_id,%s,c.lower_limit,c.upper_limit
-      """.formatted(dayBucket, dayBucket),
+      """).formatted(dayBucket, history.sql(),dayBucket),
       (RowCallbackHandler) rs -> {
         LocalDate day = rs.getObject(3, LocalDate.class);
         var lower = rs.getBigDecimal(6);
@@ -318,11 +311,7 @@ public class OperationsService {
               }
           );
       },
-      tenant,
-      farmId,
-      MOISTURE,
-      first.atStartOfDay(zone).toOffsetDateTime(),
-      today.plusDays(1).atStartOfDay(zone).toOffsetDateTime()
+      history.arguments().toArray()
     );
     // 地块上配置了土壤水分指标的设备数，用来区分“没布设监测”和“有设备但没读数”
     var sensors = new HashMap<String, Integer>();

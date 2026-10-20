@@ -2,6 +2,7 @@ package app.zhinong.api;
 
 import app.zhinong.business.FarmService;
 import app.zhinong.business.Records;
+import app.zhinong.business.ProductionService;
 import jakarta.validation.Valid;
 import java.util.*;
 import org.springframework.web.bind.annotation.*;
@@ -11,9 +12,11 @@ import org.springframework.web.bind.annotation.*;
 public class FarmController {
 
   private final FarmService farms;
+  private final ProductionService production;
 
-  public FarmController(FarmService farms) {
+  public FarmController(FarmService farms, ProductionService production) {
     this.farms = farms;
+    this.production = production;
   }
 
   @GetMapping("/dashboard")
@@ -113,6 +116,21 @@ public class FarmController {
   @PostMapping("/production")
   Object production(@Valid @RequestBody Records.Production input) {
     return farms.production(input);
+  }
+
+  @PutMapping("/production/{id}")
+  Object correctProduction(@PathVariable String id, @Valid @RequestBody Records.ProductionCorrection input) {
+    return production.correct(id, input);
+  }
+
+  @PostMapping("/production/{id}/void")
+  Object voidProduction(@PathVariable String id, @Valid @RequestBody Records.ProductionVoid input) {
+    return production.voidRecord(id, input);
+  }
+
+  @GetMapping("/production/{id}/history")
+  Object productionHistory(@PathVariable String id) {
+    return production.history(id);
   }
 
   @GetMapping("/devices")

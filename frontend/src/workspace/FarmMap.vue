@@ -875,9 +875,9 @@ onBeforeUnmount(() => {
       aria-label="可缩放农场平面图"
     />
     <div class="map-legend">
-      <span><i class="fresh-dot" />正常上报</span
+      <span><i class="fresh-dot" />有有效指标</span
       ><span><i class="alert-dot" />待处理告警</span
-      ><span><i class="stale-dot" />超时未报</span
+      ><span><i class="stale-dot" />暂无有效指标</span
       ><span>{{
         geographic
           ? "WGS84 位置映射 · 卫星影像非实时视频"

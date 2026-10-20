@@ -1,5 +1,6 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from "vue";
+import { readingState, historySvg, deviceSnapshot } from "../metrics/measurement-model.js";
 import {
   canControl,
   freshness,
@@ -28,10 +29,14 @@ const selected = ref(""),
   value = ref(0),
   note = ref("手机端人工确认操作");
 const showAll = ref(false);
+const clock = ref(Date.now());
+const currentDevice = computed(() => deviceSnapshot(detail.value || props.device, clock.value));
+let clockTimer;
+onMounted(() => { clockTimer = setInterval(() => { clock.value = Date.now(); }, 15000); });
 const controls = ref(null);
 const stopAction = computed(() => actions.value.find(a => a.code === "PUMP_STOP"));
 async function stopPump() {
-  if (props.locked || loading.value || !stopAction.value || !canControl(detail.value, stopAction.value, props.role)) return;
+  if (props.locked || loading.value || !stopAction.value || !canControl(currentDevice.value, stopAction.value, props.role)) return;
   selected.value = "PUMP_STOP";
   await nextTick();
   confirm();
@@ -60,6 +65,7 @@ async function load() {
       props.client.request(route("/commands")),
     ]);
     if (version !== generation) return;
+    clock.value = Date.now();
     detail.value = asset;
     actions.value = ledger.actions;
     commands.value = ledger.commands;
@@ -95,11 +101,12 @@ watch(selected, () => {
   value.value = action.value?.min ?? 0;
 });
 onBeforeUnmount(() => {
+  clearInterval(clockTimer);
   generation++;
   historyVersion++;
 });
 function confirm() {
-  if (props.locked || loading.value || !action.value || !canControl(detail.value, action.value, props.role))
+  if (props.locked || loading.value || !action.value || !canControl(currentDevice.value, action.value, props.role))
     return;
   emit("confirm", {
     title: action.value.name,
@@ -121,22 +128,7 @@ function confirm() {
   });
 }
 const trend = computed(() => {
-  const points = (history.value?.points || []).filter(
-    (p) => p.value !== null && Number.isFinite(Number(p.value)),
-  );
-  if (points.length < 2) return "";
-  const values = points.map((p) => Number(p.value)),
-    lo = Math.min(...values),
-    hi = Math.max(...values);
-  const times = points.map((p) => new Date(p.time).getTime()),
-    start = Math.min(...times),
-    end = Math.max(...times);
-  return values
-    .map(
-      (v, i) =>
-        `${10 + (280 * (times[i] - start)) / (end - start || 1)},${85 - ((v - lo) / (hi - lo || 1)) * 65}`,
-    )
-    .join(" ");
+  return historySvg(history.value?.points, {intervalSeconds:detail.value?.intervalSeconds, aggregation:history.value?.aggregation});
 });
 </script>
 <template>
@@ -149,11 +141,11 @@ const trend = computed(() => {
         </p>
         <h2>{{ device.name }}</h2>
       </div>
-      <span class="tag">{{ freshness(detail || device) }}</span>
+      <span class="tag">{{ freshness(currentDevice) }}</span>
     </header>
     <div v-if="detail && actions.length" class="device-shortcuts">
       <button @click="controls?.scrollIntoView({ block: 'start' })">前往设备控制</button>
-      <button v-if="stopAction" class="danger-button" :disabled="locked || loading || !canControl(detail, stopAction, role)" @click="stopPump">停止水泵</button>
+      <button v-if="stopAction" class="danger-button" :disabled="locked || loading || !canControl(currentDevice, stopAction, role)" @click="stopPump">停止水泵</button>
     </div>
     <p class="error" role="alert" v-if="error">
       {{ error }} <button @click="load">重新读取</button>
@@ -185,8 +177,10 @@ const trend = computed(() => {
             >{{ number(c.latest?.value) }} <small>{{ c.unit }}</small></strong
           ><small
             >{{ time(c.latest?.time) }} ·
-            {{ c.freshness === "FRESH" ? "近期数据" : "非近期数据" }}</small
+            {{ readingState(detail, c, clock).reason }}</small
           >
+          <small v-if="c.latest?.receivedAt">接收：{{ time(c.latest.receivedAt) }}</small>
+          <small v-else-if="c.latest?.receivedAtKnown === false">旧记录未保留接收时刻</small>
         </article>
       </div>
       <button
@@ -200,6 +194,7 @@ const trend = computed(() => {
       </button>
       <article class="card" v-if="detail.channels.length">
         <h3>24 小时监测趋势</h3>
+        <p class="muted">按采样分钟汇总均值，长时间缺测处断线；累计雨量读数不能按采样点相加。</p>
         <label
           >监测指标<select v-model="metric" aria-label="监测指标">
             <option
@@ -213,11 +208,12 @@ const trend = computed(() => {
         ><svg
           class="trend"
           viewBox="0 0 300 100"
-          v-if="trend"
+          v-if="trend.points.length"
           role="img"
           aria-label="24 小时指标趋势"
         >
-          <polyline :points="trend" />
+          <polyline v-for="(segment,index) in trend.segments" :key="index" :points="segment" />
+          <circle v-for="(point,index) in trend.points" :key="`point-${index}`" :cx="point.x" :cy="point.y" r="2" fill="currentColor" />
         </svg>
         <p v-else class="muted">
           {{ history ? "暂无足够的历史数据" : "正在读取…" }}
@@ -233,6 +229,7 @@ const trend = computed(() => {
               .join("、") || "来源未标注"
           }}
         </p>
+        <p v-if="history?.samplePolicy" class="muted">{{ history.samplePolicy }}</p>
         <details v-if="history?.points.length">
           <summary>查看最近 10 条数据</summary>
           <dl
@@ -290,13 +287,13 @@ const trend = computed(() => {
               locked ||
               loading ||
               !action ||
-              !canControl(detail, action, role) ||
+              !canControl(currentDevice, action, role) ||
               !note.trim()
             "
           >
             确认操作信息
           </button>
-          <p class="muted" v-if="action && !canControl(detail, action, role)">
+          <p class="muted" v-if="action && !canControl(currentDevice, action, role)">
             当前权限、设备启用状态或反馈新鲜度不满足该操作；停止操作按设备能力单独判断。
           </p>
         </form>

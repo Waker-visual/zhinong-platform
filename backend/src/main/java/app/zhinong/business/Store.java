@@ -35,6 +35,11 @@ public class Store {
     return name;
   }
 
+  private String projection(String table) {
+    if (!"observations".equals(table) || !sql.mysql()) return "*";
+    return "id,tenant_id,device_id,measured_value,"+sql.observationTime("measured_at")+" AS measured_at,received_at,source";
+  }
+
   public List<Map<String, Object>> list(String table) {
     // Members are exposed separately with a fixed projection, never a password hash.
     if ("members".equals(table)) throw new IllegalArgumentException("Use member projection");
@@ -44,7 +49,7 @@ public class Store {
         ? "occurred_at DESC,id"
         : "id";
     return db.queryForList(
-      "SELECT * FROM " + table(table) + " WHERE tenant_id=? AND " + activeScope(table) + " ORDER BY " + order,
+      "SELECT " + projection(table) + " FROM " + table(table) + " WHERE tenant_id=? AND " + activeScope(table) + " ORDER BY " + order,
       Identity.tenant()
     );
   }
@@ -61,7 +66,7 @@ public class Store {
 
   public Map<String, Object> get(String table, String id) {
     var rows = db.queryForList(
-      "SELECT * FROM " + table(table) + " WHERE tenant_id=? AND id=?",
+      "SELECT " + projection(table) + " FROM " + table(table) + " WHERE tenant_id=? AND id=?",
       Identity.tenant(),
       id
     );
@@ -71,7 +76,7 @@ public class Store {
 
   public Map<String, Object> lock(String table, String id) {
     var rows = db.queryForList(
-      "SELECT * FROM " + table(table) + " WHERE tenant_id=? AND id=? FOR UPDATE",
+      "SELECT " + projection(table) + " FROM " + table(table) + " WHERE tenant_id=? AND id=? FOR UPDATE",
       Identity.tenant(),
       id
     );

@@ -23,6 +23,8 @@ for (const raw of input.split(';').map(s=>s.trim()).filter(Boolean)) {
 // Run before CREATE TABLE: the new activities table references the composite message key.
 // MySQL lacks ADD COLUMN/CONSTRAINT IF NOT EXISTS, so inspect only the selected schema.
 const upgrades = [
+  ['observations', 'COLUMNS', 'COLUMN_NAME', 'received_at', 'ADD COLUMN received_at TIMESTAMP(6) NULL'],
+  ['observations', 'STATISTICS', 'INDEX_NAME', 'ix_observations_latest', 'ADD INDEX ix_observations_latest(tenant_id,device_id,measured_at DESC,received_at DESC,id DESC)'],
   ['ai_conversations', 'COLUMNS', 'COLUMN_NAME', 'pinned_at', 'ADD COLUMN pinned_at TIMESTAMP(6) NULL'],
   ['ai_conversations', 'COLUMNS', 'COLUMN_NAME', 'title_source', "ADD COLUMN title_source VARCHAR(10) NOT NULL DEFAULT 'auto'"],
   ['ai_conversations', 'COLUMNS', 'COLUMN_NAME', 'surface', 'ADD COLUMN surface VARCHAR(16) NULL'],

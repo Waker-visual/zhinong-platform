@@ -15,20 +15,23 @@ import AiMessageActions from './AiMessageActions.vue';
 import AiHistoryMenu from './AiHistoryMenu.vue';
 import AppIcon from '../ui/AppIcon.vue';
 import IrrigationWorkspace from './IrrigationWorkspace.vue';
+import EvidenceDecisions from './EvidenceDecisions.vue';
 import SproutCompanion from './SproutCompanion.vue';
 import AiFollowUps from './AiFollowUps.vue';
 import { followUpContext, prepareFollowUp } from './follow-up-model.js';
 import { companionPresentation, companionTopics, prepareCompanionQuestion } from './companion-model.js';
 import { diagnosticLabels } from './diagnostics';
+import { dailyWeatherSeries, readingState } from '../metrics/measurement-model.js';
 const props = defineProps({ farmId: String, role: String, pageRefreshing: Boolean, initialQuestion: String, initialConversationId: String, companionTarget: String });
-const emit = defineEmits(['farm', 'question-prepared', 'conversation-selected']);
+const emit = defineEmits(['farm', 'question-prepared', 'conversation-selected', 'navigate']);
 const contextPrepared = ref(false);
 const report = ref(null), conversations = ref([]), messages = ref([]), selected = ref(''), question = ref('');
 const panel = ref('chat'), busy = ref(false), creating = ref(false), error = ref(''), notice = ref(''), scroller = ref(null), status = ref(null);
 const refreshing = ref(false);
 const messagesLoading = ref(false), followUpNotice = ref('');
 let messageLoadVersion = 0, messageLoadController = null;
-const refreshBlocked = computed(() => busy.value || sending.value || refreshing.value || messagesLoading.value);
+const decisionWorkspace = ref(null);
+const refreshBlocked = computed(() => busy.value || sending.value || refreshing.value || messagesLoading.value || decisionWorkspace.value?.busy || decisionWorkspace.value?.loading);
 const interactionLocked = computed(() => refreshBlocked.value || props.pageRefreshing);
 const irrigation = ref({ plots: [], devices: [], policies: [], runs: [] });
 // 运行与发送状态来自小窗共用的会话：从小窗生成中切过来时，选中同一会话即可接着看到增量。
@@ -90,7 +93,7 @@ let clockTimer = setInterval(() => { nowTick.value = Date.now(); }, 60000);
 const time = value => value ? new Date(value).toLocaleString('zh-CN',{hour12:false}) : '暂无';
 async function refresh() {
   // 首次读取不受共享会话的生成状态阻塞：从小窗生成中打开完整页时也要先拿到历史与分析。
-  if (!props.farmId || (sending.value && !initialLoading.value) || refreshing.value) return false;
+  if (!props.farmId || (sending.value && !initialLoading.value) || refreshing.value || decisionWorkspace.value?.busy || decisionWorkspace.value?.loading) return false;
   // 数据刷新不取消回答，也不清空可重试的运行；切换农场由组件卸载隔离上下文。
   refreshing.value = true; error.value = ''; notice.value = '';
   const g=++generation;
@@ -101,8 +104,10 @@ async function refresh() {
     const failed=results.find(result=>result.status==='rejected');
     if(failed) throw failed.reason;
     const [r,c,i,s]=results.map(result=>result.value);
+    nowTick.value=Date.now();
     report.value=r; conversations.value=c; irrigation.value=i; status.value=s;
     if (!selected.value && c.length) await select(c[0].id);
+    if (panel.value === 'decisions' && decisionWorkspace.value && !(await decisionWorkspace.value.refresh())) return false;
     return alive && g===generation;
   } catch(e) { if(alive && g===generation) error.value=e.message; return false; }
   finally { if(alive && g===generation) {initialLoading.value=false;refreshing.value=false;} }
@@ -283,11 +288,14 @@ async function refreshIrrigation() {
 const weatherCharts=computed(()=>[
   ['TEMPERATURE','空气温度','℃'],['HUMIDITY','空气湿度','%'],['WIND_SPEED','风速','m/s']
 ].map(([metric,label,unit])=>{
-  const rows=(report.value?.weather||[]).filter(r=>r.metric===metric);
-  const values=rows.map(r=>Number(r.average)),lo=Math.min(...values),hi=Math.max(...values),range=hi-lo||1;
-  return {metric,label,unit,rows,latest:values.at(-1),delta:values.length>1?(values.at(-1)-values[0]).toFixed(1):null,
-    points:values.map((v,i)=>`${10+i*260/Math.max(1,values.length-1)},${72-(v-lo)*50/range}`).join(' ')};
+  return {metric,label,unit,...dailyWeatherSeries(report.value?.weather,metric)};
 }));
+const sensorQuality = sensor => readingState(sensor, {
+  freshness: sensor.freshness || (sensor.fresh ? 'FRESH' : 'STALE'),
+  freshnessSeconds: sensor.freshnessSeconds,
+  reason: sensor.reason,
+  latest: sensor.value == null ? null : { value: sensor.value, time: sensor.time, source: sensor.source },
+}, nowTick.value);
 defineExpose({ refresh, refreshing, refreshBlocked, sending, openIrrigation: () => { panel.value = 'irrigation'; } , viewApproval: onViewApproval });
 watch(()=>props.farmId,refresh,{immediate:true});
 watch(()=>props.initialConversationId, async value => {
@@ -321,10 +329,10 @@ onUnmounted(()=>{alive=false;unsubscribe();if(aiSession.state.sending && !keepsR
     <div class="ai-context">
       <p><strong>{{report?.farmName || '正在读取农场'}}</strong><span>虚构学术演示数据</span></p>
       <span v-if="status===null" class="ai-model-state ai-model-state-skeleton skeleton" aria-hidden="true"></span>
-      <span v-else class="ai-model-state">{{status.llm?'云端微调模型':'规则分析模式'}}</span>
+      <span v-else class="ai-model-state">{{status.llm?'云端模型':'规则分析模式'}}</span>
     </div>
     <nav class="ai-tabs" aria-label="助手功能">
-      <button v-for="t in [['chat','农事对话'],['analysis','天气与四情'],['irrigation','灌溉管理']]" :key="t[0]" :aria-pressed="panel===t[0]" @click="panel=t[0]">{{t[1]}}</button>
+      <button v-for="t in [['chat','农事对话'],['decisions','决策闭环'],['analysis','天气与四情'],['irrigation','灌溉管理']]" :key="t[0]" :aria-pressed="panel===t[0]" @click="panel=t[0]">{{t[1]}}</button>
     </nav>
     <p v-if="error" class="error" role="alert">{{error}}</p><p v-if="notice" role="status" class="ai-notice">{{notice}}</p>
     <div v-if="panel==='chat'" class="ai-chat-layout">
@@ -398,23 +406,24 @@ onUnmounted(()=>{alive=false;unsubscribe();if(aiSession.state.sending && !keepsR
         <p class="ai-footnote"><span class="ai-composer-hint">Enter 发送 · Shift + Enter 换行。</span>生成回答和追问建议时，当前农场摘要或最近对话将交由已配置的模型服务处理。回答供农事参考，聊天不会直接控制设备。</p>
       </div>
     </div>
+    <EvidenceDecisions v-else-if="panel==='decisions'" ref="decisionWorkspace" :key="farmId" :farm-id="farmId" :role="role" @navigate="emit('navigate', $event)" />
     <div v-else-if="panel==='analysis' && initialLoading" class="ai-analysis ai-panel-skeleton" aria-hidden="true">
       <div class="ai-section-head"><span class="skeleton" style="width:220px"></span></div>
       <div class="ai-condition-grid"><article v-for="n in 4" :key="n"><span class="skeleton skeleton-block" style="height:76px"></span></article></div>
       <div class="ai-weather-grid"><article v-for="n in 3" :key="n"><span class="skeleton skeleton-block" style="height:120px"></span></article></div>
     </div>
     <div v-else-if="panel==='analysis' && report" class="ai-analysis">
-      <div class="ai-section-head"><div><h3>农情四情诊断</h3><p>更新于 {{time(report.generatedAt)}} · {{report.freshMeasurements}} 条新鲜指标读数</p></div><button @click="panel='chat';send(prompts[0])" :disabled="interactionLocked">请助手解读 →</button></div>
+      <div class="ai-section-head"><div><h3>农情四情诊断</h3><p>分析快照 {{time(report.generatedAt)}} · 当时 {{report.freshMeasurements}} 条有效指标读数</p></div><button @click="panel='chat';send(prompts[0])" :disabled="interactionLocked">请助手解读 →</button></div>
       <div class="ai-condition-grid"><article v-for="c in report.conditions" :key="c.code"><div><h3>{{c.name}}</h3><span>{{c.state}}</span></div><p>{{c.advice}}</p></article></div>
       <div v-if="report.cautions?.length" class="ai-notice"><p v-for="item in report.cautions" :key="item">{{item}}</p><small>{{report.thresholdNotice}}</small></div>
-      <p class="ai-footnote">当前待执行/进行中任务 {{report.tasks?.pending}} 项，其中逾期 {{report.tasks?.overdue}} 项。虫情近7天有 {{report.pestHistory?.length}} 天记录，可在对话中要求进一步解读。</p>
+      <p class="ai-footnote">快照内待执行/进行中任务 {{report.tasks?.pending}} 项，其中逾期 {{report.tasks?.overdue}} 项。虫情近7天有 {{report.pestHistory?.length}} 天记录。诊断与任务统计采用分析时信息；下表指标状态随时间核验，可刷新获取新快照。</p>
       <div class="ai-section-head"><div><h3>近7天气象趋势</h3><p>{{report.weatherNotice}}</p></div></div>
-      <div class="ai-weather-grid"><article v-for="w in weatherCharts" :key="w.metric"><span>{{w.label}} · 日均值</span><h3>{{w.latest ?? '—'}} <small>{{w.unit}}</small></h3><p v-if="w.delta!==null">首末日均值变化 {{Number(w.delta)>0?'+':''}}{{w.delta}} {{w.unit}}</p><p v-else>暂无足够观测数据</p><svg v-if="w.rows.length" viewBox="0 0 280 90" role="img" :aria-label="w.label+'近7天日均值趋势'"><polyline :points="w.points" fill="none" stroke="currentColor" stroke-width="2.5" /></svg><small v-if="w.rows.length">{{String(w.rows[0].date).slice(0,10)}} — {{String(w.rows.at(-1).date).slice(0,10)}}</small></article></div>
+      <div class="ai-weather-grid"><article v-for="w in weatherCharts" :key="w.metric"><span>{{w.label}} · 观测日均值</span><h3>{{w.latest ?? '—'}} <small>{{w.unit}}</small></h3><small v-if="w.latestDate">最近观测日 {{w.latestDate}}</small><p v-if="w.delta!==null">首末日均值变化 {{Number(w.delta)>0?'+':''}}{{w.delta}} {{w.unit}}</p><p v-else>暂无足够观测数据</p><svg v-if="w.rows.length" viewBox="0 0 280 90" role="img" :aria-label="w.label+'近7天日均值趋势'"><polyline v-for="(segment,index) in w.segments" :key="index" :points="segment" fill="none" stroke="currentColor" stroke-width="2.5" /><circle v-for="(point,index) in w.points" :key="`point-${index}`" :cx="point.x" :cy="point.y" r="2.5" fill="currentColor" /></svg><small v-if="w.rows.length">{{String(w.rows[0].date).slice(0,10)}} — {{String(w.rows.at(-1).date).slice(0,10)}}</small></article></div>
       <details class="disclosure"><summary>查看气象数据明细与来源</summary><div class="disclosure-content"><div class="ai-table-wrap"><table><thead><tr><th>日期</th><th>指标</th><th>均值</th><th>最小</th><th>最大</th><th>样本</th></tr></thead><tbody><tr v-for="w in report.weather" :key="w.date+w.metric"><td>{{String(w.date).slice(0,10)}}</td><td>{{({TEMPERATURE:'温度 ℃',HUMIDITY:'湿度 %',WIND_SPEED:'风速 m/s',RAINFALL:'累计雨量读数 mm'})[w.metric]}}</td><td>{{w.average}}</td><td>{{w.min}}</td><td>{{w.max}}</td><td>{{w.samples}}</td></tr></tbody></table></div><p>{{report.sources.join('；')}}</p></div></details>
       <div class="ai-section-head"><h3>当前在种作物与观测</h3></div>
       <p v-if="!report.crops.length">没有有效日期内的在种计划，无法判断当前生育阶段。</p>
       <div class="ai-crops"><article v-for="c in report.crops" :key="c.plotId+c.startDate"><h4>{{c.plotName}} · {{c.crop}}</h4><p>{{c.variety}} · {{c.areaMu}} 亩</p><small>{{c.startDate}} 至 {{c.endDate}}（计划日期）</small></article></div>
-      <div class="ai-table-wrap"><table><thead><tr><th>测点</th><th>地块</th><th>指标</th><th>最新值</th><th>状态</th><th>观测时间</th></tr></thead><tbody><tr v-for="s in report.sensors" :key="s.deviceId+s.metric"><td>{{s.deviceName}}</td><td>{{s.plotName||'农场级'}}</td><td>{{({SOIL_MOISTURE:'土壤水分 %',TEMPERATURE:'温度 ℃',HUMIDITY:'湿度 %',WIND_SPEED:'风速 m/s',RAINFALL:'累计雨量 mm',PEST_COUNT:'虫情计数'})[s.metric]}}</td><td>{{s.value}}</td><td>{{s.fresh?'新鲜':'已过期'}}</td><td>{{time(s.time)}}</td></tr></tbody></table></div>
+      <div class="ai-table-wrap"><table><thead><tr><th>测点</th><th>地块</th><th>指标</th><th>最近观测值</th><th>状态</th><th>观测时间</th></tr></thead><tbody><tr v-for="s in report.sensors" :key="s.deviceId+s.metric"><td>{{s.deviceName}}</td><td>{{s.plotName||'农场级'}}</td><td>{{({SOIL_MOISTURE:'土壤水分 %',TEMPERATURE:'温度 ℃',HUMIDITY:'湿度 %',WIND_SPEED:'风速 m/s',RAINFALL:'累计雨量 mm',PEST_COUNT:'虫情计数'})[s.metric]}}</td><td>{{s.value ?? '—'}}</td><td>{{sensorQuality(s).reason}}</td><td>{{time(s.time)}}</td></tr></tbody></table></div>
       <p class="ai-footnote">历史生产共 {{report.production.records}} 条，累计 {{report.production.yieldKg}} kg。跨年度累计不能视作单季亩产；图表及规则不代表经过验证的作物模型。</p>
     </div>
     <div v-else-if="panel==='irrigation' && initialLoading" class="ai-irrigation ai-panel-skeleton" aria-hidden="true">

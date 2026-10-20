@@ -7,6 +7,7 @@ import app.zhinong.device.DeviceAdapter;
 import app.zhinong.fieldwork.FieldWorkService;
 import app.zhinong.security.Identity;
 import app.zhinong.workspace.AssetService;
+import app.zhinong.workspace.TelemetryService;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -23,26 +24,34 @@ public class FarmService {
   private final AssetService assets;
   private final FieldWorkService fieldWork;
   private final FarmClock clock;
+  private final ProductionService production;
+  private final TelemetryService telemetry;
 
   public FarmService(
     Store store,
     DeviceAdapter adapter,
     AssetService assets,
     FieldWorkService fieldWork,
-    FarmClock clock
+    FarmClock clock,
+    ProductionService production,
+    TelemetryService telemetry
   ) {
     this.store = store;
     this.adapter = adapter;
     this.assets = assets;
     this.fieldWork = fieldWork;
     this.clock = clock;
+    this.production = production;
+    this.telemetry = telemetry;
   }
 
   public List<Map<String, Object>> list(String table) {
+    if ("production".equals(table)) return production.list(null);
     return store.list(table);
   }
 
   public List<Map<String, Object>> scopedList(String table, String farmId) {
+    if ("production".equals(table)) return production.list(farmId);
     if (farmId == null || farmId.isBlank()) return store.list(table);
     store.get("farms", farmId);
     if ("plots".equals(table)) return store
@@ -91,9 +100,10 @@ public class FarmService {
       ),
       "yieldKg",
       db.queryForObject(
-        "SELECT COALESCE(SUM(yield_kg),0) FROM production WHERE tenant_id=? AND " + Store.activeScope("production"),
+        "SELECT COALESCE(SUM(yield_kg),0) FROM production WHERE tenant_id=? AND record_date<=? AND " + Store.activeScope("production") + " AND " + ProductionService.active("production"),
         BigDecimal.class,
-        tenant
+        tenant,
+        today
       ),
       "pendingTasks",
       db.queryForObject(
@@ -198,8 +208,15 @@ public class FarmService {
 
   public Map<String, Object> updatePlot(String id, Records.Plot input) {
     Identity.require("ADMIN");
-    store.lock("plots", id);
+    var previous = store.lock("plots", id);
     store.get("farms", input.farmId());
+    if (!input.farmId().equals(previous.get("FARM_ID"))) {
+      for (String table : List.of("plantings", "farm_tasks", "production", "field_issues", "ai_decisions")) {
+        long history = store.db().queryForObject("SELECT COUNT(*) FROM " + table + " WHERE tenant_id=? AND plot_id=?",
+          Long.class, Identity.tenant(), id);
+        if (history > 0) throw new ApiException(409, "地块已有种植、农事、收获、现场问题或决策记录，不能跨农场迁移历史归属");
+      }
+    }
     long linked = store
       .db()
       .queryForObject(
@@ -228,6 +245,12 @@ public class FarmService {
       409,
       "面积不能小于已有种植计划"
     );
+    BigDecimal completedArea = store.db().queryForObject("""
+      SELECT COALESCE(MAX(w.actual_area_mu),0) FROM task_fieldwork w
+      JOIN farm_tasks t ON t.tenant_id=w.tenant_id AND t.id=w.task_id WHERE t.tenant_id=? AND t.plot_id=?
+      """, BigDecimal.class, Identity.tenant(), id);
+    if (input.areaMu().compareTo(completedArea) < 0)
+      throw new ApiException(409, "面积不能小于已有作业回执的实际面积");
     store
       .db()
       .update(
@@ -339,7 +362,7 @@ public class FarmService {
 
   public Map<String, Object> task(Records.Task input) {
     Identity.require("ADMIN");
-    store.get("plots", input.plotId());
+    store.lock("plots", input.plotId());
     return store.get(
       "farm_tasks",
       store.insert(
@@ -388,24 +411,7 @@ public class FarmService {
   }
 
   public Map<String, Object> production(Records.Production input) {
-    Identity.require("ADMIN", "OPERATOR");
-    store.get("plots", input.plotId());
-    return store.get(
-      "production",
-      store.insert(
-        "production",
-        fields(
-          "plot_id",
-          input.plotId(),
-          "record_date",
-          input.recordDate(),
-          "yield_kg",
-          input.yieldKg(),
-          "note",
-          input.note()
-        )
-      )
-    );
+    return production.create(input);
   }
 
   public Map<String, Object> device(Records.Device input) {
@@ -436,7 +442,7 @@ public class FarmService {
 
   public Map<String, Object> observe(String id, Records.Observation input) {
     Identity.require("ADMIN", "OPERATOR");
-    var device = store.get("devices", id);
+    var device = store.lock("devices", id);
     var profile = assets.detail(id);
     if (
       !"ACTIVE".equals(profile.get("lifecycle")) ||
@@ -459,7 +465,7 @@ public class FarmService {
 
   public Map<String, Object> sample(String id) {
     Identity.require("ADMIN", "OPERATOR");
-    var device = store.get("devices", id);
+    var device = store.lock("devices", id);
     var profile = assets.detail(id);
     if (!Set.of("TEMPERATURE", "HUMIDITY", "SOIL_MOISTURE").contains(device.get("METRIC").toString())) {
       throw new ApiException(409, "此类设备请使用多指标采集接口，避免覆盖设备反馈");
@@ -478,7 +484,7 @@ public class FarmService {
     return observation(
       id,
       adapter.sample(Identity.tenant(), id, metric),
-      LocalDateTime.now(),
+      clock.now().toLocalDateTime(),
       "SIMULATED",
       metric
     );
@@ -498,9 +504,12 @@ public class FarmService {
     if (
       value.compareTo(min) < 0 || value.compareTo(max) > 0
     ) throw new ApiException(400, "监测值超出该指标允许范围");
-    return store.get(
-      "observations",
-      store.insert(
+    var observed = time.atZone(clock.zone()).toInstant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    if (observed.isAfter(clock.instant())) throw new ApiException(400, "观测时间不能晚于农场当前时间");
+    // Preserve each engine's legacy physical timestamp format; the shared bridge receives an instant.
+    // Existing H2 records have no timezone marker, so rewriting only new rows to UTC would mix conventions.
+    var stored = observed.atZone(store.sql().mysql() ? java.time.ZoneOffset.UTC : java.time.ZoneId.systemDefault()).toLocalDateTime();
+    String observationId = store.insert(
         "observations",
         fields(
           "device_id",
@@ -508,11 +517,14 @@ public class FarmService {
           "measured_value",
           value,
           "measured_at",
-          store.sql().mysql() ? time.atZone(java.time.ZoneId.systemDefault()).withZoneSameInstant(java.time.ZoneOffset.UTC).toLocalDateTime() : time,
+          stored,
+          "received_at",
+          clock.now().truncatedTo(java.time.temporal.ChronoUnit.MICROS),
           "source",
           source
         )
-      )
-    );
+      );
+    telemetry.legacyRecorded(id, metric, value, observed, source);
+    return store.get("observations", observationId);
   }
 }

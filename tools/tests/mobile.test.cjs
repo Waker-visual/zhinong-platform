@@ -5,7 +5,7 @@ const load = () => import('../../frontend/src/mobile/client.mjs');
 test('missing measurements remain missing; values and state are not fabricated', async () => {
   const { number, freshness, normalize, requestId } = await load();
   assert.equal(number(null), '—'); assert.equal(number(undefined), '—'); assert.equal(number(''), '—'); assert.equal(number(0), '0');
-  assert.equal(freshness({ freshness: 'NO_DATA' }), '尚无上报');
+  assert.equal(freshness({ freshness: 'NO_DATA' }), '尚无观测');
   assert.deepEqual(normalize({ DEVICE_ID: 'id', result_note: 'test', lastReceivedAt: null }), { deviceId: 'id', resultNote: 'test', lastReceivedAt: null });
   const ids = new Set(Array.from({ length: 100 }, requestId)); assert.equal(ids.size, 100);
   assert.match([...ids][0], /^mobile-[a-f0-9]{32}$/);

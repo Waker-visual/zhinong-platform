@@ -88,6 +88,85 @@ class BusinessCalendarUtcIntegrationTest {
   }
 
   @Test
+  void completionReceiptUsesTheBusinessClockAndCannotBeInTheFuture() throws Exception {
+    String plot = plot("虚构回执时钟田");
+    String task = call(admin, "POST", "/field-work/tasks", Map.of("plotId", plot, "title", "固定时钟巡查", "taskType", "INSPECTION",
+      "dueDate", FARM_TODAY.toString(), "assigneeId", operatorId, "method", "MANUAL", "note", "校验回执时间来源"), 200).path("id").asText();
+    String path = "/field-work/tasks/" + task + "/progress";
+    call(operator, "PATCH", path, Map.of("status", "RUNNING", "method", "MANUAL", "note", "开始巡查", "actualAreaMu", 0), 200);
+    call(operator, "PATCH", path, Map.of("status", "COMPLETED", "method", "MANUAL", "note", "已完成并记录现场情况", "actualAreaMu", 5), 200);
+    Instant returnedAt = clock.instant();
+    var receipt = db.queryForMap("SELECT completed_at,completion_note FROM task_fieldwork WHERE tenant_id=? AND task_id=?", tenant, task);
+    Instant completedAt = app.zhinong.database.DatabaseTime.instant(receipt.get("COMPLETED_AT"));
+    assertEquals(BEIJING_1AM, completedAt, "receipt time must follow the injected farm clock, not database CURRENT_TIMESTAMP");
+    assertFalse(completedAt.isAfter(returnedAt), "microsecond persistence must never move completion after the API returned");
+    assertEquals("已完成并记录现场情况", receipt.get("COMPLETION_NOTE"));
+  }
+
+  @Test
+  void operationsUsesTheFarmClockAndExpiresAtTheExactSharedBoundary() throws Exception {
+    String sensor=device(plot("虚构精确过期田"),"SOIL");
+    db.update("UPDATE asset_profiles SET interval_seconds=900 WHERE tenant_id=? AND device_id=?",tenant,sensor);
+    var observed=clock.now().minusSeconds(2700);
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'SIMULATED')",
+      UUID.randomUUID().toString(),tenant,sensor,"SOIL_MOISTURE",35,observed,observed);
+    var report=call(admin,"GET","/farms/"+farm+"/operations?hours=24",null,200);
+    assertEquals(BEIJING_1AM,OffsetDateTime.parse(report.at("/window/end").asText()).toInstant());
+    assertEquals(0,report.at("/summary/currentHealth").asInt(),"exactly three intervals old is expired, consistently with device/AI freshness");
+    assertEquals(1,report.at("/slices/99/observed").asInt());
+    assertEquals(0,report.at("/slices/99/onTime").asInt(),"historical closing boundary must also use strict expiry without rounded seconds");
+    assertEquals(0,report.at("/slices/99/health").asInt());
+  }
+
+  @Test
+  void operationsPredecessorCannotResurrectAnOlderProtocolCorrection() throws Exception {
+    String sensor=device(plot("虚构来源更正田"),"SOIL");
+    db.update("UPDATE asset_profiles SET interval_seconds=900 WHERE tenant_id=? AND device_id=?",tenant,sensor);
+    var observed=clock.now().minusHours(24).minusSeconds(1);
+    for(String source:List.of("SIMULATED","MANUAL")) {
+      var received=observed.plusSeconds(source.equals("MANUAL")?2:1);
+      db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,?)",
+        UUID.randomUUID().toString(),tenant,sensor,"SOIL_MOISTURE",35,observed,received,source);
+    }
+    var report=call(admin,"GET","/farms/"+farm+"/operations?hours=24",null,200);
+    assertEquals(0,report.at("/slices/0/observed").asInt(),"choose the latest correction before protocol filtering, including the sample preceding the window");
+    assertTrue(report.at("/slices/0/health").isNull());
+    assertTrue(report.at("/summary/health").isNull());
+  }
+
+  @Test
+  void thresholdAlertsUseTheCanonicalWinnerEvenWhenFixedClockReceiptsTie() throws Exception {
+    String sensor=device(plot("虚构同刻告警田"),"SOIL");var observed=clock.now().minusSeconds(30);
+    db.update("UPDATE asset_profiles SET protocol='MANUAL' WHERE tenant_id=? AND device_id=?",tenant,sensor);
+    db.update("UPDATE devices SET adapter='MANUAL' WHERE tenant_id=? AND id=?",tenant,sensor);
+    db.update("UPDATE device_channels SET lower_limit=20,upper_limit=80 WHERE tenant_id=? AND device_id=? AND metric='SOIL_MOISTURE'",tenant,sensor);
+    db.update("INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source) VALUES(?,?,?,?,?,?,?,'MANUAL')",
+      "ffffffff-ffff-ffff-ffff-ffffffffffff",tenant,sensor,"SOIL_MOISTURE",18,observed,clock.now());
+    // The seeded ID wins the exact timestamp/receipt tie over all generated UUIDs.
+    call(operator,"POST","/assets/"+sensor+"/readings",Map.of("measuredAt",observed.toInstant().toString(),"readings",List.of(Map.of("metric","SOIL_MOISTURE","value",35))),200);
+    assertEquals(18,db.queryForObject("SELECT measured_value FROM device_alerts WHERE tenant_id=? AND device_id=? AND metric='SOIL_MOISTURE' AND status<>'RESOLVED'",java.math.BigDecimal.class,tenant,sensor).intValue());
+    for(var at:List.of(observed,observed.minusDays(1))) {
+      call(operator,"POST","/devices/"+sensor+"/observations",Map.of("value",35,"measuredAt",at.toLocalDateTime().toString()),200);
+      var alerts=call(admin,"GET","/alerts?farmId="+farm,null,200);
+      assertEquals(1,alerts.size());assertEquals(18,alerts.get(0).path("value").asInt(),"losing same-time corrections and historical backfills must not resolve the current low-moisture incident");
+    }
+    assertEquals(18,call(admin,"GET","/ai/analysis?farmId="+farm,null,200).path("sensors").get(0).path("value").asInt());
+  }
+
+  @Test
+  void harvestDatesUseFarmCalendarForRegistrationAndCorrection() throws Exception {
+    String plot=plot("虚构日界收获田");
+    var body=new LinkedHashMap<String,Object>();body.put("plotId",plot);body.put("recordDate",FARM_TODAY.toString());
+    body.put("yieldKg",12);body.put("note","虚构日界收获验收");body.put("requestId",UUID.randomUUID().toString());
+    String id=call(operator,"POST","/production",body,200).path("ID").asText();
+    body.put("recordDate",FARM_TODAY.plusDays(1).toString());body.put("requestId",UUID.randomUUID().toString());
+    call(operator,"POST","/production",body,400);
+    body.remove("requestId");body.put("reason","验收未来日期拒绝");body.put("expectedRevision",0);
+    call(admin,"PUT","/production/"+id,body,400);
+    body.put("recordDate",FARM_TODAY.toString());call(admin,"PUT","/production/"+id,body,200);
+  }
+
+  @Test
   void tasksDueYesterdayInBeijingAreOverdueEverywhere() throws Exception {
     String plot = plot("虚构逾期田");
     long dashboardOverdue = call(admin, "GET", "/dashboard", null, 200).path("overdueTasks").asLong();

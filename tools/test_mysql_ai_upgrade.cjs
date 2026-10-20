@@ -22,8 +22,10 @@ const oldConversations = table('ai_conversations').replace(/,\n pinned_at[\s\S]*
 const oldMessages = table('ai_messages').replace(/,\n CONSTRAINT uq_ai_messages_tenant UNIQUE\(tenant_id,id\)/, '');
 const oldRuns = table('ai_irrigation_runs').replace(/,\n CONSTRAINT uq_ai_irrigation_run_tenant UNIQUE\(tenant_id,id\)/, '');
 const oldTelemetry = table('telemetry_readings').replace(/,\n INDEX ix_telemetry_(?:latest|device_time)\([^\n]+\)/g, '');
+const oldObservations = table('observations').replace(/,\n received_at TIMESTAMP\(6\)/, '')
+  .replace(/,\n INDEX ix_observations_latest\([^\n]+\)/, '');
 assert.ok(!oldConversations.includes('title_source') && !oldMessages.includes('uq_ai_messages_tenant'));
-sql(['tenants', 'members', 'farms', 'plots', 'devices'].map(table).concat(oldConversations, oldMessages, oldRuns, oldTelemetry).join('\n'));
+sql(['tenants', 'members', 'farms', 'plots', 'devices'].map(table).concat(oldConversations, oldMessages, oldRuns, oldTelemetry, oldObservations).join('\n'));
 sql(`INSERT INTO tenants(id,code,name,enabled) VALUES('upgrade-tenant','upgrade-fixture','Fictional upgrade test',FALSE);
 INSERT INTO members(id,tenant_id,username,display_name,password_hash,role,enabled) VALUES('upgrade-member','upgrade-tenant','disabled-fixture','Test','not-a-login-hash','VIEWER',FALSE);
 INSERT INTO farms(id,tenant_id,name,description) VALUES('upgrade-farm','upgrade-tenant','Test farm','Fictional');
@@ -31,6 +33,8 @@ INSERT INTO ai_conversations(id,tenant_id,member_id,farm_id,title,created_at,upd
 INSERT INTO ai_messages(id,tenant_id,conversation_id,request_id,role,content,mode,diagnostic,created_at) VALUES('upgrade-message','upgrade-tenant','upgrade-chat','fixture-request','assistant','Existing answer','RULES','',CURRENT_TIMESTAMP);`);
 sql(`INSERT INTO plots(id,tenant_id,farm_id,name,area_mu,crop) VALUES('upgrade-plot','upgrade-tenant','upgrade-farm','Test plot',1,'Vegetables');
 INSERT INTO devices(id,tenant_id,farm_id,name,metric,unit,adapter) VALUES('upgrade-device','upgrade-tenant','upgrade-farm','Test pump','PUMP_RUNNING','','SIMULATED');
+INSERT INTO observations(id,tenant_id,device_id,measured_value,measured_at,source)
+VALUES('upgrade-observation','upgrade-tenant','upgrade-device',0,'2026-01-01 12:00:00','SIMULATED');
 INSERT INTO telemetry_readings(id,tenant_id,device_id,metric,measured_value,measured_at,received_at,source)
 VALUES('upgrade-reading','upgrade-tenant','upgrade-device','PUMP_RUNNING',0,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP,'SIMULATED');
 INSERT INTO ai_irrigation_runs(id,tenant_id,farm_id,plot_id,sensor_id,pump_id,policy_revision,status,reason,duration_seconds,moisture_value,requested_by,created_at,expires_at)
@@ -38,6 +42,7 @@ VALUES('upgrade-run','upgrade-tenant','upgrade-farm','upgrade-plot','upgrade-dev
 sql(schema);
 assert.equal(sql("SELECT title,title_source,pinned_at IS NULL FROM ai_conversations WHERE id='upgrade-chat';"), 'Existing title\tauto\t1');
 assert.equal(sql("SELECT content FROM ai_messages WHERE id='upgrade-message';"), 'Existing answer');
+assert.equal(sql("SELECT measured_at,received_at IS NULL FROM observations WHERE id='upgrade-observation';"), '2026-01-01 12:00:00.000000\t1', 'Legacy observation time is preserved and unknown receipt time is not fabricated');
 sql("UPDATE ai_conversations SET title='User title',title_source='user',pinned_at=CURRENT_TIMESTAMP WHERE id='upgrade-chat';");
 sql(schema); // Repeated initialization preserves history, manual titles and pins.
 assert.equal(sql("SELECT reason FROM ai_irrigation_runs WHERE tenant_id='upgrade-tenant' AND id='upgrade-run';"), 'Existing irrigation');
@@ -51,5 +56,5 @@ sql(activity.replace("'upgrade-message'", "'missing-message'"), false);
 sql(activity);
 sql("DELETE FROM ai_conversations WHERE tenant_id='upgrade-tenant' AND id='upgrade-chat';");
 assert.equal(sql("SELECT COUNT(*) FROM ai_message_activities WHERE tenant_id='upgrade-tenant';"), '0');
-sql("DELETE FROM ai_irrigation_runs WHERE tenant_id='upgrade-tenant'; DELETE FROM telemetry_readings WHERE tenant_id='upgrade-tenant'; DELETE FROM devices WHERE tenant_id='upgrade-tenant'; DELETE FROM plots WHERE tenant_id='upgrade-tenant'; DELETE FROM farms WHERE tenant_id='upgrade-tenant'; DELETE FROM members WHERE tenant_id='upgrade-tenant'; DELETE FROM tenants WHERE id='upgrade-tenant';");
+sql("DELETE FROM ai_irrigation_runs WHERE tenant_id='upgrade-tenant'; DELETE FROM observations WHERE tenant_id='upgrade-tenant'; DELETE FROM telemetry_readings WHERE tenant_id='upgrade-tenant'; DELETE FROM devices WHERE tenant_id='upgrade-tenant'; DELETE FROM plots WHERE tenant_id='upgrade-tenant'; DELETE FROM farms WHERE tenant_id='upgrade-tenant'; DELETE FROM members WHERE tenant_id='upgrade-tenant'; DELETE FROM tenants WHERE id='upgrade-tenant';");
 console.log('MySQL AI upgrade: empty install, existing history, repeated startup and activity foreign keys passed');

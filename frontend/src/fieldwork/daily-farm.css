@@ -1,6 +1,6 @@
 .daily-farm {
   display: grid;
-  gap: 22px;
+  gap: 16px;
   min-width: 0;
 }
 .daily-farm button {
@@ -10,7 +10,7 @@
   background: var(--hero-bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 28px;
+  padding: 16px 20px;
   display: flex;
   justify-content: space-between;
   gap: 24px;
@@ -19,16 +19,29 @@
 /* 农场名低于页面标题一级（页面 h1 为 27px） */
 .daily-hero h2 {
   font-size: 22px;
-  margin: 10px 0;
+  margin: 0 0 5px;
   letter-spacing: -0.5px;
 }
 .daily-hero p {
   line-height: 1.7;
 }
+.daily-hero .daily-priority-link {
+  min-height: 32px;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.8;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
 .daily-hero small {
   display: block;
-  margin-top: 15px;
-  color: var(--text-2);
+  flex: none;
+  color: var(--text);
+  text-align: right;
+  line-height: 1.8;
 }
 .daily-quick {
   display: flex;
@@ -57,13 +70,13 @@
 .daily-kpis article {
   background: var(--surface);
   border: 1px solid var(--border);
-  padding: 20px;
+  padding: 12px 16px;
   border-radius: var(--radius);
 }
 .daily-kpis strong {
-  font-size: 34px;
+  font-size: 27px;
   display: block;
-  margin-top: 12px;
+  margin-top: 4px;
   font-variant-numeric: tabular-nums;
 }
 .daily-kpis strong span {
@@ -367,6 +380,12 @@
   padding-top: 18px;
   font-size: 13px;
 }
+.daily-farm .daily-data-notes summary {
+  padding-top: 0;
+}
+.daily-demo-note {
+  padding: 0 18px 16px;
+}
 @media (max-width: 1150px) {
   .daily-columns {
     grid-template-columns: 1fr;
@@ -380,23 +399,32 @@
 }
 @media (max-width: 760px) {
   .daily-hero {
-    padding: 20px;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 8px;
+    padding: 14px 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .daily-hero small {
+    text-align: left;
+    font-size: 12px;
+  }
+  .daily-hero small br {
+    display: block;
   }
   .daily-hero h2 {
     font-size: 20px;
+  }
+  .daily-hero .daily-priority-link {
+    min-height: 44px;
   }
   .daily-kpis {
     grid-template-columns: 1fr 1fr;
     gap: 10px;
   }
   .daily-kpis article {
-    padding: 14px;
+    padding: 10px 12px;
   }
   .daily-kpis strong {
-    font-size: 29px;
+    font-size: 25px;
   }
   .daily-columns,
   .daily-right {

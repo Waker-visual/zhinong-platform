@@ -67,6 +67,9 @@ CREATE TABLE IF NOT EXISTS observations (
  FOREIGN KEY(tenant_id,device_id) REFERENCES devices(tenant_id,id),
  CHECK(source IN ('MANUAL','SIMULATED'))
 );
+-- New legacy receipts have a real receive time; historical NULL values remain explicitly unknown.
+ALTER TABLE observations ADD COLUMN IF NOT EXISTS received_at TIMESTAMP WITH TIME ZONE;
+CREATE INDEX IF NOT EXISTS ix_observations_latest ON observations(tenant_id,device_id,measured_at DESC,received_at DESC,id DESC);
 CREATE TABLE IF NOT EXISTS audit_events (
  id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) NOT NULL REFERENCES tenants(id),
  actor VARCHAR(60) NOT NULL, action VARCHAR(60) NOT NULL,
@@ -307,6 +310,27 @@ CREATE TABLE IF NOT EXISTS demo_research_farms (
  FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id) ON DELETE CASCADE
 );
 
+-- Production bookkeeping is additive: legacy rows remain valid without tracking metadata.
+CREATE TABLE IF NOT EXISTS production_tracking (
+ tenant_id VARCHAR(36) NOT NULL, production_id VARCHAR(36) NOT NULL,
+ planting_id VARCHAR(36), task_id VARCHAR(36), request_id VARCHAR(80), request_hash VARCHAR(64),
+ status VARCHAR(12) NOT NULL DEFAULT 'ACTIVE', revision INTEGER NOT NULL DEFAULT 0,
+ change_reason VARCHAR(500) NOT NULL DEFAULT '', updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ PRIMARY KEY(tenant_id,production_id), UNIQUE(tenant_id,request_id),
+ FOREIGN KEY(tenant_id,production_id) REFERENCES production(tenant_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(tenant_id,planting_id) REFERENCES plantings(tenant_id,id),
+ FOREIGN KEY(tenant_id,task_id) REFERENCES farm_tasks(tenant_id,id),
+ CHECK(status IN ('ACTIVE','VOID')), CHECK(revision>=0)
+);
+CREATE TABLE IF NOT EXISTS production_history (
+ id VARCHAR(36) PRIMARY KEY, tenant_id VARCHAR(36) NOT NULL, production_id VARCHAR(36) NOT NULL,
+ revision INTEGER NOT NULL, action VARCHAR(16) NOT NULL, reason VARCHAR(500) NOT NULL,
+ actor VARCHAR(60) NOT NULL, snapshot_json CLOB NOT NULL, occurred_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ UNIQUE(tenant_id,production_id,revision),
+ FOREIGN KEY(tenant_id,production_id) REFERENCES production(tenant_id,id) ON DELETE CASCADE,
+ CHECK(action IN ('CREATE','LEGACY','CORRECT','VOID'))
+);
+
 -- Bind a vendor's device identity to one authenticated tenant device.
 CREATE TABLE IF NOT EXISTS device_integrations (
  tenant_id VARCHAR(36) NOT NULL, device_id VARCHAR(36) NOT NULL,
@@ -420,4 +444,24 @@ CREATE TABLE IF NOT EXISTS ai_irrigation_map_runs (
  FOREIGN KEY(tenant_id,run_id) REFERENCES ai_irrigation_runs(tenant_id,id),
  FOREIGN KEY(tenant_id,zone_id) REFERENCES farm_map_zones(tenant_id,id),
  FOREIGN KEY(tenant_id,job_id) REFERENCES farm_map_jobs(tenant_id,id)
+);
+
+-- Decision evidence stays immutable; human approval can create only an inspection task.
+CREATE TABLE IF NOT EXISTS ai_decisions (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,farm_id VARCHAR(36) NOT NULL,plot_id VARCHAR(36) NOT NULL,
+ created_by VARCHAR(36) NOT NULL,request_id VARCHAR(80) NOT NULL,payload_json CLOB NOT NULL,
+ question VARCHAR(500) NOT NULL,evidence_json CLOB NOT NULL,explanation VARCHAR(4000) NOT NULL,
+ mode VARCHAR(10) NOT NULL,diagnostic VARCHAR(50) NOT NULL,model VARCHAR(100),explanation_revision INTEGER,rule_version VARCHAR(50) NOT NULL,
+ task_id VARCHAR(36),approval_json CLOB,revision INTEGER NOT NULL,created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+ UNIQUE(tenant_id,id),UNIQUE(tenant_id,request_id),UNIQUE(tenant_id,task_id),
+ FOREIGN KEY(tenant_id,farm_id) REFERENCES farms(tenant_id,id),FOREIGN KEY(tenant_id,plot_id) REFERENCES plots(tenant_id,id),
+ FOREIGN KEY(tenant_id,created_by) REFERENCES members(tenant_id,id),FOREIGN KEY(tenant_id,task_id) REFERENCES farm_tasks(tenant_id,id)
+);
+CREATE INDEX IF NOT EXISTS ix_ai_decisions ON ai_decisions(tenant_id,farm_id,created_at);
+CREATE TABLE IF NOT EXISTS ai_decision_reviews (
+ id VARCHAR(36) PRIMARY KEY,tenant_id VARCHAR(36) NOT NULL,decision_id VARCHAR(36) NOT NULL,
+ request_id VARCHAR(80) NOT NULL,payload_json CLOB NOT NULL,evidence_json CLOB NOT NULL,outcome VARCHAR(30) NOT NULL,
+ note VARCHAR(500) NOT NULL,reviewer_id VARCHAR(36) NOT NULL,reviewer_name VARCHAR(80) NOT NULL,revision INTEGER NOT NULL,
+ created_at TIMESTAMP WITH TIME ZONE NOT NULL,UNIQUE(tenant_id,decision_id,request_id),
+ FOREIGN KEY(tenant_id,decision_id) REFERENCES ai_decisions(tenant_id,id),FOREIGN KEY(tenant_id,reviewer_id) REFERENCES members(tenant_id,id)
 );

@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   canReadFarm,
+  forecastPresentation,
+  forecastWeatherType,
   deviceCounts,
   hasDeviceAlert,
   mapGeometry,
@@ -11,7 +13,123 @@ import {
   pendingTasks,
   productionDistribution,
   productionTotal,
+  prioritizedRisks,
+  publicWebUrl,
+  riskForecastFreshness,
+  weatherRisksOnDate,
 } from "./screen-model.js";
+
+test("public forecast dates remain ordered, partial and separate from historical measurements", () => {
+  const data = {
+    status: "READY",
+    dataKind: "PUBLIC_FORECAST",
+    days: [
+      {
+        date: "2026-10-18",
+        tempMinC: null,
+        precipitationMm: 0,
+        windMaxMs: null,
+        et0Mm: 0,
+      },
+      { date: "2026-10-17", tempMinC: -1, windMaxMs: 0, et0Mm: null },
+      { date: "2026-10-18", tempMinC: 90 },
+      { date: "2026-02-31" },
+      { date: "invalid" },
+    ],
+  };
+  const result = forecastPresentation(data);
+  assert.deepEqual(
+    result.days.map((day) => day.date),
+    ["2026-10-17", "2026-10-18"],
+  );
+  assert.equal(numberText(result.days[1].tempMinC), "—");
+  assert.equal(numberText(result.days[1].precipitationMm), "0");
+  assert.equal(numberText(result.days[0].windMaxMs), "0");
+  assert.equal(numberText(result.days[0].et0Mm), "—");
+  assert.equal(numberText(result.days[1].windMaxMs), "—");
+  assert.equal(numberText(result.days[1].et0Mm), "0");
+  assert.equal(
+    forecastPresentation({ ...data, dataKind: "OBSERVATION" }).status,
+    "UNAVAILABLE",
+  );
+  assert.deepEqual(
+    forecastPresentation({ ...data, status: "UNCONFIGURED" }).days,
+    [],
+  );
+  assert.equal(forecastWeatherType(null), "unknown");
+  assert.equal(forecastWeatherType(0), "sun");
+});
+
+test("forecast expiry advances locally and failed refresh retains clearly marked old data", () => {
+  const data = {
+    status: "READY",
+    dataKind: "PUBLIC_FORECAST",
+    expiresAt: "2026-10-17T01:00:00Z",
+    days: [{ date: "2026-10-17" }],
+  };
+  const before = Date.parse("2026-10-17T00:59:59Z"),
+    expired = before + 1000;
+  assert.equal(forecastPresentation(data, {}, before).status, "READY");
+  assert.equal(forecastPresentation(data, {}, expired).status, "STALE");
+  const failed = forecastPresentation(data, { error: "超时" }, before);
+  assert.equal(failed.status, "STALE");
+  assert.equal(failed.expired, false);
+  assert.match(failed.label, /更新失败/);
+  assert.equal(failed.days.length, 1);
+  assert.equal(
+    riskForecastFreshness(
+      { forecastStatus: "READY", forecastExpiresAt: data.expiresAt },
+      expired,
+    ),
+    "STALE",
+  );
+  assert.equal(
+    riskForecastFreshness({ forecastStatus: "UNCONFIGURED" }, before),
+    "UNCONFIGURED",
+  );
+  assert.equal(
+    forecastPresentation(
+      { ...data, expiresAt: "2026-10-18T01:00:00Z", timeZone: "Asia/Shanghai" },
+      {},
+      Date.parse("2026-10-17T16:00:00Z"),
+    ).status,
+    "STALE",
+    "a new local date invalidates a still-cached seven-day window",
+  );
+});
+
+test("risk sources retain identity, priority and exact non-contiguous forecast dates", () => {
+  const data = {
+    items: [
+      { id: "a", source: "DEVICE", severity: "WARNING" },
+      { id: "a", source: "DEVICE", severity: "WARNING" },
+      { id: "a", source: "FIELD", severity: "HIGH" },
+      {
+        id: "weather",
+        source: "WEATHER",
+        severity: "HIGH",
+        affectedDate: "2026-10-17",
+        endDate: "2026-10-19",
+        affectedDates: ["2026-10-17", "2026-10-19"],
+      },
+      { id: "gap", source: "DATA_QUALITY", severity: "INFO" },
+    ],
+  };
+  assert.equal(prioritizedRisks(data).length, 4);
+  assert.equal(prioritizedRisks(data)[0].severity, "HIGH");
+  assert.equal(
+    prioritizedRisks(data, { source: "FIELD", highOnly: true }).length,
+    1,
+  );
+  assert.equal(weatherRisksOnDate(data, "2026-10-17").length, 1);
+  assert.equal(weatherRisksOnDate(data, "2026-10-18").length, 0);
+  assert.equal(weatherRisksOnDate(data, "2026-10-19").length, 1);
+  assert.equal(publicWebUrl("javascript:alert(1)"), null);
+  assert.equal(
+    publicWebUrl("https://open-meteo.com/"),
+    "https://open-meteo.com/",
+  );
+});
 
 test("missing measurements stay distinct from valid zero", () => {
   assert.equal(numberText(null), "—");
@@ -146,7 +264,7 @@ test("expired and server-rejected readings never enter the fresh average", () =>
   assert.equal(metricSummary(rows, "HUMIDITY", now).state, "NO_DATA");
 });
 
-test("a newer sample cannot hide an expired receipt between refreshes", () => {
+test("valid observed samples do not require a known historical receipt timestamp", () => {
   const now = Date.parse("2026-10-12T08:00:00Z");
   assert.equal(
     metricSummary(
@@ -157,13 +275,14 @@ test("a newer sample cannot hide an expired receipt between refreshes", () => {
           fresh: true,
           freshnessSeconds: 180,
           time: "2026-10-12T07:59:00Z",
-          lastReceivedAt: "2026-10-12T07:56:00Z",
+          receivedAtKnown: false,
+          readingReceivedAt: null,
         },
       ],
       "TEMPERATURE",
       now,
     ).value,
-    null,
+    20,
   );
 });
 

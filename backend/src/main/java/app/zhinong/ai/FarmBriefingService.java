@@ -53,7 +53,7 @@ public class FarmBriefingService {
     String tenant = Identity.tenant();
     LocalDate date = clock.today();
     var existing = find(tenant, farmId, date);
-    if (!existing.isEmpty()) return existing.getFirst();
+    if (!existing.isEmpty()) return withFreshness(existing.getFirst(),farmId);
 
     var snapshot = snapshot(farmId, date);
     String id = UUID.randomUUID().toString();
@@ -65,12 +65,12 @@ public class FarmBriefingService {
         """, id, tenant, farmId, date, encode(snapshot), now, now);
     } catch (DuplicateKeyException concurrentRequest) {
       // The composite unique key is also the cross-process model-call idempotency boundary.
-      return find(tenant, farmId, date).getFirst();
+      return withFreshness(find(tenant, farmId, date).getFirst(),farmId);
     }
     Identity principal = Identity.current();
     try { worker.execute(() -> Identity.runAs(principal, () -> enhance(tenant, farmId, id))); }
     catch (RejectedExecutionException busy) { completeFallback(tenant, farmId, id, "BUSY"); }
-    return find(tenant, farmId, date).getFirst();
+    return withFreshness(find(tenant, farmId, date).getFirst(),farmId);
   }
 
   /** Read-only tool context; unlike today(), it cannot initiate a nested model request. */
@@ -83,7 +83,7 @@ public class FarmBriefingService {
     if (reports.isEmpty()) {
       result.put("farmId", farmId); result.put("reportDate", clock.today().toString());
       result.put("message", "今日综合日报尚未生成，可在首页打开今日经营简报。");
-    } else result.putAll(reports.getFirst());
+    } else result.putAll(withFreshness(reports.getFirst(),farmId));
     return result;
   }
 
@@ -117,6 +117,7 @@ public class FarmBriefingService {
       result.put("model", rs.getString("model")); result.put("diagnostic", rs.getString("diagnostic"));
       result.put("aiSummary", rs.getString("ai_summary"));
       result.put("generatedAt", DatabaseTime.offset(rs.getObject("generated_at")).toString());
+      result.put("dataMode", "DAILY_SNAPSHOT"); result.put("snapshotAt", result.get("generatedAt"));
       result.put("updatedAt", DatabaseTime.offset(rs.getObject("updated_at")).toString());
       return result;
     }, args);
@@ -204,36 +205,14 @@ public class FarmBriefingService {
     String tenant = Identity.tenant();
     var analysis = agronomy.report(farmId);
     var alerts = telemetry.alerts(farmId, null);
-    var production = db.queryForMap("""
-      SELECT COUNT(*) AS records,COALESCE(SUM(r.yield_kg),0) AS yield_kg
-      FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
-      WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<=?
-      """, tenant, farmId, date.minusDays(6), date);
-    var tasks = db.queryForMap("""
-      SELECT COUNT(*) AS pending,COALESCE(SUM(CASE WHEN t.due_date<? THEN 1 ELSE 0 END),0) AS overdue
-      FROM farm_tasks t JOIN plots p ON p.tenant_id=t.tenant_id AND p.id=t.plot_id
-      WHERE t.tenant_id=? AND p.farm_id=? AND t.status IN ('PENDING','RUNNING')
-      """, date, tenant, farmId);
-    long plantings = db.queryForObject("""
-      SELECT COUNT(*) FROM plantings s JOIN plots p ON p.tenant_id=s.tenant_id AND p.id=s.plot_id
-      WHERE s.tenant_id=? AND p.farm_id=? AND s.status='ACTIVE' AND s.start_date<=? AND s.end_date>=?
-      """, Long.class, tenant, farmId, date, date);
-    long issues = db.queryForObject("""
-      SELECT COUNT(*) FROM field_issues i JOIN plots p ON p.tenant_id=i.tenant_id AND p.id=i.plot_id
-      WHERE i.tenant_id=? AND p.farm_id=? AND i.status<>'RESOLVED'
-      """, Long.class, tenant, farmId);
-    long devices = db.queryForObject("""
-      SELECT COUNT(*) FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
-      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
-      """, Long.class, tenant, farmId);
-    long offline = alertDevices(alerts, "OFFLINE"), stale = alertDevices(alerts, "DATA_STALE");
-    long pending = number(tasks, "PENDING"), overdue = number(tasks, "OVERDUE"), records = number(production, "RECORDS");
-    long fresh = ((Number) analysis.get("freshMeasurements")).longValue();
-    var metrics = new LinkedHashMap<String, Object>();
-    metrics.put("activePlantings", plantings); metrics.put("pendingTasks", pending); metrics.put("overdueTasks", overdue);
-    metrics.put("yieldKg7d", production.get("YIELD_KG")); metrics.put("productionRecords7d", records);
-    metrics.put("openIssues", issues); metrics.put("deviceCount", devices); metrics.put("offlineDevices", offline);
-    metrics.put("staleDevices", stale); metrics.put("activeAlerts", alerts.size()); metrics.put("freshMeasurements", fresh);
+    var metrics = businessFacts(farmId,date);
+    var alertSummary=telemetry.alertSummary(farmId);
+    long plantings=number(metrics,"activePlantings"), pending=number(metrics,"pendingTasks"), overdue=number(metrics,"overdueTasks");
+    long records=number(metrics,"productionRecords7d"), issues=number(metrics,"openIssues"), devices=number(metrics,"deviceCount");
+    long offline=number(alertSummary,"offlineDevices"), stale=number(alertSummary,"staleDevices"), activeAlerts=number(alertSummary,"activeAlerts");
+    long fresh=((Number)analysis.get("freshMeasurements")).longValue();
+    metrics.put("offlineDevices",offline);metrics.put("staleDevices",stale);
+    metrics.put("activeAlerts",activeAlerts);metrics.put("freshMeasurements",fresh);
 
     var priorities = new ArrayList<Map<String, Object>>();
     if (offline + stale > 0) priorities.add(priority("restore-monitoring", "先恢复监测可信度", "HIGH",
@@ -256,21 +235,21 @@ public class FarmBriefingService {
 
     var gaps = new ArrayList<String>();
     gaps.add("尚无销售收入与成本台账，不能据产量判断利润或投资回报。");
-    gaps.add("未接入未来天气预报；站点历史观测不能作为天气预报。");
+    gaps.add("本日报未包含未来天气预报；站点历史观测不能作为预报。请另查大屏七日天气窗口，并核对参考位置和有效期。");
     if (fresh == 0) gaps.add("暂无同时通过设备时效与接入来源校验的新鲜农情测点，现场复测前不作确定性的墒情或病虫害判断。");
     if (plantings == 0) gaps.add("缺少有效在种计划，无法可靠判断作物生育阶段。");
     if (records == 0) gaps.add("近7天没有生产记录；这不代表产量为零或经营不佳。");
-    if (alerts.size() >= 200) gaps.add("告警明细达到200条显示上限，当前告警数及设备数可能为下界，请在预警中心逐项核查。");
+    if (activeAlerts > alerts.size()) gaps.add("告警总数按全量记录计算；本简报只引用最近200条明细中的部分证据，请在预警中心核查。");
     var evidence = List.of(
-      evidence("近7天生产记录", records + " 条，已记录产量 " + production.get("YIELD_KG") + " kg", "收获台账 · " + date.minusDays(6) + " 至 " + date),
+      evidence("近7天生产记录", records + " 条，已记录产量 " + metrics.get("yieldKg7d") + " kg", "收获台账 · " + date.minusDays(6) + " 至 " + date),
       evidence("农事任务", pending + " 项待办，其中 " + overdue + " 项逾期", "农事任务 · 报告生成时快照"),
-      evidence("监测与告警", devices + " 台在用设备，" + alerts.size() + " 条未解决告警", "设备台账与预警中心 · 报告生成时快照"),
+      evidence("监测与告警", devices + " 台在用设备，" + activeAlerts + " 条未解决告警", "设备台账与预警中心 · 报告生成时快照"),
       evidence("农情资料", plantings + " 项有效在种计划，" + fresh + " 个新鲜测点，" + issues + " 项现场问题", "种植计划、农情测点与巡田记录")
     );
     var result = new LinkedHashMap<String, Object>();
     result.put("farmName", analysis.get("farmName")); result.put("timeZone", clock.zone().getId());
-    result.put("summary", "当前有 " + plantings + " 项有效在种计划，近7天" + (records == 0 ? "暂无生产记录" : "已记录产量 " + production.get("YIELD_KG") + " kg")
-      + "；待办任务 " + pending + " 项（逾期 " + overdue + " 项），未解决告警 " + alerts.size() + " 条。今日优先：" + priorities.getFirst().get("title") + "。");
+    result.put("summary", "当前有 " + plantings + " 项有效在种计划，近7天" + (records == 0 ? "暂无生产记录" : "已记录产量 " + metrics.get("yieldKg7d") + " kg")
+      + "；待办任务 " + pending + " 项（逾期 " + overdue + " 项），未解决告警 " + activeAlerts + " 条。今日优先：" + priorities.getFirst().get("title") + "。");
     result.put("metrics", metrics); result.put("priorities", priorities); result.put("evidence", evidence); result.put("dataGaps", gaps);
     result.put("conditions", analysis.get("conditions")); result.put("cautions", analysis.get("cautions"));
     result.put("crops", cropContext(tenant, farmId, date)); result.put("dataPolicy", "SYNTHETIC_RESEARCH");
@@ -278,9 +257,55 @@ public class FarmBriefingService {
     return result;
   }
 
-  private static long alertDevices(List<Map<String, Object>> alerts, String kind) {
-    return alerts.stream().filter(a -> kind.equals(a.get("kind"))).map(a -> a.get("deviceId")).distinct().count();
+  private LinkedHashMap<String,Object> businessFacts(String farmId, LocalDate date) {
+    String tenant=Identity.tenant();
+    var production = db.queryForMap("""
+      SELECT COUNT(*) AS records,COALESCE(SUM(r.yield_kg),0) AS yield_kg
+      FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id
+      AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id AND x.status='VOID')
+      WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>=? AND r.record_date<=?
+      """, tenant, farmId, date.minusDays(6), date);
+    var tasks = db.queryForMap("""
+      SELECT COUNT(*) AS pending,COALESCE(SUM(CASE WHEN t.due_date<? THEN 1 ELSE 0 END),0) AS overdue
+      FROM farm_tasks t JOIN plots p ON p.tenant_id=t.tenant_id AND p.id=t.plot_id
+      WHERE t.tenant_id=? AND p.farm_id=? AND t.status IN ('PENDING','RUNNING')
+      """, date, tenant, farmId);
+    long plantings = db.queryForObject("""
+      SELECT COUNT(*) FROM plantings s JOIN plots p ON p.tenant_id=s.tenant_id AND p.id=s.plot_id
+      WHERE s.tenant_id=? AND p.farm_id=? AND s.status='ACTIVE' AND s.start_date<=? AND s.end_date>=?
+      """, Long.class, tenant, farmId, date, date);
+    long issues = db.queryForObject("""
+      SELECT COUNT(*) FROM field_issues i JOIN plots p ON p.tenant_id=i.tenant_id AND p.id=i.plot_id
+      WHERE i.tenant_id=? AND p.farm_id=? AND i.status<>'RESOLVED'
+      """, Long.class, tenant, farmId);
+    long devices = db.queryForObject("""
+      SELECT COUNT(*) FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+      WHERE d.tenant_id=? AND d.farm_id=? AND a.lifecycle='ACTIVE'
+      """, Long.class, tenant, farmId);
+    var facts=new LinkedHashMap<String,Object>();
+    facts.put("activePlantings",plantings); facts.put("pendingTasks",number(tasks,"PENDING"));
+    facts.put("overdueTasks",number(tasks,"OVERDUE")); facts.put("yieldKg7d",production.get("YIELD_KG"));
+    facts.put("productionRecords7d",number(production,"RECORDS")); facts.put("openIssues",issues); facts.put("deviceCount",devices);
+    return facts;
   }
+
+  /** Compare business counters only; monitor freshness still belongs to the immutable snapshot. */
+  @SuppressWarnings("unchecked")
+  private Map<String,Object> withFreshness(Map<String,Object> report,String farmId) {
+    var current=businessFacts(farmId,clock.today());
+    var saved=(Map<String,Object>)report.get("metrics");
+    boolean changed=current.entrySet().stream().anyMatch(e -> saved==null || !equalNumber(e.getValue(),saved.get(e.getKey())));
+    report.put("snapshotOutdated",changed);
+    report.put("freshnessScope","BUSINESS_COUNTERS_ONLY");
+    return report;
+  }
+
+  private static boolean equalNumber(Object a,Object b) {
+    if(a instanceof Number && b instanceof Number)
+      return new java.math.BigDecimal(a.toString()).compareTo(new java.math.BigDecimal(b.toString()))==0;
+    return Objects.equals(a,b);
+  }
+
   private List<Map<String, Object>> cropContext(String tenant, String farmId, LocalDate date) {
     var result = db.queryForList("""
       SELECT p.name AS "plotName",s.crop AS "crop",s.variety AS "variety",s.start_date AS "startDate",s.area_mu AS "areaMu"

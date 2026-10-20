@@ -1,12 +1,13 @@
 <script setup>
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { api, loadError } from "../api";
+import { numeric } from "../metrics/measurement-model.js";
 import AppIcon from "../ui/AppIcon.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 import "./operations.css";
 
 // 农场运行概览：结构沿用磐隐运维概览——指标卡给结论，时间片健康条看趋势，流水线卡与地块矩阵看明细。
-const props = defineProps({ farmId: String, revision: Number });
+const props = defineProps({ farmId: String, revision: Number, role: String });
 const emit = defineEmits(["navigate"]);
 const hours = ref(168),
   data = ref(null),
@@ -21,6 +22,25 @@ const rangeOptions = [
   { value: 720, label: "近 30 天" },
 ];
 let sequence = 0;
+const quality = ref(null), qualityLoading = ref(false), qualityError = ref("");
+let qualitySequence = 0;
+async function loadQuality() {
+  if (props.role !== "ADMIN" || !props.farmId || qualityLoading.value) return;
+  const ticket = ++qualitySequence;
+  qualityLoading.value = true; qualityError.value = "";
+  try {
+    const result = await api(`/farms/${encodeURIComponent(props.farmId)}/data-quality`);
+    if (ticket === qualitySequence) quality.value = result;
+  } catch(e) { if(ticket === qualitySequence) qualityError.value = e.message; }
+  finally { if(ticket === qualitySequence) qualityLoading.value = false; }
+}
+function qualityOpened(event) {
+  if (event.target.open && !quality.value) loadQuality();
+}
+function qualitySample(sample) {
+  const name = sample.title || sample.name || sample.plotName || sample.deviceName;
+  return name ? `${name}${sample.id ? ' · '+sample.id : ''}` : sample.id || Object.entries(sample).map(([key,value])=>`${key}: ${value}`).join('，');
+}
 
 async function load() {
   if (!props.farmId) return;
@@ -42,10 +62,16 @@ async function load() {
     if (ticket === sequence) loading.value = false;
   }
 }
-watch(() => [props.farmId, props.revision, hours.value], load, {
-  immediate: true,
-});
-onBeforeUnmount(() => sequence++);
+watch(() => [props.farmId, props.revision, hours.value], ([farm], previous) => {
+  if (!previous || farm !== previous[0]) {
+    ++sequence;
+    data.value = null;
+    readout.value = "";
+    ++qualitySequence; quality.value = null; qualityLoading.value = false; qualityError.value = "";
+  }
+  load();
+}, { immediate: true });
+onBeforeUnmount(() => { sequence++; qualitySequence++; });
 
 const summary = computed(() => data.value?.summary || {});
 const slices = computed(() => data.value?.slices || []);
@@ -64,9 +90,7 @@ function tone(health) {
         : "red";
 }
 const moistureLine = computed(() => {
-  const values = slices.value.map((s) =>
-    s.moisture === null ? null : Number(s.moisture),
-  );
+  const values = slices.value.map((s) => numeric(s.moisture));
   const present = values.filter((v) => v !== null);
   if (!present.length) return { path: "", points: [] };
   const pad = Math.max(1, (Math.max(...present) - Math.min(...present)) * 0.15);
@@ -102,8 +126,8 @@ function when(value) {
     hour12: false,
   });
 }
-// 指标卡给“此刻”的结论：最后一个时间片截止到现在，与设备台账的上报状态一致
-const currentHealth = computed(() => slices.value.at(-1)?.health ?? null);
+// 当前指标可用率使用服务端独立统计，不取随历史范围变化的末尾时间片。
+const currentHealth = computed(() => summary.value.currentHealth ?? null);
 const lateDevices = computed(() =>
   Math.max(
     0,
@@ -139,7 +163,7 @@ function tooltipWhen(value) {
   });
 }
 function sliceTooltip(s) {
-  const span = `${tooltipWhen(s.start)}–${tooltipWhen(s.end)}（UTC+8）`;
+  const span = `${tooltipWhen(s.start)}–${tooltipWhen(s.end)}（本机时区）`;
   if (s.health === null) return `${span}\n设备尚未开始上报 · 无样本`;
   return `${span}\n正常上报 ${s.onTime}/${s.observed} 台 · 健康 ${s.health}%\n土壤水分均值 ${s.moisture === null ? "—（无读数）" : s.moisture + "%"}`;
 }
@@ -268,7 +292,7 @@ function rowSummary(plot) {
       </article>
       <article class="ops-card ops-metric">
         <div class="ops-label">
-          <span>此刻设备上报健康度</span
+          <span>此刻设备指标可用率</span
           ><img class="ops-metric-icon" src="/icons/operations/health-summary.png" alt="" />
         </div>
         <div
@@ -286,8 +310,8 @@ function rowSummary(plot) {
         </div>
         <div class="ops-bottom">
           <span v-if="data"
-            >正常 {{ summary.freshDevices }} 台<template v-if="lateDevices">
-              · 超时 {{ lateDevices }} 台</template
+            >有有效指标 {{ summary.freshDevices }} 台<template v-if="lateDevices">
+              · 无有效读数 {{ lateDevices }} 台</template
             ><template v-if="summary.silentDevices">
               · 尚无上报 {{ summary.silentDevices }} 台</template
             ></span
@@ -508,11 +532,11 @@ function rowSummary(plot) {
       <div class="disclosure-content">
         <ul>
           <li>
-            设备上报健康度：在每个时间片结束时，最近一次上报距今不超过上报间隔 3
-            倍（至少 3 分钟）的启用设备所占比例，与设备台账的“正常上报”同一口径。维护中和已停用的设备不计入；从未上报过的设备单独列出，不计入比例。
+            设备历史采样健康度：在每个时间片结束时，最近一次有效观测距片末不超过上报间隔 3
+            倍（至少 3 分钟）的启用设备所占比例，使用历史观测时刻计算。维护中和已停用的设备不计入；从未有过观测的设备单独列出，不计入历史比例。
           </li>
           <li>
-            指标卡里的“此刻”是最后一个时间片（截止到现在）的健康度；图表右上角是所选范围内有样本时间片的平均值，两者可能不同。
+            此刻设备指标可用率：当前在用设备中至少一项配置指标有效的比例，包括人工采集设备；无设备时显示“—”，不随图表日期范围变化。历史上报健康度与当前指标可用率是不同用途的统计。
           </li>
           <li>土壤水分均值：时间片内全部土壤水分读数的平均值，没有读数的时段不画线。</li>
           <li>
@@ -529,5 +553,18 @@ function rowSummary(plot) {
       ><span v-if="data">更新于 {{ when(data.window.end) }}</span
       ><span>阈值来自设备台账中的配置，未经农学标定</span>
     </p>
+    <details v-if="role === 'ADMIN'" class="ops-card ops-data-quality" @toggle="qualityOpened">
+      <summary>数据核对</summary>
+      <div class="ops-quality-body">
+        <p>核对当前农场的记录关联和统计边界。核对结果用于定位问题，保留原始记录。</p>
+        <button class="outline" :disabled="qualityLoading" @click="loadQuality">{{ qualityLoading ? '正在核对…' : quality ? '重新核对' : '开始核对' }}</button>
+        <p v-if="qualityError" class="error" role="alert">{{ qualityError }}</p>
+        <template v-if="quality">
+          <p>核对于 {{ when(quality.checkedAt) }} · {{ quality.summary.checkedRules }} 项规则 · {{ quality.summary.errorCount }} 项错误 · {{ quality.summary.warningCount }} 项提醒</p>
+          <ul class="ops-quality-checks"><li v-for="check in quality.checks" :key="check.code"><strong>{{ check.label }}：{{ check.count }} {{ check.countUnit || '项' }}</strong><small>{{ {ERROR:'需要修正',WARNING:'需要核对',INFO:'核对信息'}[check.severity] }}</small><ul v-if="check.samples?.length"><li v-for="(sample,index) in check.samples.slice(0,3)" :key="sample.id || index">{{ qualitySample(sample) }}</li></ul></li></ul>
+          <p>{{ quality.notice }}</p>
+        </template>
+      </div>
+    </details>
   </div>
 </template>

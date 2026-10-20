@@ -1,7 +1,8 @@
 <script setup>
 import { computed, ref, watch } from "vue";
 import { num, sourceNames, timeText } from "./presentation";
-const props = defineProps({ devices: Array, plots: Array, demo: Boolean, farmId: String });
+import { readingState, numeric } from "../metrics/measurement-model.js";
+const props = defineProps({ devices: Array, plots: Array, demo: Boolean, farmId: String, now: Number });
 const emit = defineEmits(["device"]);
 const includeDemo = ref(props.demo);
 watch(() => props.farmId, () => { includeDemo.value = props.demo; });
@@ -78,12 +79,12 @@ const incomplete = computed(
             v-for="c in channels(device)"
             :key="c.metric"
             class="field-monitor-reading"
-            :class="{ muted: c.freshness !== 'FRESH' }"
+            :class="{ muted: readingState(device,c,now).state !== 'FRESH' }"
           >
             <span>{{ c.name }}</span>
             <b
               >{{
-                c.latest
+                c.latest && numeric(c.latest.value) !== null
                   ? c.metric === "PUMP_RUNNING"
                     ? Number(c.latest.value) === 1
                       ? "运行"
@@ -95,11 +96,7 @@ const incomplete = computed(
             >
             <small
               >{{
-                c.freshness === "FRESH"
-                  ? "数据新鲜"
-                  : c.latest
-                    ? "已过期"
-                    : "等待上报"
+                readingState(device,c,now).reason
               }}
               · {{ timeText(c.latest?.time) }}</small
             >

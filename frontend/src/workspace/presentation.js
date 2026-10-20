@@ -1,3 +1,5 @@
+import { numeric, historySeries } from "../metrics/measurement-model.js";
+
 export const typeNames = {
   WEATHER: "气象站",
   SOIL: "土壤监测",
@@ -42,9 +44,9 @@ export function preferredMetric(device) {
   );
 }
 export const stateNames = {
-  FRESH: "正常上报",
-  STALE: "超时未报",
-  NO_DATA: "尚无上报",
+  FRESH: "有有效指标",
+  STALE: "暂无有效指标",
+  NO_DATA: "尚无观测",
   ACTIVE: "启用",
   MAINTENANCE: "维护中",
   DISABLED: "已停用",
@@ -83,7 +85,8 @@ export function timeText(value) {
     : "—";
 }
 export function num(value, digits = 1) {
-  return Number(value || 0).toLocaleString("zh-CN", {
+  const number = numeric(value);
+  return number === null ? "—" : number.toLocaleString("zh-CN", {
     maximumFractionDigits: digits,
   });
 }
@@ -118,7 +121,7 @@ export function pieOption(data, name) {
   };
 }
 // compact 用于大屏模式：横轴刻度更少
-export function lineOption(points, unit = "", compact = false) {
+export function lineOption(points, unit = "", compact = false, options = {}) {
   return {
     backgroundColor: "transparent",
     color: ["var(--info)"],
@@ -160,7 +163,7 @@ export function lineOption(points, unit = "", compact = false) {
         smooth: false,
         connectNulls: false,
         areaStyle: { opacity: 0.12 },
-        data: points.map((p) => [p.time, Number(p.value)]),
+        data: historySeries(points, options),
       },
     ],
   };

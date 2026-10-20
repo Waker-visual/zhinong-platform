@@ -8,6 +8,7 @@ import {
   watch,
 } from "vue";
 import { api, loadError } from "../api";
+import { deviceSnapshot } from "../metrics/measurement-model.js";
 import DeviceEditor from "./DeviceEditor.vue";
 import DeviceDetail from "./DeviceDetail.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
@@ -48,8 +49,13 @@ let alive = true,
   sequence = 0;
 let initialOpened = false;
 const writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
+const clock = ref(Date.now()), loaded = ref(false);
+let clockTimer;
+const deviceViews = computed(() => devices.value.map(device => deviceSnapshot(device, clock.value)));
+const scopedDevices = computed(() => deviceViews.value.filter(device => !farmId.value || device.farmId === farmId.value));
+const deviceStateName = value => ({FRESH:'有有效指标',STALE:'暂无有效指标',NO_DATA:'尚无观测'})[value] || stateNames[value];
 const filtered = computed(() =>
-  devices.value.filter(
+  deviceViews.value.filter(
     (d) =>
       (!farmId.value || d.farmId === farmId.value) &&
       (!type.value || d.deviceType === type.value) &&
@@ -66,7 +72,7 @@ const pageCount = computed(() =>
     filtered.value.slice((page.value - 1) * 15, page.value * 15),
   );
 const farmOptions = computed(() => [
-  { value: "", label: "选择农场" },
+  { value: "", label: "全部农场" },
   ...farms.value.map((farm) => ({ value: farm.id, label: farm.name })),
 ]);
 const typeOptions = computed(() => [
@@ -74,10 +80,10 @@ const typeOptions = computed(() => [
   ...Object.entries(typeNames).map(([value, label]) => ({ value, label })),
 ]);
 const statusOptions = [
-  { value: "", label: "全部上报状态" },
+  { value: "", label: "全部指标状态" },
   ...["FRESH", "STALE", "NO_DATA", "MAINTENANCE", "DISABLED"].map((value) => ({
     value,
-    label: stateNames[value],
+    label: deviceStateName(value),
   })),
 ];
 async function load() {
@@ -91,7 +97,9 @@ async function load() {
       api("/assets/catalog"),
     ]);
     if (!alive || current !== sequence) return;
+    clock.value = Date.now();
     devices.value = d;
+    loaded.value = true;
     farms.value = f;
     plots.value = p;
     catalog.value = c;
@@ -188,10 +196,11 @@ async function collect(device) {
 }
 watch([search, farmId, type, status], () => (page.value = 1));
 watch(() => props.revision, load);
-onMounted(load);
+onMounted(() => { load(); clockTimer = setInterval(() => { clock.value = Date.now(); },15000); });
 onBeforeUnmount(() => {
   alive = false;
   ++sequence;
+  clearInterval(clockTimer);
 });
 </script>
 <template>
@@ -204,37 +213,38 @@ onBeforeUnmount(() => {
     >
       <article>
         <span>设备台账</span
-        ><strong>{{ devices.length }}<small>台</small></strong>
+        ><strong>{{ loaded ? scopedDevices.length : '—' }}<small>台</small></strong>
       </article>
       <article>
-        <span>正常上报</span
+        <span>至少一项指标有效</span
         ><strong
-          >{{ devices.filter((d) => d.freshness === "FRESH").length
+          >{{ loaded ? scopedDevices.filter((d) => d.freshness === "FRESH").length : '—'
           }}<small>台</small></strong
         >
       </article>
       <article>
-        <span>超时未报</span
+        <span>暂无有效指标</span
         ><strong
-          >{{ devices.filter((d) => d.freshness === "STALE").length
+          >{{ loaded ? scopedDevices.filter((d) => d.freshness === "STALE").length : '—'
           }}<small>台</small></strong
         >
       </article>
       <article>
         <span>未定位设备</span
         ><strong
-          >{{ devices.filter((d) => !d.positioned).length
+          >{{ loaded ? scopedDevices.filter((d) => !d.positioned).length : '—'
           }}<small>台</small></strong
         >
       </article>
       <article>
-        <span>待处理告警</span
+        <span>未关闭告警</span
         ><strong
-          >{{ devices.reduce((sum, d) => sum + d.alertCount, 0)
+          >{{ loaded ? scopedDevices.reduce((sum, d) => sum + d.alertCount, 0) : '—'
           }}<small>项</small></strong
         >
       </article>
     </div>
+    <p class="muted">汇总范围：{{ farmId ? farms.find(farm => farm.id === farmId)?.name : '本租户全部农场' }}。汇总不受下方搜索、类型及指标状态筛选影响。</p>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <section class="panel">
       <div class="device-filter-toolbar">
@@ -326,7 +336,7 @@ onBeforeUnmount(() => {
                 <span
                   class="status-chip"
                   :class="device.freshness.toLowerCase()"
-                  >{{ stateNames[device.freshness] }}</span
+                  >{{ deviceStateName(device.freshness) }}</span
                 ><small>{{ sourceNames[device.protocol] }}</small>
                 <small
                   >{{ device.freshChannelCount }} /
@@ -342,7 +352,7 @@ onBeforeUnmount(() => {
                   <span class="metric-key"
                     >{{ c.name
                     }}<small v-if="c.latest && c.freshness !== 'FRESH'"
-                      >已过期</small
+                      >{{ c.reason }}</small
                     ></span
                   >
                   <span class="metric-value"

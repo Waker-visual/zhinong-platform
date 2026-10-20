@@ -43,7 +43,7 @@ export function deviceState(device, jobs = []) {
   if (!fresh)
     return {
       code: "stale",
-      label: device.freshness === "NO_DATA" ? "暂无上报" : "离线 / 超时未报",
+      label: device.freshness === "NO_DATA" ? "尚无观测" : "暂无有效指标",
       badge: "×",
     };
   if (jobs.some((j) => j.deviceId === device.id && j.status === "RUNNING"))
@@ -58,7 +58,7 @@ export function deviceState(device, jobs = []) {
     };
   return {
     code: "fresh",
-    label: device.protocol === "SIMULATED" ? "模拟在线" : "正常上报",
+    label: device.protocol === "SIMULATED" ? "模拟指标有效" : "有有效指标",
     badge: "✓",
   };
 }

@@ -32,11 +32,14 @@ public class ResearchDataController {
       LEFT JOIN plantings s ON s.tenant_id=l.tenant_id AND s.id=l.planting_id
       LEFT JOIN farm_tasks t ON t.tenant_id=l.tenant_id AND t.id=l.task_id
       LEFT JOIN task_fieldwork w ON w.tenant_id=t.tenant_id AND w.task_id=t.id
-      WHERE r.tenant_id=? AND p.farm_id=? AND (l.production_id IS NULL OR w.task_id IS NULL OR s.plot_id<>r.plot_id OR t.plot_id<>r.plot_id
-        OR s.crop<>p.crop OR s.area_mu>p.area_mu OR r.record_date<s.start_date OR r.record_date>s.end_date
+      WHERE r.tenant_id=? AND p.farm_id=?
+        AND r.note LIKE '学术合成数据 v2；非真实观测、非农艺处方。%'
+        AND NOT EXISTS(SELECT 1 FROM production_tracking x WHERE x.tenant_id=r.tenant_id AND x.production_id=r.id)
+        AND (l.production_id IS NULL OR w.task_id IS NULL OR s.plot_id<>r.plot_id OR t.plot_id<>r.plot_id
+        OR s.area_mu>p.area_mu OR r.record_date<s.start_date OR r.record_date>s.end_date
         OR t.task_type<>'HARVEST' OR t.status<>'COMPLETED' OR t.due_date<>r.record_date OR w.actual_area_mu<>s.area_mu)
       """,Long.class,tenant,farmId));
-    checks.put("futureHarvests",db.queryForObject("SELECT COUNT(*) FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>?",Long.class,tenant,farmId,clock.today()));
+    checks.put("futureHarvests",db.queryForObject("SELECT COUNT(*) FROM production r JOIN plots p ON p.tenant_id=r.tenant_id AND p.id=r.plot_id WHERE r.tenant_id=? AND p.farm_id=? AND r.record_date>? AND " + app.zhinong.business.ProductionService.active("r"),Long.class,tenant,farmId,clock.today()));
     long decreasing=0;
     for(String metric:List.of("ENERGY","WATER_TOTAL"))
       decreasing+=db.queryForObject(decreasingCounterSql(store.sql()),Long.class,metric,tenant,farmId);
@@ -48,7 +51,7 @@ public class ResearchDataController {
       """,Long.class,tenant,farmId));
     boolean valid=checks.values().stream().allMatch(value->((Number)value).longValue()==0);
     return Map.of("available",true,"synthetic",true,"manifest",manifests.getFirst(),"counts",counts,"checks",checks,"consistent",valid,
-      "note","学术合成数据 v2：按种植季构造，产量和监测值为假设值；不能作为真实观测或实际生产效果的证据。");
+      "note","学术合成数据 v2：按种植季构造，产量和监测值为假设值；收获关联检查仅面向未被用户更改的合成记录，普通用户登记与作废记录不纳入该项；不能作为真实观测或实际生产效果的证据。");
   }
 
   /**

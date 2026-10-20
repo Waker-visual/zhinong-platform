@@ -28,6 +28,8 @@ public class DemoTelemetryStream implements ApplicationRunner {
   private final TransactionTemplate tx;
   private final int days;
   private final boolean enabled;
+  private final boolean liveOnly;
+  private final Instant resumedAt;
   private boolean ready;
   private final Map<String, Cursor> cursors = new HashMap<>();
   private record Cursor(Instant at, String signature, LocalDate checkedDate) {}
@@ -42,33 +44,52 @@ public class DemoTelemetryStream implements ApplicationRunner {
       AND NOT EXISTS (SELECT 1 FROM demo_operating_farms r
         WHERE r.tenant_id=d.tenant_id AND r.farm_id=d.farm_id)
     """;
+  private static final String LIVE_ELIGIBLE = """
+    SELECT p.*,d.farm_id FROM asset_profiles p
+    JOIN devices d ON d.tenant_id=p.tenant_id AND d.id=p.device_id
+    JOIN tenants t ON t.id=p.tenant_id
+    JOIN farm_profiles f ON f.tenant_id=d.tenant_id AND f.farm_id=d.farm_id
+    WHERE t.code IN ('demo-a','demo-b') AND t.enabled=TRUE AND f.demo=TRUE
+      AND d.adapter='SIMULATED' AND p.protocol='SIMULATED' AND p.lifecycle='ACTIVE'
+      AND (p.code LIKE 'DEMO-%' OR p.code LIKE 'POINT-%')
+      AND NOT EXISTS (SELECT 1 FROM farm_archives a
+        WHERE a.tenant_id=d.tenant_id AND a.farm_id=d.farm_id)
+    """;
 
   public DemoTelemetryStream(JdbcTemplate db, TelemetryService telemetry, PlatformTransactionManager manager,
-      FarmClock clock, @Value("${farm.demo:false}") boolean demo, @Value("${farm.demo-stream.days:30}") int days) {
+      FarmClock clock, @Value("${farm.demo:false}") boolean demo, @Value("${farm.demo-stream.days:30}") int days,
+      @Value("${farm.demo-stream.live-only:false}") boolean liveOnly) {
     if (days < 1 || days > 30) throw new IllegalArgumentException("模拟历史范围为 1–30 天");
     this.db = db;
     this.telemetry = telemetry;
     this.clock = clock;
     this.tx = new TransactionTemplate(manager);
     this.days = days;
-    this.enabled = demo;
+    this.enabled = demo || liveOnly;
+    this.liveOnly = liveOnly;
+    this.resumedAt = clock.instant().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
   }
 
   @Override
   public void run(ApplicationArguments args) {
-    refresh(Instant.now(), true);
+    refresh(clock.instant(), !liveOnly);
     ready = true;
-    org.slf4j.LoggerFactory.getLogger(getClass()).info("Synthetic demo history ready ({} days); real-device readings are untouched", days);
+    if (liveOnly) org.slf4j.LoggerFactory.getLogger(getClass()).info("Live-only synthetic telemetry resumed; historical backfill and business seeding are not invoked");
+    else org.slf4j.LoggerFactory.getLogger(getClass()).info("Synthetic demo history ready ({} days); real-device readings are untouched", days);
   }
 
   @Scheduled(fixedDelayString = "${farm.demo-stream.delay-ms:60000}", initialDelay = 60000)
   public void tick() {
-    if (ready) refresh(Instant.now(), false);
+    if (ready) refresh(clock.instant(), false);
   }
 
   /** Full scans on startup and each UTC day also repair holes inside the retained window. */
   public synchronized void refresh(Instant now, boolean full) {
     if (!enabled) return;
+    if (liveOnly) {
+      appendCurrent(now);
+      return;
+    }
     for (var device : db.queryForList(ELIGIBLE + " ORDER BY p.tenant_id,p.device_id")) {
       String tenant = device.get("TENANT_ID").toString(), id = device.get("DEVICE_ID").toString();
       String key = tenant + ":" + id;
@@ -81,6 +102,50 @@ public class DemoTelemetryStream implements ApplicationRunner {
       if (cursor != null) cursors.put(key, cursor);
       else cursors.remove(key);
     }
+  }
+
+  /** One current batch only, including registered operating farms; never replay a missing window. */
+  private void appendCurrent(Instant now) {
+    now = now.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+    if (now.isBefore(resumedAt) || now.isAfter(clock.instant())) return;
+    final Instant observedAt = now;
+    var present = new HashSet<String>();
+    for (var device : db.queryForList(LIVE_ELIGIBLE + " ORDER BY p.tenant_id,p.device_id")) {
+      String tenant = device.get("TENANT_ID").toString(), id = device.get("DEVICE_ID").toString();
+      String key = tenant + ":" + id;
+      present.add(key);
+      var cursor = tx.execute(status -> {
+        db.queryForList("SELECT id FROM devices WHERE tenant_id=? AND id=? FOR UPDATE", tenant, id);
+        var eligible = db.queryForList(LIVE_ELIGIBLE + " AND p.tenant_id=? AND p.device_id=?", tenant, id);
+        return eligible.isEmpty() ? null : appendDevice(eligible.getFirst(), observedAt, cursors.get(key));
+      });
+      if (cursor == null) cursors.remove(key);
+      else cursors.put(key, cursor);
+    }
+    cursors.keySet().retainAll(present);
+  }
+
+  private Cursor appendDevice(Map<String,Object> device, Instant now, Cursor previous) {
+    String tenant = device.get("TENANT_ID").toString(), id = device.get("DEVICE_ID").toString();
+    var channels = db.queryForList("SELECT metric FROM device_channels WHERE tenant_id=? AND device_id=? ORDER BY metric", String.class, tenant, id);
+    int interval = ((Number) device.get("INTERVAL_SECONDS")).intValue();
+    String signature = interval + ":" + String.join(",", channels);
+    // The minute is a durable per-channel admission bucket, not a backdated observation time.
+    Instant slot = now.truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+    var missing = new HashSet<String>();
+    for (String metric : channels) {
+      if (!telemetry.liveSlotOccupied(tenant, id, metric, slot)) missing.add(metric);
+    }
+    if (missing.isEmpty()) return previous;
+    long elapsed = previous == null ? 0 : Duration.between(previous.at(), now).getSeconds();
+    // A restart, configuration change or missed tick carries counters forward without guessing the gap.
+    // fixedDelay includes the preceding batch's work; allow one delayed cycle, but credit at most 60 seconds.
+    if (previous == null || !previous.signature().equals(signature) || elapsed < 0 || elapsed > 120) elapsed = 0;
+    elapsed = Math.min(elapsed, Math.max(1, Math.min(interval, 60)));
+    var readings = telemetry.liveSimulatedReadings(tenant, id, elapsed).stream()
+      .filter(reading -> missing.contains(reading.metric())).toList();
+    if (!readings.isEmpty()) telemetry.write(tenant, id, now, readings, "SIMULATED", "DEMO_LIVE_ONLY");
+    return new Cursor(now, signature, now.atZone(clock.zone()).toLocalDate());
   }
 
   private Cursor fill(Map<String, Object> device, Instant now, boolean full, Cursor cursor) {

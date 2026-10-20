@@ -6,6 +6,46 @@
   border-radius: var(--radius);
   background: var(--surface);
 }
+.briefing-compact {
+  margin: 0;
+  padding: 18px;
+}
+.briefing-compact .briefing-heading {
+  align-items: flex-start;
+}
+.briefing-compact .briefing-heading-title h2 {
+  font-size: 17px;
+}
+.briefing-toggle {
+  flex: none;
+}
+.briefing-compact-summary > p {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  margin-top: 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.8;
+}
+.briefing-compact-summary .briefing-actions {
+  justify-content: space-between;
+  margin-top: 8px;
+}
+.daily-right .briefing-overview,
+.daily-right .briefing-facts {
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+.daily-right .briefing-facts {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.daily-right .briefing-next {
+  border-left: 0;
+  border-top: 1px solid var(--border);
+  padding: 16px 0 0;
+}
 .briefing-heading,
 .briefing-heading-title,
 .briefing-dialog-heading,
@@ -128,6 +168,12 @@
 }
 .briefing-facts dd small {
   font-weight: 400;
+}
+.briefing-facts dd .briefing-fact-detail {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-2);
 }
 .briefing-caption {
   display: flex;

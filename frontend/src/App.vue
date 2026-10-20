@@ -14,6 +14,8 @@ import { aiSession } from "./ai/ai-session.js";
 import FarmBriefing from "./ai/FarmBriefing.vue";
 import AlertCenter from "./workspace/AlertCenter.vue";
 import DailyFarm from "./fieldwork/DailyFarm.vue";
+import { productionSubmission, eligiblePlantings, eligibleHarvestTasks } from "./fieldwork/production-model.js";
+import "./fieldwork/production.css";
 import OperationsOverview from "./workspace/OperationsOverview.vue";
 import AppIcon from "./ui/AppIcon.vue";
 import brandLogo from "./assets/zhihe-logo.svg";
@@ -131,6 +133,27 @@ const dialog = ref(false);
 const captureDevice = ref(null);
 const captureValue = ref("");
 const model = reactive({});
+const productionPlantings = ref([]), productionTasks = ref([]);
+const productionReason = ref(""), productionVoid = ref(null), productionHistory = ref(null);
+const productionHistoryRows = ref([]), productionHistoryLoading = ref(false), productionHistoryError = ref("");
+let productionRequest = null, productionHistorySequence = 0;
+const productionBatchOptions = computed(() => [
+  { value: "", label: "暂不关联种植批次" },
+  ...eligiblePlantings(productionPlantings.value, model.plotId, model.recordDate).map(row => ({
+    value: row.id, label: `${row.crop} · ${row.startDate} 至 ${row.endDate}`,
+  })),
+]);
+const productionTaskOptions = computed(() => [
+  { value: "", label: "暂不关联收获任务" },
+  ...eligibleHarvestTasks(productionTasks.value, model.plotId,
+    productionPlantings.value.find(row => row.id === model.plantingId)).map(row => ({
+    value: row.id, label: `${row.title} · ${row.dueDate}`,
+  })),
+]);
+function productionContextChanged() {
+  if (!productionBatchOptions.value.some(option => option.value === model.plantingId)) model.plantingId = "";
+  if (!productionTaskOptions.value.some(option => option.value === model.taskId)) model.taskId = "";
+}
 const login = reactive({
   tenantCode: "",
   username: "",
@@ -245,6 +268,11 @@ const decorated = computed(() =>
             plotRows.value.find((p) => p.id === row.plotId)?.farmId),
       )?.name || "—",
     plotName: plotRows.value.find((p) => p.id === row.plotId)?.name || "—",
+    plantingName: (() => {
+      const planting = productionPlantings.value.find((item) => item.id === row.plantingId);
+      return planting ? `${planting.crop} · ${planting.startDate}` : "未关联";
+    })(),
+    taskName: productionTasks.value.find((task) => task.id === row.taskId)?.title || "未关联",
   })),
 );
 const filtered = computed(() =>
@@ -320,7 +348,9 @@ function options(field) {
 }
 const formFarmOptions = computed(() => [
   { value: "", label: "选择农场" },
-  ...farmRows.value.map((farm) => ({ value: farm.id, label: farm.name })),
+  ...farmRows.value
+    .filter((farm) => page.value !== "production" || !farmScope.value || farm.id === farmScope.value)
+    .map((farm) => ({ value: farm.id, label: farm.name })),
 ]);
 function selectOptions(field) {
   return [
@@ -339,7 +369,7 @@ async function action(work, success, key = "") {
     if (success) message(success);
   } catch (e) {
     // 登录页和对话框里的报错就近显示；页面上的操作失败用常驻报错条，不会滚出视线
-    if (!identity.value || dialog.value || captureDevice.value)
+    if (!identity.value || dialog.value || captureDevice.value || productionVoid.value)
       error.value = e.message;
     else reportFailure(e, () => action(work, success, key));
   } finally {
@@ -386,8 +416,8 @@ async function load() {
     rows.value = [];
     return;
   }
-  const data = scopedPage.value
-    ? await api(
+  const dataRequest = scopedPage.value
+    ? api(
         "/" +
           target +
           (farmScope.value
@@ -396,9 +426,19 @@ async function load() {
       )
     : target === "farms"
       ? farms
-      : await api("/" + target);
+      : api("/" + target);
+  const farmQuery = farmScope.value ? "?farmId=" + encodeURIComponent(farmScope.value) : "";
+  const [data, plantings, tasks] = await Promise.all([
+    dataRequest,
+    target === "production" ? api("/plantings" + farmQuery) : null,
+    target === "production" ? api("/tasks" + farmQuery) : null,
+  ]);
   if (sequence !== loadSequence) return;
   rows.value = data;
+  if (target === "production") {
+    productionPlantings.value = plantings;
+    productionTasks.value = tasks;
+  }
   if (target === "devices") {
     devices.value = data;
     const values = await api("/observations");
@@ -631,6 +671,11 @@ function expire() {
   dashboard.value = {};
   observations.value = [];
   dialog.value = false;
+  productionVoid.value = null;
+  closeProductionHistory();
+  productionPlantings.value = [];
+  productionTasks.value = [];
+  productionRequest = null;
   captureDevice.value = null;
   paletteOpen.value = false;
   assistantQuestion.value = "";
@@ -640,6 +685,8 @@ function expire() {
 }
 function openForm(row = null) {
   editing.value = row;
+  productionReason.value = "";
+  productionRequest = null;
   Object.keys(model).forEach((key) => delete model[key]);
   for (const field of fields.value)
     model[field.key] = row?.[field.key] ?? (field.type === "number" ? 1 : "");
@@ -648,6 +695,10 @@ function openForm(row = null) {
     plotRows.value.find((p) => p.id === row?.plotId)?.farmId ||
     farmScope.value;
   if (!row && page.value === "plots") model.farmId = farmScope.value;
+  if (page.value === "production") {
+    model.plantingId = row?.plantingId || "";
+    model.taskId = row?.taskId || "";
+  }
   if (!row && ["production", "tasks"].includes(page.value))
     model[page.value === "production" ? "recordDate" : "dueDate"] = new Date(
       Date.now() - new Date().getTimezoneOffset() * 60000,
@@ -674,14 +725,63 @@ async function save() {
         field.type === "number" ? Number(model[field.key]) : model[field.key],
       ]),
     );
-    await api(
+    if (page.value === "production") {
+      body.plantingId = model.plantingId || null;
+      body.taskId = model.taskId || null;
+      if (editing.value) {
+        body.reason = productionReason.value.trim();
+        body.expectedRevision = editing.value.revision;
+      } else {
+        productionRequest = productionSubmission(body, productionRequest);
+        body.requestId = productionRequest.requestId;
+      }
+    }
+    try { await api(
       "/" + page.value + (editing.value ? "/" + editing.value.id : ""),
       editing.value ? "PUT" : "POST",
       body,
-    );
+    ); } catch (e) {
+      if (page.value === "production" && !editing.value && isConnectionError(e))
+        e.message += "。登记结果尚未确认，请保留表单内容并再次保存，系统会核对同一次登记，避免重复计产。";
+      throw e;
+    }
+    productionRequest = null;
     dialog.value = false;
     await load();
   }, "已保存", "save");
+}
+function openProductionVoid(row) {
+  productionVoid.value = row;
+  productionReason.value = "";
+  error.value = "";
+}
+async function voidProduction() {
+  await action(async () => {
+    await api(`/production/${productionVoid.value.id}/void`, "POST", {
+      reason: productionReason.value.trim(), expectedRevision: productionVoid.value.revision,
+    });
+    productionVoid.value = null;
+    await load();
+  }, "生产记录已作废，汇总产量已更新", "production-void");
+}
+async function loadProductionHistory(row = productionHistory.value) {
+  const sequence = ++productionHistorySequence;
+  productionHistory.value = row;
+  productionHistoryRows.value = [];
+  productionHistoryLoading.value = true;
+  productionHistoryError.value = "";
+  try {
+    const result = await api(`/production/${row.id}/history`);
+    if (sequence === productionHistorySequence) productionHistoryRows.value = result;
+  } catch (e) {
+    if (sequence === productionHistorySequence) productionHistoryError.value = e.message;
+  } finally {
+    if (sequence === productionHistorySequence) productionHistoryLoading.value = false;
+  }
+}
+function closeProductionHistory() {
+  productionHistory.value = null;
+  ++productionHistorySequence;
 }
 // 普通删除不再弹确认框：先隐藏，提示条上 6 秒内可撤销，到时才提交（清单：事后撤销替代二次确认）
 async function remove(row) {
@@ -875,10 +975,10 @@ onUnmounted(() => {
     >
       <span class="sr-only">{{ loading ? "正在加载页面" : "" }}</span>
     </div>
-    <p v-if="attention" id="attention-note" class="sr-only">
-      {{ attention.label }}
-    </p>
     <aside id="app-sidebar" class="sidebar" aria-label="主导航">
+      <p v-if="attention" id="attention-note" class="sr-only">
+        {{ attention.label }}
+      </p>
       <div class="sidebar-head">
         <div class="brand">
           <img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" />
@@ -1069,7 +1169,7 @@ onUnmounted(() => {
         </p>
         <p v-if="error" role="alert" class="error">{{ error }}</p>
         <FarmBriefing
-          v-if="!platform && ['daily', 'operations'].includes(page)"
+          v-if="!platform && page === 'operations'"
           :farm-id="farmScope"
           :revision="moduleRevision"
           @ask="askFromInsight"
@@ -1086,11 +1186,23 @@ onUnmounted(() => {
           @navigate="dailyNavigate"
           @farm="launchFarm"
           @notice="message"
-        />
-        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :initial-conversation-id="assistantConversationId" :page-refreshing="refreshingPage" @farm="launchFarm" @question-prepared="assistantQuestion = ''" @conversation-selected="assistantConversationId = ''" />
+        >
+          <template #briefing>
+            <FarmBriefing
+              :farm-id="farmScope"
+              :revision="moduleRevision"
+              compact
+              @ask="askFromInsight"
+              @navigate="navigate"
+              @alerts="alertCenter?.open()"
+            />
+          </template>
+        </DailyFarm>
+        <FarmAssistant v-else-if="page === 'ai'" ref="farmAssistant" :key="farmScope" :farm-id="farmScope" :role="role" companion-target="#farm-assistant-companion" :initial-question="assistantQuestion" :initial-conversation-id="assistantConversationId" :page-refreshing="refreshingPage" @farm="launchFarm" @navigate="dailyNavigate" @question-prepared="assistantQuestion = ''" @conversation-selected="assistantConversationId = ''" />
         <FieldCameras v-else-if="page === 'cameras'" :key="farmScope" :farm-id="farmScope" :initial-device-id="cameraFocus" :revision="moduleRevision" @manage="navigate({ page: 'devices', ...$event, cameraOnly: true })" />
         <OperationsOverview
           v-else-if="page === 'operations'"
+          :role="role"
           :farm-id="farmScope"
           :revision="moduleRevision"
           @navigate="navigate"
@@ -1169,7 +1281,7 @@ onUnmounted(() => {
                     >
                       {{ col[1] }}
                     </th>
-                    <th v-if="writer || platform" role="columnheader">操作</th>
+                    <th v-if="writer || platform || page === 'production'" role="columnheader">操作</th>
                   </tr>
                 </thead>
                 <tbody role="rowgroup">
@@ -1183,15 +1295,20 @@ onUnmounted(() => {
                       <span
                         v-if="col[0] === 'status'"
                         :class="['badge', row.status.toLowerCase()]"
-                        >{{ display(row[col[0]]) }}</span
+                        >{{ page === 'production' ? (row.status === 'VOID' ? '已作废' : '有效') : display(row[col[0]]) }}</span
                       ><span v-else>{{ display(row[col[0]]) }}</span>
                     </td>
                     <td
-                      v-if="writer || platform"
+                      v-if="writer || platform || page === 'production'"
                       class="actions"
                       role="cell"
                       data-label="操作"
                     >
+                      <template v-if="page === 'production'">
+                        <button @click="loadProductionHistory(row)">变更记录</button>
+                        <button v-if="admin && row.status !== 'VOID'" @click="openForm(row)" :disabled="busy">更正</button>
+                        <button v-if="admin && row.status !== 'VOID'" class="danger-text" @click="openProductionVoid(row)" :disabled="busy">作废</button>
+                      </template>
                       <template
                         v-if="admin && ['farms', 'plots'].includes(page)"
                         ><button @click="openForm(row)">编辑</button
@@ -1269,7 +1386,7 @@ onUnmounted(() => {
                   <tr v-for="n in 4" :key="n" class="skeleton-row">
                     <td
                       v-for="col in current.columns.length +
-                      (writer || platform ? 1 : 0)"
+                      (writer || platform || page === 'production' ? 1 : 0)"
                       :key="col"
                     >
                       <span class="skeleton"></span>
@@ -1438,12 +1555,12 @@ onUnmounted(() => {
     />
     <ModalDialog
       v-if="dialog"
-      :label="(editing ? '编辑' : '新增') + current.noun"
+      :label="(editing ? (page === 'production' ? '更正' : '编辑') : '新增') + current.noun"
       :locked="busy"
       @close="dialog = false"
     >
         <div class="section-title">
-          <h2>{{ editing ? "编辑" : "新增" }}{{ current.noun }}</h2>
+          <h2>{{ editing ? (page === 'production' ? '更正' : '编辑') : "新增" }}{{ current.noun }}</h2>
           <button
             class="close-button"
             @click="dialog = false"
@@ -1459,7 +1576,8 @@ onUnmounted(() => {
               v-model="formFarm"
               aria-label="表单所属农场"
               :options="formFarmOptions"
-              @change="model.plotId = ''"
+              @change="model.plotId = ''; model.plantingId = ''; model.taskId = ''"
+              :disabled="busy"
             /></label
           >
           <label v-for="field in fields" :key="field.key"
@@ -1469,6 +1587,8 @@ onUnmounted(() => {
               v-model="model[field.key]"
               :options="selectOptions(field)"
               :aria-label="field.label"
+              :disabled="busy"
+              @change="page === 'production' && productionContextChanged()"
               required
             />
             <DatePicker
@@ -1476,12 +1596,15 @@ onUnmounted(() => {
               v-model="model[field.key]"
               :aria-label="field.label"
               :required="!field.optional"
+              :disabled="busy"
+              @change="page === 'production' && productionContextChanged()"
             />
             <input
               v-else
               v-model="model[field.key]"
               :type="field.type"
               :required="!field.optional"
+              :disabled="busy"
               :maxlength="field.max"
               :minlength="field.minLength"
               :min="field.min"
@@ -1491,6 +1614,19 @@ onUnmounted(() => {
                 field.type === 'password' ? 'new-password' : 'off'
               "
           /></label>
+          <template v-if="page === 'production'">
+            <label>种植批次<small>（选填）</small><SelectMenu
+              v-model="model.plantingId" :options="productionBatchOptions" aria-label="种植批次"
+              :disabled="busy || !model.plotId || !model.recordDate" @change="productionContextChanged"
+            /></label>
+            <label>已完成收获任务<small>（选填）</small><SelectMenu
+              v-model="model.taskId" :options="productionTaskOptions" aria-label="已完成收获任务"
+              :disabled="busy || !model.plantingId"
+            /></label>
+            <p class="production-form-note">批次按地块和收获日期筛选；关联任务须已完成，且计划日期位于批次周期内。没有关联的历史记录仍可独立登记。</p>
+            <label v-if="editing">更正原因<input v-model="productionReason" required minlength="2" maxlength="500" :disabled="busy" placeholder="说明需要更正的内容与原因" /></label>
+            <p v-if="editing" class="production-form-note">更正会保留原值与操作记录，并更新统计产量。</p>
+          </template>
           <p v-if="error" class="error" role="alert">{{ error }}</p>
           <div class="modal-actions">
             <button
@@ -1509,6 +1645,29 @@ onUnmounted(() => {
             </button>
           </div>
         </form>
+    </ModalDialog>
+    <ModalDialog v-if="productionVoid" label="作废生产记录" :locked="busy" @close="productionVoid = null">
+      <div class="section-title"><h2>作废生产记录</h2><button class="close-button" aria-label="关闭作废表单" :disabled="busy" @click="productionVoid = null">×</button></div>
+      <p class="production-form-note">{{ productionVoid.recordDate }} · {{ productionVoid.plotName }} · {{ display(productionVoid.yieldKg) }} kg。作废后不再计入产量，原记录及原因会保留。</p>
+      <form v-validate @submit.prevent="voidProduction">
+        <label>作废原因<input v-model="productionReason" required minlength="2" maxlength="500" :disabled="busy" placeholder="例如重复登记或登记到错误地块" /></label>
+        <p v-if="error" class="error" role="alert">{{ error }}</p>
+        <div class="modal-actions"><button type="button" class="outline" :disabled="busy" @click="productionVoid = null">取消</button><button class="primary" :disabled="busy" :aria-busy="pending === 'production-void'">{{ busy ? "正在作废…" : "确认作废" }}</button></div>
+      </form>
+    </ModalDialog>
+    <ModalDialog v-if="productionHistory" label="生产记录变更历史" @close="closeProductionHistory">
+      <div class="section-title"><h2>生产记录变更历史</h2><button class="close-button" aria-label="关闭变更历史" @click="closeProductionHistory">×</button></div>
+      <p class="production-form-note">{{ productionHistory.plotName }} · 每次登记、更正与作废均保留快照。</p>
+      <p v-if="productionHistoryLoading" role="status">正在读取变更记录…</p>
+      <p v-if="productionHistoryError" class="error" role="alert">{{ productionHistoryError }} <button class="text-button" @click="loadProductionHistory()">重新读取</button></p>
+      <ol class="production-history" v-if="!productionHistoryLoading">
+        <li v-for="entry in productionHistoryRows" :key="entry.revision">
+          <h3>{{ ({CREATE:'登记', LEGACY:'历史登记', CORRECT:'更正', VOID:'作废'})[entry.action] || entry.action }} <small>版本 {{ entry.revision }}</small></h3>
+          <p>{{ entry.snapshot?.recordDate }} · {{ display(entry.snapshot?.yieldKg) }} kg · {{ entry.snapshot?.status === 'VOID' ? '已作废' : '有效' }}</p>
+          <p>{{ entry.reason || '首次登记' }}</p>
+          <small>{{ entry.actor }} · {{ display(entry.occurredAt) }}</small>
+        </li>
+      </ol>
     </ModalDialog>
     <ModalDialog
       v-if="captureDevice"

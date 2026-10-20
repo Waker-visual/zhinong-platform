@@ -1,0 +1,844 @@
+.farm-display .screen-forecast,
+.farm-display .screen-risk-overview {
+  --forecast-risk-high: color-mix(
+    in srgb,
+    var(--danger) 60%,
+    var(--display-white)
+  );
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  padding: 20px 24px;
+  margin-bottom: 18px;
+  min-width: 0;
+}
+.farm-display .screen-forecast-anchor,
+.farm-display .screen-risk-anchor {
+  min-width: 0;
+  scroll-margin-top: 16px;
+}
+.farm-display .screen-risk-overview:focus-visible {
+  outline: 2px solid var(--display-leaf);
+  outline-offset: 3px;
+}
+.farm-display .screen-forecast:focus-visible {
+  outline: 2px solid var(--display-leaf);
+  outline-offset: 3px;
+}
+.farm-display .display-agronomy-intro .display-risk-peek {
+  padding: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  color: var(--display-gold);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.farm-display .screen-forecast .display-section-heading,
+.farm-display .screen-risk-overview .display-section-heading {
+  margin-bottom: 10px;
+}
+.farm-display .forecast-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.farm-display .forecast-boundary {
+  margin: 0 0 14px;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.farm-display .forecast-days-scroll {
+  overflow-x: auto;
+  min-width: 0;
+  scrollbar-width: thin;
+}
+.farm-display .forecast-days-scroll:focus-visible {
+  outline: 2px solid var(--display-gold);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.farm-display .forecast-days {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(136px, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.farm-display .forecast-days > li {
+  min-width: 0;
+  padding: 8px 14px 4px;
+  border-left: 1px solid var(--border);
+}
+.farm-display .forecast-days > li:first-child {
+  border-left: 0;
+  padding-left: 0;
+}
+.farm-display .forecast-days > li:last-child {
+  padding-right: 0;
+}
+.farm-display .forecast-days h3 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 12px;
+}
+.farm-display .forecast-condition {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  font-size: 13px;
+}
+.farm-display .forecast-condition svg {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  stroke: var(--display-gold);
+  stroke-width: 1.5;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.farm-display .forecast-temperature {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+  font-variant-numeric: tabular-nums;
+}
+.farm-display .forecast-temperature strong {
+  font-size: 29px;
+  font-weight: 600;
+  letter-spacing: -1px;
+}
+.farm-display .forecast-temperature > span {
+  font-size: 18px;
+  color: var(--text-2);
+}
+.farm-display .forecast-temperature small {
+  flex-basis: 100%;
+  font-size: 10px;
+  color: var(--text-2);
+}
+.farm-display .forecast-days dl {
+  margin: 0;
+  font-size: 11px;
+}
+.farm-display .forecast-days dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 7px;
+  padding-block: 4px;
+}
+.farm-display .forecast-days dt {
+  color: var(--text-2);
+}
+.farm-display .forecast-days dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.farm-display .forecast-days dd small {
+  font-size: 10px;
+  margin-left: 3px;
+  color: var(--text-2);
+}
+.farm-display .forecast-day-warning {
+  width: 100%;
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  text-align: left;
+  padding: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--display-gold);
+  background: var(--display-gold-soft);
+  border-color: var(--display-gold-line);
+}
+.farm-display .forecast-day-warning > span {
+  font-weight: 600;
+}
+.farm-display .forecast-day-warning > small {
+  font-size: 10px;
+}
+.farm-display .forecast-day-risk .forecast-day-warning {
+  border-left: 3px solid var(--forecast-risk-high);
+}
+.farm-display .forecast-day-note {
+  min-height: 30px;
+  border-top: 1px solid var(--border);
+  margin: 12px 0 0;
+  padding-top: 9px;
+  font-size: 10px;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+.farm-display .forecast-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 24px;
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.farm-display .forecast-provenance a {
+  color: var(--display-leaf);
+  text-underline-offset: 3px;
+}
+.farm-display .forecast-explanation {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+.farm-display .forecast-explanation summary {
+  cursor: pointer;
+}
+.farm-display .forecast-explanation p {
+  margin-bottom: 0;
+}
+.farm-display .forecast-more-metrics {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 12px;
+}
+.farm-display .forecast-metrics-scroll {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  margin-top: 10px;
+}
+.farm-display .forecast-metrics-scroll:focus-visible {
+  outline: 2px solid var(--display-gold);
+  outline-offset: 3px;
+}
+.farm-display .forecast-metrics-table {
+  width: 100%;
+  min-width: 1000px;
+  border-collapse: collapse;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.farm-display .forecast-metrics-table th,
+.farm-display .forecast-metrics-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 9px 10px;
+  white-space: nowrap;
+}
+.farm-display .forecast-metrics-table th {
+  font-weight: 500;
+}
+.farm-display .forecast-metrics-table tbody th {
+  text-align: left;
+}
+.farm-display .forecast-metrics-table td {
+  color: var(--text);
+}
+.farm-display .forecast-metrics-table small {
+  font-size: inherit;
+}
+.farm-display .forecast-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-height: 108px;
+  padding: 20px;
+  color: var(--text-2);
+  text-align: center;
+}
+.farm-display .forecast-empty > .app-icon {
+  width: 28px;
+  height: 28px;
+}
+.farm-display .forecast-empty p {
+  margin: 0;
+  max-width: 680px;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.farm-display .forecast-state-note {
+  padding: 9px 12px;
+  border-left: 2px solid var(--display-gold);
+  background: var(--display-gold-soft);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 10px 0;
+}
+.farm-display .risk-level-counts {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 22px;
+  padding: 7px 0 12px;
+  font-size: 12px;
+}
+.farm-display .risk-level-counts strong {
+  margin-left: 4px;
+  font-size: 19px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.farm-display .risk-level-counts i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 8px;
+}
+.farm-display .risk-high-dot {
+  background: var(--forecast-risk-high);
+}
+.farm-display .risk-warning-dot {
+  background: var(--display-gold);
+}
+.farm-display .risk-level-counts > small {
+  font-size: 11px;
+  color: var(--text-2);
+  margin-left: auto;
+}
+.farm-display .risk-controls {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0 15px;
+}
+.farm-display .risk-source-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.farm-display .risk-source-filters button {
+  font-size: 11px;
+  min-height: 32px;
+  padding: 5px 10px;
+  background: transparent;
+}
+.farm-display .risk-source-filters button[aria-pressed="true"] {
+  border-color: var(--display-leaf);
+  background: var(--display-leaf-soft);
+  color: var(--display-leaf);
+}
+.farm-display .risk-source-filters button span {
+  font-variant-numeric: tabular-nums;
+}
+.farm-display .risk-controls > label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.farm-display .risk-controls input {
+  accent-color: var(--display-leaf);
+  width: 15px;
+  height: 15px;
+}
+.farm-display .risk-date-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--display-gold);
+}
+.farm-display .risk-date-filter button {
+  padding: 4px 8px;
+  font-size: 11px;
+  min-height: 30px;
+}
+.farm-display .risk-items {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 10px 16px;
+}
+.farm-display .risk-item {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--display-leaf-line);
+  border-radius: 6px;
+}
+.farm-display .risk-severity-high {
+  border-left-color: var(--forecast-risk-high);
+}
+.farm-display .risk-severity-warning {
+  border-left-color: var(--display-gold);
+}
+.farm-display .risk-item > summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+.farm-display .risk-item > summary::-webkit-details-marker {
+  display: none;
+}
+.farm-display .risk-item-heading {
+  min-width: 0;
+  flex: 1;
+}
+.farm-display .risk-item > summary > .app-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: transform 150ms ease;
+}
+.farm-display .risk-item[open] > summary > .app-icon {
+  transform: rotate(180deg);
+}
+.farm-display .risk-severity {
+  font-size: 10px;
+  white-space: nowrap;
+  color: var(--text-2);
+  padding-top: 2px;
+}
+.farm-display .risk-severity-high .risk-severity {
+  color: var(--forecast-risk-high);
+}
+.farm-display .risk-severity-warning .risk-severity {
+  color: var(--display-gold);
+}
+.farm-display .risk-item-heading > strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.farm-display .risk-item-heading > small {
+  display: block;
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 1.6;
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.farm-display .risk-item-content {
+  border-top: 1px solid var(--border);
+  padding: 0 16px 16px;
+  font-size: 12px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.farm-display .risk-item-content h3 {
+  font-size: 12px;
+  margin: 14px 0 6px;
+  color: var(--display-leaf);
+}
+.farm-display .risk-item-content ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-2);
+}
+.farm-display .risk-item-content small {
+  display: block;
+  color: var(--text-2);
+  margin-top: 8px;
+}
+.farm-display .risk-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+.farm-display .risk-item-actions button {
+  font-size: 11px;
+}
+.farm-display .risk-show-all {
+  display: flex;
+  margin: 14px auto 0;
+  font-size: 12px;
+}
+.farm-display .risk-notice {
+  margin-bottom: 0;
+}
+.farm-display .risk-scroll-body:focus-visible {
+  outline: 2px solid var(--display-leaf);
+  outline-offset: 2px;
+}
+.farm-display .risk-explanation {
+  margin-top: 10px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--text-2);
+}
+.farm-display .risk-explanation summary {
+  cursor: pointer;
+}
+.farm-display .forecast-tools {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 6px 20px;
+  margin-top: 8px;
+}
+.farm-display .forecast-tools > details {
+  margin: 0;
+  border: 0;
+  padding: 0;
+  min-width: 0;
+}
+.farm-display .forecast-tools > details[open] {
+  grid-column: 1 / -1;
+}
+/* Natural flow remains available on phones, tablets, and short windows. */
+.farm-display .display-weather-stage {
+  overflow-y: auto;
+}
+.farm-display .display-weather-stage > .display-content {
+  flex: 0 0 auto;
+  min-height: auto;
+}
+.farm-display .display-weather-grid {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+.farm-display .display-weather-grid .screen-forecast,
+.farm-display .display-weather-grid .screen-risk-overview {
+  margin-bottom: 0;
+}
+@media (min-width: 1121px) and (min-height: 700px) {
+  .farm-display .display-weather-stage > .display-content {
+    flex: 1 1 0;
+    min-height: 0;
+    padding-bottom: 18px;
+  }
+  .farm-display .display-weather-intro {
+    flex: 0 0 auto;
+    margin: 0 0 12px;
+    gap: 16px;
+  }
+  .farm-display .display-weather-intro > div {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    min-width: 0;
+  }
+  .farm-display .display-weather-intro h2 {
+    font-size: 20px;
+  }
+  .farm-display .display-weather-intro p {
+    margin: 0;
+    font-size: 12px;
+  }
+  .farm-display .display-weather-intro > button {
+    flex: 0 0 auto;
+    font-size: 12px;
+  }
+  .farm-display .display-weather-grid {
+    flex: 1 1 0;
+    min-height: 530px;
+    grid-template-rows: minmax(360px, 1.5fr) minmax(190px, 1fr);
+    gap: 12px;
+  }
+  .farm-display .display-weather-grid > div {
+    min-height: 0;
+  }
+  .farm-display .display-weather-grid .screen-forecast,
+  .farm-display .display-weather-grid .screen-risk-overview {
+    height: 100%;
+    padding: 14px 20px;
+    scrollbar-width: thin;
+  }
+  .farm-display .display-weather-grid .screen-forecast {
+    padding-block: 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .farm-display .display-weather-grid .display-section-heading {
+    margin-bottom: 6px;
+    gap: 16px;
+  }
+  .farm-display .display-weather-grid .display-section-heading h2 {
+    font-size: 16px;
+    line-height: 1.3;
+  }
+  .farm-display .display-weather-grid .display-section-heading p {
+    margin-top: 3px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+  .farm-display .forecast-boundary {
+    margin-bottom: 6px;
+    font-size: 11px;
+  }
+  .farm-display .forecast-provenance {
+    margin-top: 8px;
+    gap: 4px 20px;
+  }
+  .farm-display .forecast-tools .forecast-explanation {
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .farm-display .display-weather-grid .screen-risk-overview {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .farm-display .screen-risk-overview > :not(.risk-scroll-body) {
+    flex: 0 0 auto;
+  }
+  .farm-display .risk-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 4px 20px;
+    margin-bottom: 8px;
+  }
+  .farm-display .risk-level-counts {
+    padding: 0;
+    gap: 8px 16px;
+    font-size: 11px;
+  }
+  .farm-display .risk-level-counts strong {
+    font-size: 18px;
+  }
+  .farm-display .risk-controls {
+    padding: 0;
+    gap: 8px 14px;
+  }
+  .farm-display .risk-source-filters button {
+    min-height: 30px;
+    padding: 4px 8px;
+  }
+  .farm-display .risk-controls > label {
+    font-size: 11px;
+  }
+  .farm-display .risk-scroll-body {
+    flex: 1 1 0;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+    padding: 2px 5px 2px 2px;
+  }
+  .farm-display .screen-risk-overview:has(> .forecast-state-note),
+  .farm-display .screen-risk-overview:has(> .risk-date-filter),
+  .farm-display .screen-risk-overview:has(.risk-item[open]) {
+    overflow-y: auto;
+  }
+  .farm-display
+    .screen-risk-overview:has(> .forecast-state-note)
+    .risk-scroll-body,
+  .farm-display
+    .screen-risk-overview:has(> .risk-date-filter)
+    .risk-scroll-body,
+  .farm-display .screen-risk-overview:has(.risk-item[open]) .risk-scroll-body {
+    flex: 1 0 auto;
+    min-height: 160px;
+    overflow: visible;
+  }
+  .farm-display .risk-items {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px 12px;
+  }
+  .farm-display .risk-item > summary {
+    padding: 9px 10px;
+    gap: 8px;
+  }
+  .farm-display .risk-item-heading > small {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+  .farm-display .risk-date-filter {
+    margin: 0 0 8px;
+  }
+}
+@media (max-width: 1120px) {
+  .farm-display .forecast-days {
+    grid-template-columns: repeat(7, 154px);
+  }
+  .farm-display .forecast-days > li {
+    padding-inline: 12px;
+  }
+  .farm-display .screen-forecast,
+  .farm-display .screen-risk-overview {
+    padding: 18px;
+  }
+  .farm-display .forecast-heading-actions {
+    justify-content: flex-start;
+  }
+  .farm-display .risk-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (min-width: 1121px) {
+  .farm-display .screen-forecast {
+    padding: 14px 20px;
+  }
+  .farm-display .screen-forecast .display-section-heading {
+    margin-bottom: 6px;
+  }
+  .farm-display .forecast-boundary {
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  .farm-display .forecast-days {
+    line-height: 1.3;
+  }
+  .farm-display .forecast-days > li {
+    padding-top: 4px;
+  }
+  .farm-display .forecast-days h3 {
+    font-size: 12px;
+    margin-bottom: 6px;
+    line-height: 1.4;
+  }
+  .farm-display .forecast-condition {
+    min-height: 24px;
+    font-size: 12px;
+  }
+  .farm-display .forecast-condition svg {
+    width: 23px;
+    height: 23px;
+  }
+  .farm-display .forecast-temperature {
+    margin: 5px 0;
+    gap: 3px 6px;
+    line-height: 1.1;
+  }
+  .farm-display .forecast-temperature strong {
+    font-size: 25px;
+  }
+  .farm-display .forecast-temperature > span {
+    font-size: 16px;
+  }
+  .farm-display .forecast-temperature small {
+    font-size: 10px;
+  }
+  .farm-display .forecast-days dl {
+    line-height: 1.25;
+  }
+  .farm-display .forecast-days dl > div {
+    padding-block: 3px;
+  }
+  .farm-display .forecast-day-warning {
+    padding: 5px;
+    font-size: 10px;
+    line-height: 1.3;
+    margin-top: 6px;
+    gap: 2px;
+    min-height: 0;
+  }
+  .farm-display .forecast-day-warning > small {
+    font-size: 10px;
+  }
+  .farm-display .forecast-day-note {
+    margin-top: 8px;
+    min-height: 26px;
+    padding-top: 6px;
+  }
+  .farm-display .forecast-provenance {
+    margin-top: 6px;
+    font-size: 11px;
+  }
+  .farm-display .forecast-explanation {
+    margin-top: 6px;
+    font-size: 10px;
+  }
+}
+@media (min-width: 1121px) and (min-height: 900px) {
+  .farm-display .display-weather-grid {
+    grid-template-rows: minmax(430px, 1.15fr) minmax(260px, 1fr);
+  }
+  .farm-display .forecast-days h3 {
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+  .farm-display .forecast-condition {
+    min-height: 34px;
+    font-size: 14px;
+  }
+  .farm-display .forecast-condition svg {
+    width: 30px;
+    height: 30px;
+  }
+  .farm-display .forecast-temperature {
+    margin-block: 8px;
+  }
+  .farm-display .forecast-temperature strong {
+    font-size: 32px;
+  }
+  .farm-display .forecast-temperature > span {
+    font-size: 19px;
+  }
+  .farm-display .forecast-days dl {
+    font-size: 12px;
+  }
+  .farm-display .forecast-days dl > div {
+    padding-block: 4px;
+  }
+  .farm-display .forecast-day-warning {
+    padding: 7px;
+    font-size: 12px;
+    line-height: 1.4;
+    margin-top: 8px;
+  }
+  .farm-display .risk-item > summary {
+    padding: 12px;
+  }
+  .farm-display .risk-item-heading > strong {
+    font-size: 14px;
+  }
+}
+@media (max-width: 600px) {
+  .farm-display .screen-forecast .display-section-heading,
+  .farm-display .screen-risk-overview .display-section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .farm-display .display-view-bar nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+  .farm-display .display-weather-stage .display-view-bar nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
+  }
+  .farm-display .display-view-bar nav button {
+    padding-inline: 8px;
+    font-size: 13px;
+  }
+  .farm-display .forecast-provenance {
+    flex-direction: column;
+    line-height: 1.8;
+  }
+  .farm-display .forecast-tools {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .farm-display .forecast-days-scroll,
+  .farm-display .forecast-metrics-scroll {
+    overscroll-behavior-x: contain;
+  }
+  .farm-display .risk-item > summary {
+    padding: 12px;
+    gap: 8px;
+  }
+  .farm-display .risk-controls > label {
+    margin-left: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .farm-display .risk-item > summary > .app-icon {
+    transition: none;
+  }
+}

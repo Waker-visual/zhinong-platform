@@ -16,6 +16,7 @@ import CameraPlayer from "../workspace/CameraPlayer.vue";
 import MobileDevice from "./MobileDevice.vue";
 import MobileJobs from "./MobileJobs.vue";
 import MobileAlerts from "./MobileAlerts.vue";
+import { metricSnapshot, deviceCounts, deviceSnapshot } from "../metrics/measurement-model.js";
 import {
   createClient,
   freshness,
@@ -31,6 +32,7 @@ const identity = ref(null),
   devices = ref([]),
   alerts = ref([]);
 const fieldJobs = ref([]), jobMode = ref("records");
+const clock = ref(Date.now());
 const tab = ref("home"),
   search = ref(""),
   filter = ref(""),
@@ -42,6 +44,8 @@ const error = ref(""),
   refreshing = ref(false),
   lastSync = ref(null),
   connected = ref(false);
+const reception = computed(() => deviceCounts(lastSync.value ? devices.value : null, clock.value));
+const alertTotal = computed(() => lastSync.value ? devices.value.reduce((total, device) => total + Number(device.alertCount || 0), 0) : null);
 const credentials = reactive({ tenantCode: "", username: "", password: "" });
 const location = window.location;
 const nativeShell = /ZhiheMobile\/[\d.]+/.test(navigator.userAgent);
@@ -74,14 +78,15 @@ const tabs = [
 const farm = computed(() => farms.value.find((f) => f.id === farmId.value));
 const farmOptions = computed(() => farms.value.map(f => ({ ...f, caption: `${f.region || '农场工作空间'} · ${f.demo ? '演示农场' : '经营农场'}`, meta: `${number(f.areaMu)} 亩 · ${f.plotCount} 个地块 · ${f.deviceCount} 台设备` })));
 const activeJobs = computed(() => fieldJobs.value.filter(j => ["RUNNING", "PAUSED"].includes(j.status)));
+const currentDevices = computed(() => devices.value.map(device => deviceSnapshot(device, clock.value)));
 const selected = computed(() =>
-  devices.value.find((d) => d.id === selectedId.value),
+  currentDevices.value.find((d) => d.id === selectedId.value),
 );
 const cameras = computed(() =>
-  devices.value.filter((d) => d.deviceType === "CAMERA"),
+  currentDevices.value.filter((d) => d.deviceType === "CAMERA"),
 );
 const filtered = computed(() =>
-  devices.value.filter(
+  currentDevices.value.filter(
     (d) =>
       (!filter.value || d.deviceType === filter.value) &&
       `${d.name} ${d.code} ${d.model} ${d.plotName || ""}`
@@ -91,16 +96,7 @@ const filtered = computed(() =>
 );
 const hasDeviceFilters = computed(() => Boolean(search.value.trim() || filter.value));
 const metrics = computed(() =>
-  ["TEMPERATURE", "SOIL_MOISTURE", "RAINFALL", "PEST_COUNT"].map((metric) => {
-    const device = devices.value.find((d) =>
-      d.channels.some((c) => c.metric === metric),
-    );
-    return {
-      device,
-      channel: device?.channels.find((c) => c.metric === metric),
-      metric,
-    };
-  }),
+  ["TEMPERATURE", "SOIL_MOISTURE", "RAINFALL", "PEST_COUNT"].map(metric => metricSnapshot(devices.value, metric, clock.value)),
 );
 const roleName = computed(
   () =>
@@ -170,6 +166,7 @@ async function loadFarms() {
   farmId.value = result[0]?.id || "";
 }
 async function refresh() {
+  clock.value = Date.now();
   if (!farmId.value || !identity.value || mustChange.value) return;
   const own = generation,
     version = ++refreshVersion,
@@ -178,12 +175,13 @@ async function refresh() {
   try {
     const [assets, warnings, spatial] = await Promise.all([
       client.request(`/assets?farmId=${encodeURIComponent(id)}`),
-      client.request(`/alerts?farmId=${encodeURIComponent(id)}&status=OPEN`),
+      client.request(`/alerts?farmId=${encodeURIComponent(id)}`),
       client.request(`/farms/${encodeURIComponent(id)}/field-map`),
     ]);
     if (own !== generation || version !== refreshVersion) return;
+    clock.value = Date.now();
     devices.value = assets;
-    alerts.value = warnings;
+    alerts.value = warnings.map(alert => ({ ...alert, unit: assets.find(device => device.id === alert.deviceId)?.channels.find(channel => channel.metric === alert.metric)?.unit || "" }));
     fieldJobs.value = spatial.jobs;
     connected.value = true;
     lastSync.value = new Date().toISOString();
@@ -533,7 +531,7 @@ onBeforeUnmount(() => {
             <span v-if="farm.demo" class="tag">虚构农场 · 学术演示</span>
             <FieldScene />
           </section>
-          <div class="field-actions" aria-label="田间快捷操作">
+          <div class="field-actions" role="group" aria-label="田间快捷操作">
             <button @click="openJobs('water')"><span class="symbol-tile water"><FieldIcon name="irrigation" /></span><strong>去灌溉</strong><small>选分区 · 定时开泵</small></button>
             <button @click="openJobs('machine')"><span class="symbol-tile harvest"><FieldIcon name="machinery" /></span><strong>农机作业</strong><small>选设备 · 预览路线</small></button>
             <button @click="tab = 'cameras'"><span class="symbol-tile"><FieldIcon name="camera" /></span><strong>看现场</strong><small>查看田间机位</small></button>
@@ -543,22 +541,20 @@ onBeforeUnmount(() => {
           </button>
           <div class="summary-grid">
             <button @click="tab = 'devices'">
-              <strong>{{ devices.length }}</strong
+              <strong>{{ lastSync ? devices.length : '—' }}</strong
               ><span>在册设备</span></button
             ><button @click="tab = 'devices'">
-              <strong>{{
-                devices.filter((d) => d.freshness === "FRESH").length
-              }}</strong
-              ><span>正常上报</span>
+              <strong>{{ reception.fresh ?? '—' }}</strong
+              ><span>正常接收 / {{ reception.monitored ?? '—' }} 台自动设备</span>
             </button>
             <button class="summary-item alert-summary" aria-label="查看待处理告警" @click="openAlerts()">
-              <strong>{{ alerts.length }}</strong
-              ><span>待处理告警</span>
+              <strong>{{ alertTotal ?? '—' }}</strong
+              ><span>未关闭告警</span>
             </button>
           </div>
           <header class="section-heading">
             <h2>田间快照</h2>
-            <small>最近一次采样</small>
+            <small>单个测点 · 逐指标核验</small>
           </header>
           <div class="metric-grid">
             <button
@@ -573,7 +569,7 @@ onBeforeUnmount(() => {
                 {
                   TEMPERATURE: "空气温度",
                   SOIL_MOISTURE: "土壤水分",
-                  RAINFALL: "降雨量",
+                  RAINFALL: "累计雨量读数",
                   PEST_COUNT: "虫情数量",
                 }[m.metric]
               }}</span
@@ -582,23 +578,21 @@ onBeforeUnmount(() => {
                 <small>{{ m.channel?.unit }}</small></strong
               ><small>{{
                 m.device
-                  ? freshness(m.device) +
+                  ? m.reason +
                     " · " +
-                    (m.channel?.latest?.source === "SIMULATED"
-                      ? "模拟"
-                      : m.channel?.latest?.source || "暂无来源")
+                    ({ SIMULATED: "模拟", MANUAL: "人工录入", HTTP_PUSH: "接口上报" }[m.channel?.latest?.source] || m.channel?.latest?.source || "暂无来源")
                   : "尚无对应设备"
               }}</small
-              ><small>{{ m.device?.name || "—" }}</small>
+              ><small>{{ m.device?.name || "—" }} · {{ time(m.channel?.latest?.time) }}</small>
             </button>
           </div>
           <article class="card alert-preview">
             <header class="section-heading">
-              <h3>待处理告警</h3>
+              <h3>未关闭告警明细</h3>
               <button class="text-button" type="button" @click="openAlerts()">查看全部</button>
             </header>
             <p v-if="!alerts.length" class="muted">
-              {{ connected ? "当前没有待处理告警" : "等待告警数据" }}
+              {{ connected ? "当前没有未关闭告警" : "等待告警数据" }}
             </p>
             <button
               class="alert-row"
@@ -716,7 +710,7 @@ onBeforeUnmount(() => {
           :key="farmId"
           :farm-id="farmId"
           :client="client"
-          :devices="devices"
+          :devices="currentDevices"
           :role="identity.role"
           :revision="revision"
           :locked="!!confirmation || !connected"
@@ -772,6 +766,7 @@ onBeforeUnmount(() => {
       <MobileAlerts
         v-if="alertCenterOpen"
         :alerts="alerts"
+        :total="alertTotal"
         :client="client"
         :role="identity.role"
         :initial-id="alertSelection"

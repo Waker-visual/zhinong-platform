@@ -1,5 +1,12 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import { api } from "../api";
 import AppIcon from "../ui/AppIcon.vue";
 import DataChart from "../workspace/DataChart.vue";
@@ -8,6 +15,8 @@ import SatelliteFarmMap from "./SatelliteFarmMap.vue";
 import FarmScene from "./FarmScene.vue";
 import SceneAmbience from "./SceneAmbience.vue";
 import FarmScene3D from "./scene/FarmScene3D.vue";
+import WeatherForecast from "./WeatherForecast.vue";
+import RiskOverview from "./RiskOverview.vue";
 import { satelliteGeometry } from "./satellite-model.js";
 import {
   createScreenRefresh,
@@ -18,6 +27,7 @@ import { diagnosticLabels } from "../ai/diagnostics";
 import { stateNames } from "../workspace/presentation";
 import {
   canReadFarm,
+  forecastPresentation,
   deviceCounts,
   hasDeviceAlert,
   metricSummary,
@@ -25,12 +35,16 @@ import {
   moisturePoints,
   numberText,
   pendingTasks,
+  prioritizedRisks,
+  riskForecastFreshness,
   productionDistribution,
   productionOption,
   productionTotal,
   timeText,
 } from "./screen-model.js";
 import "./display.css";
+import "./forecast.css";
+import "./agronomy.css";
 
 const props = defineProps({
   farmId: String,
@@ -53,7 +67,13 @@ const workspace = ref(null),
   analysis = ref(null),
   briefing = ref(null),
   geo = ref(null),
-  spatial = ref(null);
+  spatial = ref(null),
+  forecast = ref(null),
+  risks = ref(null);
+const forecastSection = ref(null),
+  riskSection = ref(null),
+  riskPanel = ref(null),
+  riskDate = ref("");
 const loading = ref(false),
   resourceStates = ref({}),
   clock = ref(Date.now()),
@@ -68,6 +88,8 @@ const resourceTargets = {
   briefing,
   geo,
   spatial,
+  forecast,
+  risks,
 };
 const refreshState = createScreenRefresh({
   request: (path, options) => api(path, "GET", undefined, options),
@@ -80,6 +102,27 @@ const refreshState = createScreenRefresh({
   },
 });
 const freshness = computed(() => screenFreshness(resourceStates.value));
+const forecastStatus = computed(
+  () =>
+    forecastPresentation(
+      forecast.value,
+      resourceStates.value.forecast,
+      clock.value,
+    ).status,
+);
+const weatherRiskCurrent = computed(
+  () =>
+    forecastStatus.value === "READY" &&
+    riskForecastFreshness(risks.value, clock.value) === "READY" &&
+    !resourceStates.value.risks?.error,
+);
+const priorityRisk = computed(() =>
+  prioritizedRisks(risks.value).find(
+    (item) =>
+      item.severity === "HIGH" &&
+      (item.source !== "WEATHER" || weatherRiskCurrent.value),
+  ),
+);
 const failures = computed(() =>
   screenResources.flatMap(({ key, label }) => {
     const state = resourceStates.value[key];
@@ -133,9 +176,13 @@ const alerts = computed(() =>
 const alertCount = computed(() =>
   !workspace.value
     ? "—"
-    : alerts.value.length >= 200
-      ? "200+"
-      : String(alerts.value.length),
+    : String(
+        workspace.value.alertTotal ??
+          workspace.value.devices.reduce(
+            (total, device) => total + Number(device.alertCount || 0),
+            0,
+          ),
+      ),
 );
 const pendingCount = computed(
   () =>
@@ -242,13 +289,58 @@ function resourceTime(key) {
   if (!state?.readAt) return state?.loading ? "读取中" : "尚未读取";
   return `${state.error ? "保留快照" : "读取于"} ${timeText(state.readAt, { short: true })}`;
 }
-function refresh({ reset = false, onlyFailed = false, liveOnly = false } = {}) {
+function conditionSummary(advice) {
+  const text = typeof advice === "string" ? advice.trim() : "";
+  const end = text.indexOf("。");
+  return end < 0 ? text : text.slice(0, end + 1);
+}
+function refresh({
+  reset = false,
+  onlyFailed = false,
+  liveOnly = false,
+  keys = null,
+} = {}) {
   if (reset || !accessible.value) {
     refreshState.reset(accessible.value ? props.farmId : null);
     selectedPlot.value = "";
+    riskDate.value = "";
   }
   if (!accessible.value || document.hidden) return;
-  return refreshState.refresh(props.farmId, { onlyFailed, liveOnly });
+  return refreshState.refresh(props.farmId, { onlyFailed, liveOnly, keys });
+}
+async function showWeatherRisks(date) {
+  riskDate.value = date;
+  await nextTick();
+  riskSection.value?.scrollIntoView({
+    behavior: reducedMotion.value ? "instant" : "smooth",
+    block: "start",
+  });
+  riskPanel.value?.focus();
+}
+async function showPriorityRisks() {
+  riskDate.value = "";
+  riskPanel.value?.resetFilters();
+  await nextTick();
+  riskSection.value?.scrollIntoView({
+    behavior: reducedMotion.value ? "instant" : "smooth",
+    block: "start",
+  });
+  riskPanel.value?.focus();
+}
+function riskAction(item) {
+  const target = item.action?.target;
+  if (target === "alerts") emit("alerts", { farmId: props.farmId });
+  else if (target === "forecast")
+    forecastSection.value?.scrollIntoView({
+      behavior: reducedMotion.value ? "instant" : "smooth",
+      block: "start",
+    });
+  else
+    navigate(
+      { daily: "daily", devices: "devices", map: "dashboard" }[target] ||
+        "daily",
+      item.deviceId,
+    );
 }
 
 function visible() {
@@ -265,8 +357,12 @@ function navigate(page, deviceId) {
 }
 function ask(item) {
   if (!accessible.value) return;
+  const weatherContext =
+    item?.source === "WEATHER"
+      ? `区域公开天气预报参考，虚构农场参考位置：${forecast.value?.location?.label || "未标注"}；获取于 ${risks.value?.forecastFetchedAt || forecast.value?.fetchedAt || "未标注"}，有效至 ${risks.value?.forecastExpiresAt || forecast.value?.expiresAt || "未标注"}。当前天气风险依据状态 ${weatherRiskCurrent.value ? "有效参考" : "需重新更新核对"}，请勿当成田间实测或官方气象预警。`
+      : "";
   const context = item
-    ? `${item.title || item.name}：${item.recommendation || item.advice}。依据：${(item.evidence || []).join("；")}`
+    ? `${weatherContext}${item.title || item.name}：${item.recommendation || item.advice}。依据：${(item.evidence || []).join("；")}`
     : `请分析当前农场的监测、待办事项和设备异常，按优先级给出今天的生产建议。`;
   emit("ask", {
     farmId: props.farmId,
@@ -325,6 +421,11 @@ watch(
   () => refresh({ reset: true }),
   { immediate: true, flush: "sync" },
 );
+watch(view, async () => {
+  riskDate.value = "";
+  await nextTick();
+  screen.value?.scrollTo({ top: 0, behavior: "instant" });
+});
 function motionChanged() {
   reducedMotion.value = motionPreference.matches;
 }
@@ -377,6 +478,7 @@ onBeforeUnmount(() => {
       :class="{
         'display-overview-stage': view === 'overview',
         'display-agronomy-stage': view === 'agronomy',
+        'display-weather-stage': view === 'weather',
         'display-scene-stage': view === 'tour',
       }"
     >
@@ -470,6 +572,12 @@ onBeforeUnmount(() => {
               @click="view = 'agronomy'"
             >
               <AppIcon name="plantings" />智能农情
+            </button>
+            <button
+              :aria-pressed="view === 'weather'"
+              @click="view = 'weather'"
+            >
+              <AppIcon name="bell" />天气预警
             </button>
             <button :aria-pressed="view === 'tour'" @click="view = 'tour'">
               <AppIcon name="patrol" />农场导览
@@ -630,6 +738,12 @@ onBeforeUnmount(() => {
                     <p class="display-briefing-date">
                       {{ briefing.reportDate }} · 生成于
                       {{ timeText(briefing.generatedAt, { short: true }) }}
+                    </p>
+                    <p
+                      v-if="briefing.snapshotOutdated"
+                      class="display-source-note"
+                    >
+                      生成后已有更新，请以实时任务台账与设备提醒核对当前状态。
                     </p>
                     <div class="display-briefing-summary">
                       <AssistantText
@@ -796,10 +910,67 @@ onBeforeUnmount(() => {
               </section>
             </div>
           </template>
-          <template v-else-if="view === 'agronomy'">
-            <section class="display-agronomy-intro">
+          <template v-else-if="view === 'weather'">
+            <section class="display-agronomy-intro display-weather-intro">
               <div>
-                <h2>看清农情，再安排今天的行动</h2>
+                <h2>七日天气与重点预警</h2>
+                <p v-if="priorityRisk">
+                  <button class="display-risk-peek" @click="showPriorityRisks">
+                    优先核对：{{ priorityRisk.title }}
+                  </button>
+                </p>
+                <p v-else>先核对区域天气与优先线索，再结合田间观测安排行动。</p>
+              </div>
+              <button
+                class="display-primary"
+                @click="
+                  ask({
+                    source: 'WEATHER',
+                    title: '未来七日天气与农事安排',
+                    recommendation:
+                      '结合七日预报、当前作物和现场观测，分析天气影响与需人工复核的行动',
+                  })
+                "
+              >
+                <AppIcon name="send" />询问 AI 天气影响
+              </button>
+            </section>
+            <div class="display-weather-grid">
+              <div ref="forecastSection" class="screen-forecast-anchor">
+                <WeatherForecast
+                  :key="farmId"
+                  :data="forecast"
+                  :resource="resourceStates.forecast"
+                  :risks="risks"
+                  :risk-resource="resourceStates.risks"
+                  :now="clock"
+                  :role="role"
+                  @retry="refresh({ keys: ['forecast', 'risks'] })"
+                  @map="navigate('dashboard')"
+                  @risks="showWeatherRisks"
+                />
+              </div>
+              <div ref="riskSection" class="screen-risk-anchor">
+                <RiskOverview
+                  ref="riskPanel"
+                  :key="farmId"
+                  :data="risks"
+                  :resource="resourceStates.risks"
+                  :forecast-status="forecastStatus"
+                  :now="clock"
+                  :selected-date="riskDate"
+                  @retry="refresh({ keys: ['risks'] })"
+                  @action="riskAction"
+                  @ask="ask"
+                  @clear-date="riskDate = ''"
+                />
+              </div>
+            </div>
+          </template>
+          <template v-else-if="view === 'agronomy'">
+            <section class="display-agronomy-intro display-agronomy-summary">
+              <div>
+                <h2>智能农情与生产建议</h2>
                 <p>最新有效观测、历史趋势与当天建议，同屏核对。</p>
               </div>
               <button class="display-primary" @click="ask()">
@@ -822,7 +993,7 @@ onBeforeUnmount(() => {
                         : item.state === "FRESH"
                           ? `${item.fresh} 个有效测点`
                           : item.state === "STALE"
-                            ? "读数已过期"
+                            ? "暂无有效读数"
                             : "尚无测点数据"
                     }}</span
                   >
@@ -836,7 +1007,7 @@ onBeforeUnmount(() => {
                     numberText(item.max)
                   }}{{ item.unit
                   }}<template v-if="item.stale">
-                    · {{ item.stale }} 个旧读数未计入</template
+                    · {{ item.stale }} 个无效读数未计入</template
                   ></small
                 ><small v-else>{{
                   item.latest
@@ -846,7 +1017,10 @@ onBeforeUnmount(() => {
               </article>
             </section>
             <div class="display-agronomy-grid">
-              <section class="display-condition-panel">
+              <section
+                :key="`conditions-${farmId}`"
+                class="display-condition-panel"
+              >
                 <div class="display-section-heading">
                   <div>
                     <h2>智能农情诊断</h2>
@@ -856,35 +1030,72 @@ onBeforeUnmount(() => {
                   </div>
                   <span class="display-tag">规则分析</span>
                 </div>
-                <div v-if="analysis" class="display-conditions">
-                  <article
-                    v-for="condition in analysis.conditions"
-                    :key="condition.code"
-                  >
-                    <div>
-                      <h3>{{ condition.name }}</h3>
-                      <span>{{ condition.state }}</span>
+                <div
+                  class="display-condition-body"
+                  tabindex="0"
+                  role="region"
+                  aria-label="四情诊断与复核依据"
+                >
+                  <div v-if="analysis" class="display-conditions">
+                    <article
+                      v-for="condition in analysis.conditions"
+                      :key="condition.code"
+                    >
+                      <div class="display-condition-heading">
+                        <div>
+                          <h3>{{ condition.name }}</h3>
+                          <span>{{ condition.state }}</span>
+                        </div>
+                        <button
+                          :aria-label="`${condition.name}：追问依据与处理步骤`"
+                          @click="ask(condition)"
+                        >
+                          追问<AppIcon name="send" />
+                        </button>
+                      </div>
+                      <details
+                        v-if="condition.advice"
+                        class="display-condition-detail"
+                      >
+                        <summary
+                          :aria-label="`${conditionSummary(condition.advice)}，展开完整诊断与建议`"
+                        >
+                          {{ conditionSummary(condition.advice) }}
+                        </summary>
+                        <p>{{ condition.advice }}</p>
+                      </details>
+                      <p v-else>暂无诊断依据，请更新后复核。</p>
+                    </article>
+                  </div>
+                  <div v-else class="display-empty">
+                    {{
+                      resourceStates.analysis?.loading
+                        ? "正在读取农情诊断"
+                        : "农情诊断暂不可用。"
+                    }}
+                  </div>
+                  <details v-if="analysis" class="display-analysis-notes">
+                    <summary>
+                      复核线索与分析口径<template
+                        v-if="analysis.cautions?.length"
+                      >
+                        · {{ analysis.cautions.length }} 项线索</template
+                      >
+                    </summary>
+                    <div
+                      v-if="analysis.cautions?.length"
+                      class="display-cautions"
+                    >
+                      <strong>需要现场复核的线索</strong>
+                      <p v-for="caution in analysis.cautions" :key="caution">
+                        {{ caution }}
+                      </p>
                     </div>
-                    <p>{{ condition.advice }}</p>
-                    <button @click="ask(condition)">追问依据与处理步骤</button>
-                  </article>
+                    <p v-if="analysis" class="display-source-note">
+                      {{ analysis.thresholdNotice }}
+                    </p>
+                  </details>
                 </div>
-                <div v-else class="display-empty">
-                  {{
-                    resourceStates.analysis?.loading
-                      ? "正在读取农情诊断"
-                      : "农情诊断暂不可用。"
-                  }}
-                </div>
-                <div v-if="analysis?.cautions?.length" class="display-cautions">
-                  <strong>需要现场复核的线索</strong>
-                  <p v-for="caution in analysis.cautions" :key="caution">
-                    {{ caution }}
-                  </p>
-                </div>
-                <p v-if="analysis" class="display-source-note">
-                  {{ analysis.thresholdNotice }}
-                </p>
               </section>
               <section class="display-trend-panel display-trend-large">
                 <div class="display-section-heading">
@@ -915,14 +1126,17 @@ onBeforeUnmount(() => {
                   </p>
                 </details>
               </section>
-              <section class="display-recommendations">
+              <section
+                :key="`recommendations-${farmId}`"
+                class="display-recommendations"
+              >
                 <div class="display-section-heading">
                   <div>
                     <h2>今天的生产建议</h2>
                     <p>
                       {{
                         briefing
-                          ? `${briefing.reportDate} 日报快照，执行前复核最新情况`
+                          ? `${briefing.reportDate} 日报快照 · 生成 ${timeText(briefing.generatedAt, { short: true })} · 执行前复核最新情况`
                           : "等待读取日报建议"
                       }}
                     </p>
@@ -931,41 +1145,82 @@ onBeforeUnmount(() => {
                     sourceName
                   }}</span>
                 </div>
-                <div
-                  v-if="briefing?.priorities?.length"
-                  class="display-recommendation-list"
+                <p
+                  v-if="briefing?.snapshotOutdated"
+                  class="display-snapshot-note"
                 >
-                  <article
-                    v-for="item in briefing.priorities.slice(0, 4)"
-                    :key="item.id"
-                  >
-                    <span
-                      class="display-priority"
-                      :class="{ urgent: item.priority === 'HIGH' }"
-                      >{{ priorityName(item.priority) }}</span
-                    >
-                    <h3>{{ item.title }}</h3>
-                    <p>{{ item.recommendation }}</p>
-                    <ul>
-                      <li v-for="evidence in item.evidence" :key="evidence">
-                        {{ evidence }}
-                      </li>
-                    </ul>
-                    <button @click="act(item)">{{ actionName(item) }}</button>
-                  </article>
-                </div>
-                <p v-else class="display-muted">
-                  {{
-                    briefing
-                      ? "暂无明确优先事项，请继续补充巡田与监测记录。"
-                      : "今日建议暂不可用，请刷新重试。"
-                  }}
+                  生成后已有更新，请以实时监测与任务台账复核。
                 </p>
-                <div v-if="briefing?.dataGaps?.length" class="display-gap-line">
-                  <strong>数据缺口</strong
-                  ><span v-for="gap in briefing.dataGaps" :key="gap">{{
-                    gap
-                  }}</span>
+                <div
+                  class="display-recommendation-body"
+                  tabindex="0"
+                  role="region"
+                  aria-label="生产建议、行动与快照依据"
+                >
+                  <div
+                    v-if="briefing?.priorities?.length"
+                    class="display-recommendation-list"
+                  >
+                    <article
+                      v-for="item in briefing.priorities.slice(0, 4)"
+                      :key="item.id"
+                    >
+                      <div class="display-recommendation-heading">
+                        <span
+                          class="display-priority"
+                          :class="{ urgent: item.priority === 'HIGH' }"
+                          >{{ priorityName(item.priority) }}</span
+                        >
+                        <h3>{{ item.title }}</h3>
+                      </div>
+                      <p>{{ item.recommendation }}</p>
+                      <div class="display-recommendation-actions">
+                        <button @click="act(item)">
+                          {{ actionName(item) }}
+                        </button>
+                        <details
+                          v-if="item.evidence?.length"
+                          class="display-recommendation-evidence"
+                        >
+                          <summary>
+                            依据 · {{ item.evidence.length }} 项
+                          </summary>
+                          <ul>
+                            <li
+                              v-for="evidence in item.evidence"
+                              :key="evidence"
+                            >
+                              {{ evidence }}
+                            </li>
+                          </ul>
+                        </details>
+                        <span v-else class="display-evidence-empty"
+                          >暂无依据</span
+                        >
+                      </div>
+                    </article>
+                  </div>
+                  <p v-else class="display-muted">
+                    {{
+                      briefing
+                        ? "暂无明确优先事项，请继续补充巡田与监测记录。"
+                        : "今日建议暂不可用，请刷新重试。"
+                    }}
+                  </p>
+                  <details
+                    v-if="briefing?.dataGaps?.length"
+                    class="display-briefing-gaps"
+                  >
+                    <summary>
+                      数据缺口 · {{ briefing.dataGaps.length }} 项
+                    </summary>
+                    <div class="display-gap-line">
+                      <strong>数据缺口</strong
+                      ><span v-for="gap in briefing.dataGaps" :key="gap">{{
+                        gap
+                      }}</span>
+                    </div>
+                  </details>
                 </div>
               </section>
             </div>

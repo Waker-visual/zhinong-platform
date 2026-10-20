@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createScreenRefresh, screenFreshness } from "./screen-refresh.js";
+import { createScreenRefresh, screenFreshness, screenResources } from "./screen-refresh.js";
+const resourceCount = screenResources.length;
 
 function fixture() {
   const calls = [],
@@ -49,7 +50,7 @@ test("automatic and manual refresh share an in-flight batch without duplicate re
     third = f.refresh.refresh("farm-a", { onlyFailed: true });
   assert.equal(first, second);
   assert.equal(first, third);
-  assert.equal(f.calls.length, 6);
+  assert.equal(f.calls.length, resourceCount);
   f.finish();
   await first;
 });
@@ -58,7 +59,7 @@ test("a switched farm aborts old work and ignores even late successful responses
   const f = fixture(),
     old = f.refresh.refresh("farm-a");
   const next = f.refresh.refresh("farm-b");
-  assert.ok(f.calls.slice(0, 6).every((call) => call.signal.aborted));
+  assert.ok(f.calls.slice(0, resourceCount).every((call) => call.signal.aborted));
   f.calls[0].resolve({ farm: { name: "旧农场" } });
   await tick();
   assert.equal(f.state().scope, "farm-b");
@@ -76,8 +77,8 @@ test("a failed refresh retains the original snapshot time instead of advertising
   const previous = f.state().resources.workspace;
   f.later();
   const next = f.refresh.refresh("farm-a");
-  f.calls[6].reject(new Error("服务暂时不可用"));
-  f.finish(7);
+  f.calls[resourceCount].reject(new Error("服务暂时不可用"));
+  f.finish(resourceCount + 1);
   await next;
   const state = f.state();
   assert.equal(state.resources.workspace.data, previous.data);
@@ -86,8 +87,8 @@ test("a failed refresh retains the original snapshot time instead of advertising
   assert.notEqual(state.resources.operations.readAt, previous.readAt);
   assert.deepEqual(screenFreshness(state.resources), {
     readAt: previous.readAt,
-    loaded: 6,
-    total: 6,
+    loaded: resourceCount,
+    total: resourceCount,
     failed: 1,
   });
 });
@@ -99,18 +100,18 @@ test("retry only requests failed resources and clears the error on success", asy
   f.finish();
   await initial;
   const retry = f.refresh.refresh("farm-a", { onlyFailed: true });
-  assert.equal(f.calls.length, 7);
-  assert.match(f.calls[6].path, /briefings/);
+  assert.equal(f.calls.length, resourceCount + 1);
+  assert.match(f.calls[resourceCount].path, /briefings/);
   assert.equal(
     f.state().resources.briefing.error,
     "简报超时",
     "old warning stays visible until recovery",
   );
-  f.calls[6].resolve({ reportDate: "2026-10-12" });
+  f.calls[resourceCount].resolve({ reportDate: "2026-10-12" });
   await retry;
   assert.equal(f.state().resources.briefing.error, null);
   await f.refresh.refresh("farm-a", { onlyFailed: true });
-  assert.equal(f.calls.length, 7);
+  assert.equal(f.calls.length, resourceCount + 1);
 });
 
 test("hiding the page cancels pending work, retains rendered cards and allows a fresh batch on resume", async () => {
@@ -123,7 +124,7 @@ test("hiding the page cancels pending work, retains rendered cards and allows a 
   assert.equal(f.state().loading, false);
   assert.equal(f.state().resources.workspace.data.farm.name, "演示农场");
   const next = f.refresh.refresh("farm-a");
-  assert.equal(f.calls.length, 12);
+  assert.equal(f.calls.length, resourceCount * 2);
   f.finish();
   await Promise.all([initial, next]);
 });
@@ -151,8 +152,8 @@ test("permission errors do not retain an unauthorized snapshot", async () => {
   f.finish();
   await initial;
   const next = f.refresh.refresh("farm-a");
-  f.calls[6].reject(Object.assign(new Error("无权读取"), { status: 403 }));
-  f.finish(7);
+  f.calls[resourceCount].reject(Object.assign(new Error("无权读取"), { status: 403 }));
+  f.finish(resourceCount + 1);
   await next;
   assert.equal(f.state().resources.workspace.data, null);
   assert.equal(f.state().resources.workspace.readAt, null);
@@ -167,7 +168,7 @@ test("unmount cancels network work and prevents any future publish or request", 
   await initial;
   await f.refresh.refresh("farm-b");
   assert.equal(f.updates.length, before);
-  assert.equal(f.calls.length, 6);
+  assert.equal(f.calls.length, resourceCount);
   assert.ok(f.calls.every((call) => call.signal.aborted));
 });
 
@@ -175,7 +176,7 @@ test("initial freshness never invents a last-read time", () => {
   assert.deepEqual(screenFreshness({}), {
     readAt: null,
     loaded: 0,
-    total: 6,
+    total: resourceCount,
     failed: 0,
   });
 });
@@ -187,10 +188,35 @@ test("live refresh reads device feedback and map jobs without repeating report r
   await first;
   const report = f.state().resources.briefing;
   const live = f.refresh.refresh("farm-a", { liveOnly: true });
-  assert.equal(f.calls.length, 8);
-  assert.ok(f.calls[6].path.includes("workspace"));
-  assert.ok(f.calls[7].path.includes("field-map"));
-  f.finish(6);
+  assert.equal(f.calls.length, resourceCount + 3);
+  assert.ok(f.calls[resourceCount].path.includes("workspace"));
+  assert.ok(f.calls[resourceCount + 1].path.includes("field-map"));
+  assert.ok(f.calls[resourceCount + 2].path.includes("risk-overview"));
+  f.finish(resourceCount);
   await live;
   assert.deepEqual(f.state().resources.briefing, report);
+});
+
+test("a slow weather provider does not delay the other screen resources", async () => {
+  const f = fixture(), done = f.refresh.refresh("farm-a");
+  const forecast = f.calls.find(call => call.path.includes("weather-forecast"));
+  f.calls.filter(call => call !== forecast).forEach(call => call.resolve({ready:true}));
+  await tick();
+  assert.equal(f.state().resources.workspace.data.ready, true);
+  assert.equal(f.state().resources.risks.data.ready, true);
+  assert.equal(f.state().resources.forecast.loading, true);
+  forecast.reject(new Error("天气服务超时"));
+  await done;
+  assert.equal(f.state().resources.forecast.error, "天气服务超时");
+  assert.equal(f.state().resources.workspace.error, null);
+});
+
+test("weather retry can target only forecast and risks without rereading reports", async () => {
+  const f = fixture(), first = f.refresh.refresh("farm-a");
+  f.finish(); await first;
+  const next = f.refresh.refresh("farm-a", {keys:["forecast","risks"]});
+  assert.equal(f.calls.length, resourceCount + 2);
+  assert.match(f.calls[resourceCount].path, /weather-forecast/);
+  assert.match(f.calls[resourceCount + 1].path, /risk-overview/);
+  f.finish(resourceCount); await next;
 });

@@ -2,6 +2,7 @@ package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
 import app.zhinong.business.Store;
+import app.zhinong.business.FarmClock;
 import app.zhinong.security.Identity;
 import jakarta.validation.constraints.*;
 import java.math.BigDecimal;
@@ -37,13 +38,15 @@ public class DeviceCommandService {
   private final AssetService assets;
   private final TelemetryService telemetry;
   private final DeviceCredentials credentials;
+  private final FarmClock clock;
 
-  public DeviceCommandService(Store store, AssetService assets, TelemetryService telemetry, DeviceCredentials credentials) {
+  public DeviceCommandService(Store store, AssetService assets, TelemetryService telemetry, DeviceCredentials credentials, FarmClock clock) {
     this.store = store;
     this.db = store.db();
     this.assets = assets;
     this.telemetry = telemetry;
     this.credentials = credentials;
+    this.clock = clock;
   }
 
   private static final String SELECT = """
@@ -136,7 +139,8 @@ public class DeviceCommandService {
   }
 
   private void interlocks(String tenant, String id, Map<String, Object> asset, String action) {
-    long tolerance = Math.max(180, ((Number) asset.get("intervalSeconds")).longValue() * 3);
+    @SuppressWarnings("unchecked") var channels=(List<Map<String,Object>>)asset.get("channels");
+    var configured=channels.stream().map(c -> c.get("metric").toString()).toList();
     String feedback = "GATE".equals(asset.get("deviceType")) ? "GATE_OPENING" : "PUMP_RUNNING";
     var bindings = db.queryForList("SELECT adapter_type,updated_at FROM device_integrations WHERE tenant_id=? AND device_id=?", tenant, id);
     boolean nativePump = !bindings.isEmpty() && "PUMP_MQTT".equals(bindings.getFirst().get("ADAPTER_TYPE"));
@@ -145,10 +149,9 @@ public class DeviceCommandService {
     if (nativePump && action.equals("SET_FREQUENCY")) required.add("PARAMETER_WRITE_ENABLED");
     for (String metric : required) {
       var latest = assets.latest(tenant, id, metric);
-      if (latest == null || !asset.get("protocol").equals(latest.get("source"))
-          || !app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant().isAfter(Instant.now().minusSeconds(tolerance))
-          || !bindings.isEmpty() && !app.zhinong.database.DatabaseTime.offset(latest.get("receivedAt")).toInstant()
-            .isAfter(app.zhinong.database.DatabaseTime.instant(bindings.getFirst().get("UPDATED_AT")))) {
+      if (!configured.contains(metric) || !AssetService.quality(latest,metric,asset.get("protocol").toString(),asset.get("lifecycle").toString(),((Number)asset.get("intervalSeconds")).intValue(),clock.instant()).fresh()
+          || !bindings.isEmpty() && (latest.get("receivedAt")==null || !app.zhinong.database.DatabaseTime.offset(latest.get("receivedAt")).toInstant()
+            .isAfter(app.zhinong.database.DatabaseTime.instant(bindings.getFirst().get("UPDATED_AT"))))) {
         throw new ApiException(409, "缺少新鲜的" + MetricCatalog.get(metric).name() + "，请先采集确认；停止指令仍可提交");
       }
       int value = ((Number) latest.get("value")).intValue();
@@ -186,7 +189,7 @@ public class DeviceCommandService {
     var readings = feedback.entrySet().stream().filter(e -> configured.contains(e.getKey()))
       .map(e -> new WorkspaceInputs.Reading(e.getKey(), e.getValue())).toList();
     if (readings.isEmpty()) throw new ApiException(409, "设备未配置对应的反馈指标，请应用设备指标模板");
-    telemetry.write(tenant, id, Instant.now(), readings, "SIMULATED", actor);
+    telemetry.write(tenant, id, clock.instant(), readings, "SIMULATED", actor);
   }
 
   /** Fail-safe stop for an already persisted simulated run, also works after its owner is disabled. */

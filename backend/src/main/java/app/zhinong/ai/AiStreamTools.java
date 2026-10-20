@@ -2,6 +2,7 @@ package app.zhinong.ai;
 
 import app.zhinong.fieldwork.FieldWorkService;
 import app.zhinong.workspace.FarmWorkspaceService;
+import app.zhinong.weather.WeatherForecastService;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -26,7 +27,8 @@ public class AiStreamTools {
     "get_farm_summary", "查询农场经营概况",
     "get_pending_tasks", "查询待办任务",
     "get_open_issues", "查询现场问题",
-    "get_weather_conditions", "查询天气与四情",
+    "get_weather_conditions", "查询历史气象与四情",
+    "get_weather_forecast", "查询未来七日天气预报",
     "get_device_alerts", "核查设备异常与离线",
     "get_production_comparison", "对比近两期收获记录",
     "get_daily_briefing", "读取今日经营简报"
@@ -65,13 +67,15 @@ public class AiStreamTools {
   private final AgronomyAnalysis analysis;
   private final ObjectMapper json;
   private final FarmDecisionSupport decisions;
+  private final WeatherForecastService forecasts;
 
-  public AiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, FarmDecisionSupport decisions) {
+  public AiStreamTools(FarmWorkspaceService farmWorkspace, FieldWorkService fieldWork, AgronomyAnalysis analysis, ObjectMapper json, FarmDecisionSupport decisions,WeatherForecastService forecasts) {
     this.farmWorkspace = farmWorkspace;
     this.fieldWork = fieldWork;
     this.analysis = analysis;
     this.json = json;
     this.decisions = decisions;
+    this.forecasts = forecasts;
   }
 
   /** OpenAI 兼容 tools 定义；参数一律为空对象，模型给出的参数不会被读取。 */
@@ -80,7 +84,8 @@ public class AiStreamTools {
       tool("get_farm_summary", "获取农场经营概况：总面积(亩)、累计产量(kg)、任务总数与已完成数、设备告警数"),
       tool("get_pending_tasks", "获取待办或进行中的农事任务：标题、状态、到期日、地块"),
       tool("get_open_issues", "获取未解决的现场问题：标题、状态、严重度、地块"),
-      tool("get_weather_conditions", "获取近7天天气与苗情/墒情/虫情/灾情四情摘要"),
+      tool("get_weather_conditions", "获取近7天历史气象观测与苗情/墒情/虫情/灾情四情摘要，不是未来预报"),
+      tool("get_weather_forecast", "查询当前农场已保存参考位置的今日起七日公共天气预报、日期、单位、来源与有效期；询问未来天气或天气风险时使用。仅READY且未过期可用于当前判断；旧值、禁用、缺测或未配置需明确说明，不将网格预报当田间实测或官方预警"),
       tool("get_device_alerts", "获取当前农场未解决的设备离线、采样过期及阈值异常，含检测依据、时间与排查建议；涉及设备异常或生产调整时先核验此工具"),
       tool("get_production_comparison", "对比最近两个完整30天窗口的登记收获量、记录数与近期分地块明细，不含今天，不能据此推断利润、单产或因果"),
       tool("get_daily_briefing", "只读当前农场今日已保存的经营简报、优先行动、依据和数据缺口；未生成则明确返回不可用，简报是生成时快照，实时异常需另查设备工具")
@@ -106,6 +111,7 @@ public class AiStreamTools {
       case "get_pending_tasks" -> pendingTasks(farmId);
       case "get_open_issues" -> openIssues(farmId);
       case "get_weather_conditions" -> weatherConditions(farmId);
+      case "get_weather_forecast" -> forecasts.get(farmId);
       case "get_device_alerts" -> decisions.alerts(farmId);
       case "get_production_comparison" -> decisions.productionComparison(farmId);
       case "get_daily_briefing" -> decisions.briefing(farmId);
@@ -125,7 +131,8 @@ public class AiStreamTools {
         yield n == 0 ? "暂无未处理问题" : "读取到 " + n + " 条未处理问题";
       }
       case "get_farm_summary" -> "已读取农场经营概况";
-      case "get_weather_conditions" -> "已读取近7天天气与四情摘要";
+      case "get_weather_conditions" -> "已读取近7天历史气象与四情摘要";
+      case "get_weather_forecast" -> "已核对未来七日预报及可用状态";
       case "get_device_alerts" -> "已核查设备告警及排查依据";
       case "get_production_comparison" -> "已对比两个完整30天窗口的登记收获量";
       case "get_daily_briefing" -> "已查询今日经营简报的保存状态";
@@ -149,7 +156,7 @@ public class AiStreamTools {
     m.put("yieldKg", s.path("yieldKg").asDouble(0));
     m.put("tasks", s.path("tasks").asInt(0));
     m.put("completedTasks", s.path("completedTasks").asInt(0));
-    m.put("alertCount", w.path("alerts").size());
+    m.put("alertCount", w.path("alertTotal").asLong(w.path("alerts").size()));
     return m;
   }
 

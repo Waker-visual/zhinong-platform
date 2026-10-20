@@ -8,6 +8,7 @@ import {
   nextTick,
 } from "vue";
 import { api, loadError } from "../api";
+import { numeric, completedTaskProgress, productionAmount, deviceCounts, deviceSnapshot } from "../metrics/measurement-model.js";
 import FarmMap from "./FarmMap.vue";
 import FarmOperationsPanel from "./FarmOperationsPanel.vue";
 import { containsPoint, deviceCoordinates } from "./fieldSpatial";
@@ -158,22 +159,32 @@ let alive = true,
   loadId = 0,
   historyId = 0,
   poll;
+let historyContext = "";
 const admin = computed(() => props.role === "ADMIN"),
   writer = computed(() => ["ADMIN", "OPERATOR"].includes(props.role));
+const clock = ref(Date.now());
+let freshnessTimer;
+const currentDevices = computed(() => (workspace.value?.devices || []).map(device => deviceSnapshot(device, clock.value)));
 const selectedDevice = computed(() =>
-  workspace.value?.devices.find((d) => d.id === selectedDeviceId.value),
+  currentDevices.value.find((d) => d.id === selectedDeviceId.value),
 );
 const selectedPlot = computed(() =>
   workspace.value?.plots.find((p) => p.id === selectedPlotId.value),
 );
 const selectedPlan = computed(() =>
   plans.value.find(
-    (p) => p.plotId === selectedPlotId.value && p.status === "ACTIVE",
+    (p) => p.plotId === selectedPlotId.value && p.status === "ACTIVE" &&
+      p.startDate <= businessDate.value && p.endDate >= businessDate.value,
   ),
 );
+const businessDate = computed(() => workspace.value?.businessDate || new Intl.DateTimeFormat("sv-SE", { timeZone: workspace.value?.timeZone || "Asia/Shanghai" }).format(new Date()));
+const progress = computed(() => completedTaskProgress(workspace.value?.analytics.summary, workspace.value?.analytics.taskStatus));
+const reception = computed(() => deviceCounts(workspace.value?.devices, clock.value));
+const productionYield = computed(() => productionAmount(workspace.value?.analytics));
+const alertTotal = computed(() => workspace.value?.alertTotal ?? workspace.value?.devices.reduce((total,device)=>total+Number(device.alertCount||0),0));
 const filteredDevices = computed(
   () =>
-    workspace.value?.devices.filter(
+    currentDevices.value.filter(
       (d) =>
         (!deviceType.value || d.deviceType === deviceType.value) &&
         (!selectedPlotId.value || d.plotId === selectedPlotId.value),
@@ -245,6 +256,7 @@ const monitorChart = computed(() =>
     history.value?.points || [],
     history.value?.metric?.unit || "",
     screenMode.value,
+    {intervalSeconds:selectedDevice.value?.intervalSeconds,aggregation:history.value?.aggregation},
   ),
 );
 const productionChart = computed(() => ({
@@ -268,7 +280,7 @@ const productionChart = computed(() => ({
       itemStyle: { borderRadius: [5, 5, 0, 0] },
       data:
         workspace.value?.analytics.productionTrend.map((p) =>
-          Number(p.value),
+          numeric(p.value),
         ) || [],
     },
   ],
@@ -277,13 +289,16 @@ async function load(silent = false) {
   const current = ++loadId;
   if (!silent) busy.value = true;
   try {
-    const [data, config, fieldMap] = await Promise.all([
+    const [data, config, fieldMap, plantings] = await Promise.all([
       api(`/farms/${props.farmId}/workspace?days=${days.value}`),
       api(`/farms/${props.farmId}/map-config`),
       api(`/farms/${props.farmId}/field-map`),
+      api(`/plantings?farmId=${encodeURIComponent(props.farmId)}`),
     ]);
     if (!alive || current !== loadId) return;
+    clock.value = Date.now();
     workspace.value = data;
+    plans.value = plantings;
     spatial.value = fieldMap;
     if (
       !editingMap.value &&
@@ -301,7 +316,7 @@ async function load(silent = false) {
     error.value = "";
     if (selectedDeviceId.value) loadHistory();
   } catch (e) {
-    if (alive) error.value = loadError(e);
+    if (alive && current === loadId) error.value = loadError(e);
   } finally {
     if (alive && current === loadId) busy.value = false;
   }
@@ -309,17 +324,20 @@ async function load(silent = false) {
 async function loadHistory() {
   const current = ++historyId;
   const d = selectedDevice.value;
-  if (!d) return;
+  if (!d) { history.value = null; historyContext = ""; return; }
   if (!d.channels.some((c) => c.metric === metric.value))
     metric.value = preferredMetric(d);
-  if (!metric.value) return;
+  if (!metric.value) { history.value = null; historyContext = ""; return; }
+  const context = `${d.id}:${metric.value}:${hours.value}`;
+  if (context !== historyContext) history.value = null;
+  historyContext = context;
   try {
     const data = await api(
       `/assets/${d.id}/history?metric=${metric.value}&hours=${hours.value}`,
     );
     if (alive && current === historyId) history.value = data;
   } catch (e) {
-    if (alive) error.value = loadError(e);
+    if (alive && current === historyId) error.value = loadError(e);
   }
 }
 function selectDevice(id) {
@@ -458,18 +476,16 @@ async function fullScreen() {
 function fullscreenChanged() {
   if (!document.fullscreenElement) screenMode.value = false;
 }
-watch([days, () => props.revision], () => load());
-watch([metric, hours], () => loadHistory());
+watch(days, () => { workspace.value = null; load(); });
+watch(() => props.revision, () => load());
+watch([selectedDeviceId, metric, hours], () => loadHistory());
 onMounted(async () => {
+  freshnessTimer = setInterval(() => { clock.value = Date.now(); }, 15000);
   document.addEventListener("fullscreenchange", fullscreenChanged);
   try {
-    const [c, p] = await Promise.all([
-      api("/assets/catalog"),
-      api("/plantings"),
-    ]);
+    const c = await api("/assets/catalog");
     if (!alive) return;
     catalog.value = c;
-    plans.value = p;
     await load();
   } catch (e) {
     error.value = e.message;
@@ -498,6 +514,7 @@ onBeforeUnmount(() => {
   ++historyId;
   clearInterval(poll);
   clearInterval(spatialPoll);
+  clearInterval(freshnessTimer);
   document.removeEventListener("fullscreenchange", fullscreenChanged);
 });
 </script>
@@ -516,6 +533,8 @@ onBeforeUnmount(() => {
           >{{ workspace?.farm.region || "农场经营工作台" }}
           <span v-if="workspace?.farm.demo" class="demo-tag"
             >虚构演示场景</span
+          ><span v-if="workspace?.farm.telemetryLive" class="demo-tag"
+            >演示遥测实时更新</span
           ></small
         >
       </div>
@@ -565,42 +584,30 @@ onBeforeUnmount(() => {
           ><small>{{ workspace.plots.length }} 个地块</small>
         </article>
         <article>
-          <span>设备与监测</span
+          <span>设备与接收</span
           ><strong>{{ workspace.devices.length }}<small>台</small></strong
           ><small
-            >{{
-              workspace.devices.filter((d) => d.freshness === "FRESH").length
-            }}
-            台正常上报</small
+            >{{ reception.fresh }} / {{ reception.monitored }} 台在用自动设备正常接收</small
           >
         </article>
-        <article :class="{ attention: workspace.alerts.length }">
-          <span>待处理告警</span
-          ><strong>{{ workspace.alerts.length }}<small>项</small></strong
-          ><small>依据已配置的监测阈值</small>
+        <article :class="{ attention: alertTotal }">
+          <span>未关闭告警</span
+          ><strong>{{ num(alertTotal,0) }}<small>项</small></strong
+          ><small>含已确认但尚未关闭的事项</small>
         </article>
         <article>
-          <span>近 {{ days }} 天登记产量</span
+          <span>近 {{ workspace.window?.days ?? days }} 天登记产量</span
           ><strong
-            >{{ num(workspace.analytics.summary.yieldKg)
+            >{{ num(productionYield)
             }}<small>kg</small></strong
-          ><small>来自实际保存的生产记录</small>
+          ><small>{{ productionYield === null ? '所选范围尚无有效收获记录' : '所选范围有效生产记录合计' }}<template v-if="workspace.window"> · {{ workspace.window.fromDate }} 至 {{ workspace.window.toDate }}</template></small>
         </article>
         <article>
           <span>农事完成进度</span
           ><strong
-            >{{
-              workspace.analytics.summary.tasks
-                ? Math.round(
-                    (workspace.analytics.summary.completedTasks /
-                      workspace.analytics.summary.tasks) *
-                      100,
-                  )
-                : 0
-            }}<small>%</small></strong
+            >{{ progress.percent ?? '—' }}<small>{{ progress.percent === null ? '' : '%' }}</small></strong
           ><small
-            >{{ workspace.analytics.summary.completedTasks }} /
-            {{ workspace.analytics.summary.tasks }} 项</small
+            >{{ progress.completed ?? '—' }} / {{ progress.eligible ?? '—' }} 项，取消 {{ progress.cancelled }} 项另计</small
           >
         </article>
       </div>
@@ -610,11 +617,10 @@ onBeforeUnmount(() => {
           <ul>
             <li>经营面积：本农场全部地块面积之和。</li>
             <li>
-              设备与监测：已登记的设备台数；“正常上报”指最近一次读数在设定上报间隔的
-              3 倍以内（至少 3 分钟）。
+              设备与接收：登记设备总数；正常接收仅计算在用自动上报设备，按最近接收时间和上报周期的3倍（至少180秒）判断。接收正常不代表全部指标有效。
             </li>
             <li>
-              待处理告警：超出已配置监测阈值、尚未恢复的告警，含已确认的告警。
+              未关闭告警：设备离线、指标过期或超出阈值等尚未关闭事项，含已确认的告警，不受明细列表展示上限影响。
             </li>
             <li>
               近
@@ -622,18 +628,20 @@ onBeforeUnmount(() => {
               天登记产量：所选范围内实际保存的生产记录合计，不含经营模拟结果。
             </li>
             <li>
-              农事完成进度：本农场全部农事中已完成的比例，已取消的任务计入总数。
+              农事完成进度：本农场非取消任务中已完成的比例；没有可执行任务时显示“—”。任务统计不受生产日期范围和地图筛选影响。
             </li>
+            <li v-if="workspace.alertsTruncated">告警明细仅显示 {{ workspace.alerts.length }} 项，总数为 {{ alertTotal }} 项；请到提醒中心按类型核查。</li>
           </ul>
         </div>
       </details>
       <details class="panel farm-monitoring-fold">
         <summary>环境监测与四情数据</summary>
         <FarmMonitoring
-          :devices="workspace.devices"
+          :devices="currentDevices"
           :plots="workspace.plots"
           :demo="workspace.farm.demo"
           :farm-id="workspace.farm.id"
+          :now="clock"
           @device="detailId = $event"
         />
       </details>
@@ -684,7 +692,7 @@ onBeforeUnmount(() => {
             @configure="mapSettings = true"
             ref="mapRef"
             :plots="workspace.plots"
-            :devices="workspace.devices"
+            :devices="currentDevices"
             :selected-device="selectedDeviceId"
             :selected-plot="selectedPlotId"
             :editable="admin"
@@ -740,7 +748,7 @@ onBeforeUnmount(() => {
           :role="role"
           :spatial="spatial"
           :geo="geo"
-          :devices="workspace.devices"
+          :devices="currentDevices"
           :plots="workspace.plots"
           :tasks="workspace.tasks"
           :selected-parcel="selectedParcelId"
@@ -836,7 +844,7 @@ onBeforeUnmount(() => {
             label="农场产量柱状图"
           />
           <p v-else class="empty">所选范围没有生产记录</p>
-          <div class="yield-ranking">
+          <div v-if="productionYield !== null" class="yield-ranking">
             <span
               v-for="p in workspace.analytics.productionByPlot.slice(0, 4)"
               :key="p.name"
@@ -871,6 +879,7 @@ onBeforeUnmount(() => {
               .map((s) => sourceNames[s.source] + " " + s.count + " 条")
               .join(" · ")
           }}</small>
+          <small v-if="history?.samplePolicy">{{ history.samplePolicy }}</small>
         </section>
       </div>
       <div class="workspace-lists">
@@ -932,8 +941,9 @@ onBeforeUnmount(() => {
             ><span class="status-chip">{{ stateNames[task.status] }}</span>
           </button>
           <p v-if="!filteredTasks.length" class="empty">
-            当前筛选下没有农事任务
+            当前展示范围没有匹配的农事任务
           </p>
+          <p v-if="workspace.tasksTruncated" class="muted">本页展示 {{ workspace.tasks.length }} 条任务，台账共 {{ workspace.taskTotal }} 条；完整记录请打开“农事任务”。</p>
         </section>
       </div>
       <p class="workspace-footnote">

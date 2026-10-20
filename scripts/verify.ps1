@@ -1,4 +1,4 @@
-﻿param([string]$MavenRepository = '', [string]$MavenSettings = '')
+param([string]$MavenRepository = '', [string]$MavenSettings = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if ($MavenSettings) { $MavenSettings = (Resolve-Path -LiteralPath $MavenSettings).Path }
@@ -56,6 +56,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '卫星瓦片并发与取消测试未通过' }
         node --test src/mobile/alert-state.test.js
         if ($LASTEXITCODE -ne 0) { throw '手机告警选择与异步保存测试未通过' }
+        node --test src/fieldwork/production-model.test.js src/ui/request-id.test.js
+        if ($LASTEXITCODE -ne 0) { throw '生产关联筛选与幂等重试测试未通过' }
+        node --test src/metrics/measurement-model.test.js
+        if ($LASTEXITCODE -ne 0) { throw '监测缺失、时间窗口与指标口径测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }
@@ -78,6 +82,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '模型服务配置表单测试未通过' }
     node --test tools/tests/ai-diagnostics.test.cjs
     if ($LASTEXITCODE -ne 0) { throw 'AI 诊断码文案测试未通过' }
+    node --check tools/evaluate_decision_ai.cjs
+    if ($LASTEXITCODE -ne 0) { throw 'AI 决策评测工具语法检查未通过' }
+    node --test tools/tests/evaluate-decision-ai.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw 'AI 决策评测记录与脱敏测试未通过' }
+    node --test tools/tests/audit-data-chain.test.cjs
+    if ($LASTEXITCODE -ne 0) { throw '数据核对工具只读与会话清理测试未通过' }
     node tools/check_project.cjs scan
     if ($LASTEXITCODE -ne 0) { throw '项目公开范围或敏感信息检查未通过' }
     node tools/generate_mysql_schema.cjs --check

@@ -6,14 +6,16 @@ import AppIcon from "../ui/AppIcon.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 import AssistantText from "./AssistantText.vue";
 import { diagnosticLabels } from "./diagnostics";
+import { num } from "../workspace/presentation.js";
 import "./briefing.css";
 
-const props = defineProps({ farmId: String, revision: Number });
+const props = defineProps({ farmId: String, revision: Number, compact: { type: Boolean, default: true } });
 const emit = defineEmits(["ask", "navigate", "alerts"]);
 const report = ref(null),
   loading = ref(false),
   error = ref(""),
   expanded = ref(false);
+const overviewExpanded = ref(false);
 const history = ref([]),
   historyDate = ref(""),
   historyLoading = ref(false),
@@ -58,13 +60,13 @@ const facts = computed(() => {
       label: "待办农事",
       value: m.pendingTasks,
       unit: "项",
-      detail: `${m.overdueTasks ?? 0} 项逾期`,
+      detail: `${m.overdueTasks ?? '—'} 项逾期`,
     },
     {
       label: "未关闭预警",
       value: m.activeAlerts,
       unit: "项",
-      detail: `${m.offlineDevices ?? 0} 台离线`,
+      detail: `${m.offlineDevices ?? '—'} 台离线`,
     },
     {
       label: "近 7 天登记产量",
@@ -76,14 +78,11 @@ const facts = computed(() => {
       label: "当前种植计划",
       value: m.activePlantings,
       unit: "项",
-      detail: `${m.freshMeasurements ?? 0} 条新鲜监测读数`,
+      detail: `${m.freshMeasurements ?? '—'} 条新鲜监测读数`,
     },
   ];
 });
-const number = (value) =>
-  value === undefined || value === null
-    ? "—"
-    : Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 });
+const number = (value) => num(value,2);
 const time = (value) =>
   value ? new Date(value).toLocaleString("zh-CN", { hour12: false }) : "待生成";
 const priorityName = (value) =>
@@ -236,7 +235,7 @@ onUnmounted(() => {
 <template>
   <section
     v-if="farmId"
-    class="farm-briefing"
+    :class="['farm-briefing', { 'briefing-compact': compact }]"
     aria-labelledby="briefing-title"
     :aria-busy="loading && !report"
   >
@@ -246,7 +245,8 @@ onUnmounted(() => {
         <h2 id="briefing-title">今日经营简报</h2>
         <span v-if="report" class="briefing-source">{{ sourceLabel }}</span>
       </div>
-      <span class="briefing-date">{{ report?.reportDate || "每日汇总" }}</span>
+      <button v-if="compact && report" class="text-button briefing-toggle" :aria-expanded="overviewExpanded" aria-controls="briefing-overview" @click="overviewExpanded = !overviewExpanded">{{ overviewExpanded ? "收起简报" : "展开简报" }}</button>
+      <span v-else class="briefing-date">{{ report?.reportDate || "每日汇总" }}</span>
     </div>
     <div
       v-if="loading && !report"
@@ -268,11 +268,18 @@ onUnmounted(() => {
       </button>
     </p>
     <template v-if="report">
+      <div v-if="compact && !overviewExpanded" class="briefing-compact-summary">
+        <p v-if="report.priorities?.length"><strong>{{ report.priorities[0].title }}</strong><br />{{ report.priorities[0].recommendation }}</p>
+        <p v-else>今日快照没有明确优先建议，可查看完整日报核对分析依据。</p>
+        <div class="briefing-actions"><button class="text-button" @click="showReport">查看完整日报</button><span class="briefing-date">快照 {{ time(report.generatedAt) }}</span></div>
+        <p v-if="report.snapshotOutdated" class="briefing-progress">生成后已有更新，请查看实时任务台账和设备提醒。</p>
+      </div>
+      <div id="briefing-overview" v-show="!compact || overviewExpanded">
       <div class="briefing-overview">
         <div class="briefing-lead">
           <p>{{ report.summary }}</p>
           <p class="briefing-timestamp">
-            {{ report.farmName }} · 生成于 {{ time(report.generatedAt) }}
+            {{ report.farmName }} · 生成于 {{ time(report.generatedAt) }}，以下为当时快照
           </p>
           <p v-if="pending" class="briefing-progress" role="status">
             AI 正在补充综合解读，当前可先查看规则分析与生产建议。
@@ -307,8 +314,8 @@ onUnmounted(() => {
           <dt>{{ fact.label }}</dt>
           <dd>
             {{ number(fact.value) }} <small>{{ fact.unit }}</small>
+            <small class="briefing-fact-detail">{{ fact.detail }}</small>
           </dd>
-          <small>{{ fact.detail }}</small>
         </div>
       </dl>
       <div class="briefing-caption">
@@ -323,6 +330,7 @@ onUnmounted(() => {
         ><span v-else-if="report.source !== 'LLM'">{{
           diagnosticLabels[report.diagnostic] || "规则结果，未使用模型生成"
         }}</span>
+      </div>
       </div>
     </template>
   </section>
@@ -375,6 +383,7 @@ onUnmounted(() => {
     <p v-if="historyDate !== report.reportDate" class="briefing-progress">
       正在查看历史快照；以下建议与证据反映当日记录，执行前请核对最新情况。
     </p>
+    <p v-else-if="report.snapshotOutdated" class="briefing-progress">该日报为生成时快照，之后已有业务更新；请以实时任务台账和设备提醒核对当前状态。</p>
     <div class="briefing-report-summary">
       <h3>经营状况</h3>
       <p>{{ viewedReport.summary }}</p>

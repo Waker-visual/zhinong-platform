@@ -43,6 +43,8 @@ management:
       percentiles:
         http.server.requests: 0.5,0.95,0.99
 farm:
+  weather:
+    enabled: ${FARM_WEATHER_ENABLED:true}
   # Business calendar for "today", overdue tasks, daily limits and AI prompts; independent of the server zone.
   zone: ${FARM_ZONE:Asia/Shanghai}
   demo: ${FARM_DEMO:false}
@@ -52,6 +54,8 @@ farm:
   research-history: ${FARM_RESEARCH_HISTORY:false}
   demo-stream:
     enabled: ${FARM_DEMO_STREAM_ENABLED:false}
+    # Resume only current fictional readings, independently of all historical/business seeders.
+    live-only: ${FARM_DEMO_STREAM_LIVE_ONLY:false}
     days: ${FARM_DEMO_STREAM_DAYS:30}
   # Ages out SIMULATED demo telemetry on demo farms (only when farm.demo=true); see docs/服务稳定性与性能指南.md.
   demo-retention:

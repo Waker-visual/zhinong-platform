@@ -2,6 +2,7 @@ package app.zhinong.workspace;
 
 import app.zhinong.api.ApiException;
 import app.zhinong.business.Store;
+import app.zhinong.business.FarmClock;
 import app.zhinong.database.DatabaseTime;
 import app.zhinong.security.Identity;
 import java.math.BigDecimal;
@@ -18,11 +19,13 @@ public class AssetService {
   private final Store store;
   private final JdbcTemplate db;
   private final CameraProfiles cameras;
+  private final FarmClock clock;
 
-  public AssetService(Store store, CameraProfiles cameras) {
+  public AssetService(Store store, CameraProfiles cameras, FarmClock clock) {
     this.store = store;
     this.db = store.db();
     this.cameras = cameras;
+    this.clock = clock;
   }
 
   private static final String SELECT = """
@@ -106,6 +109,7 @@ public class AssetService {
   }
 
   private void enrich(Map<String, Object> row, String tenant) {
+    Instant now = clock.instant();
     Object configured = row.get("credentialConfigured");
     row.put("credentialConfigured", Boolean.TRUE.equals(configured) || configured instanceof Number n && n.intValue() != 0);
     row.put("lastReceivedAt", DatabaseTime.utc(row.get("lastReceivedAt")));
@@ -130,23 +134,24 @@ public class AssetService {
       var latest = latest(tenant, id, metric);
       channel.put("latest", latest);
       Instant at = latest == null ? null : app.zhinong.database.DatabaseTime.offset(latest.get("time")).toInstant();
-      channel.put("freshness", freshness(at, threshold));
-      if (latest != null && !row.get("protocol").equals(latest.get("source"))) channel.put("freshness", "STALE");
+      var quality = quality(latest, metric, row.get("protocol").toString(), row.get("lifecycle").toString(), ((Number) row.get("intervalSeconds")).intValue(), now);
+      channel.put("freshness", quality.freshness());
+      channel.put("reason", quality.reason());
+      channel.put("freshnessSeconds", quality.thresholdSeconds());
       if ("FRESH".equals(channel.get("freshness"))) freshChannels++;
       if (latest == null) missingChannels++;
       if (at != null && (sampled == null || at.isAfter(sampled))) sampled = at;
     }
     row.put("channels", channels);
     row.put("lastSampledAt", sampled);
-    String freshness = freshness(sampled, threshold);
-    if (freshChannels == 0 && sampled != null) freshness = "STALE";
+    String freshness = freshChannels > 0 ? "FRESH" : sampled == null ? "NO_DATA" : "STALE";
     if (!"ACTIVE".equals(row.get("lifecycle"))) freshness = row.get("lifecycle").toString();
     row.put("freshness", freshness);
     row.put("freshChannelCount", freshChannels);
     row.put("missingChannelCount", missingChannels);
     row.put("dataQuality", missingChannels == channels.size() ? "NO_DATA" : freshChannels == channels.size() ? "COMPLETE" : freshChannels == 0 ? "STALE" : "PARTIAL");
     Instant received = row.get("lastReceivedAt") == null ? null : ((OffsetDateTime) row.get("lastReceivedAt")).toInstant();
-    row.put("connectionState", freshness(received, threshold));
+    row.put("connectionState", freshness(received, threshold, now));
     row.put("positioned", "WGS84".equals(row.get("locationMode")) || row.get("planX") != null);
     row.put(
       "alertCount",
@@ -159,8 +164,27 @@ public class AssetService {
     );
   }
 
-  private static String freshness(Instant at, long threshold) {
-    return at == null ? "NO_DATA" : at.isAfter(Instant.now().minusSeconds(threshold)) ? "FRESH" : "STALE";
+  private static String freshness(Instant at, long threshold, Instant now) {
+    return at == null ? "NO_DATA" : !at.isAfter(now) && at.isAfter(now.minusSeconds(threshold)) ? "FRESH" : "STALE";
+  }
+
+  public record ReadingQuality(String freshness, String reason, long thresholdSeconds, Long ageSeconds) {
+    public boolean fresh() { return "FRESH".equals(freshness); }
+  }
+
+  /** Device cards, agronomy and decision evidence use the same configured-channel validity rules. */
+  public static ReadingQuality quality(Map<String,Object> latest, String metric, String protocol, String lifecycle, int interval, Instant now) {
+    long threshold = DeviceAlertMonitor.thresholdSeconds(interval);
+    if (latest == null) return new ReadingQuality("NO_DATA", "没有观测记录", threshold, null);
+    Instant at = DatabaseTime.instant(latest.get("time"));
+    long age = Duration.between(at, now).getSeconds();
+    if (!"ACTIVE".equals(lifecycle)) return new ReadingQuality(lifecycle, "设备非在用状态", threshold, age);
+    if (!Objects.equals(protocol, latest.get("source"))) return new ReadingQuality("STALE", "采集来源与配置不一致", threshold, age);
+    if (at.isAfter(now)) return new ReadingQuality("STALE", "观测时间晚于当前时间", threshold, age);
+    if (!at.isAfter(now.minusSeconds(threshold))) return new ReadingQuality("STALE", "观测已过期", threshold, age);
+    try { MetricCatalog.validate(metric, new BigDecimal(latest.get("value").toString())); }
+    catch (ApiException | NumberFormatException e) { return new ReadingQuality("STALE", "读数超出指标允许范围", threshold, age); }
+    return new ReadingQuality("FRESH", "有效", threshold, age);
   }
 
   public List<Map<String, Object>> channels(String tenant, String id) {
@@ -183,16 +207,16 @@ public class AssetService {
   String latestSql() {
     return ("""
       SELECT * FROM (
-        (SELECT measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt"
+        (SELECT id AS "recordId",'telemetry_readings' AS "recordStore",2 AS "recordPriority",measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt",received_at AS "orderingAt"
          FROM telemetry_readings%s WHERE tenant_id=? AND device_id=? AND metric=?
          ORDER BY tenant_id,device_id,metric,measured_at DESC,received_at DESC,id DESC LIMIT 1)
         UNION ALL
-        (SELECT %s AS "time",o.measured_value AS "value",o.source AS "source",%s AS "receivedAt"
+        (SELECT o.id AS "recordId",'observations' AS "recordStore",1 AS "recordPriority",%s AS "time",o.measured_value AS "value",o.source AS "source",o.received_at AS "receivedAt",COALESCE(o.received_at,%s) AS "orderingAt"
          FROM observations o JOIN devices d ON d.tenant_id=o.tenant_id AND d.id=o.device_id
          WHERE o.tenant_id=? AND o.device_id=? AND d.metric=?
-         ORDER BY o.measured_at DESC,o.id DESC LIMIT 1)
-      ) r ORDER BY "time" DESC,"receivedAt" DESC LIMIT 1
-      """).formatted(store.sql().useIndex("ix_telemetry_latest"), store.sql().timestamp("o.measured_at"), store.sql().timestamp("o.measured_at"));
+         ORDER BY o.measured_at DESC,COALESCE(o.received_at,%s) DESC,o.id DESC LIMIT 1)
+      ) r ORDER BY "time" DESC,"orderingAt" DESC,"recordPriority" DESC,"recordId" DESC LIMIT 1
+      """).formatted(store.sql().useIndex("ix_telemetry_latest"), store.sql().observationTime("o.measured_at"), store.sql().observationTime("o.measured_at"),store.sql().observationTime("o.measured_at"));
   }
 
   public Map<String, Object> latest(String tenant, String id, String metric) {
@@ -209,19 +233,103 @@ public class AssetService {
     var row = rows.getFirst();
     row.put("time", DatabaseTime.utc(row.get("time")));
     row.put("receivedAt", DatabaseTime.utc(row.get("receivedAt")));
+    row.put("receivedAtKnown",row.get("receivedAt")!=null);
+    row.remove("orderingAt"); row.remove("recordPriority");
     return row;
+  }
+
+  /** One indexed seek per configured channel inside SQL, then bounded batch fetches across both stores. */
+  public List<Map<String,Object>> farmReadings(String tenant, String farm, Set<String> metrics) {
+    return farmReadings(tenant,farm,metrics,null);
+  }
+
+  public List<Map<String,Object>> farmReadings(String tenant, String farm, Set<String> metrics, OffsetDateTime before) {
+    if (metrics.isEmpty()) return List.of();
+    var args = new ArrayList<Object>();if(before!=null){args.add(before);args.add(before);} args.add(tenant); args.add(farm); args.addAll(metrics.stream().sorted().toList());
+    var scoped = db.queryForList("""
+      SELECT d.id AS "deviceId",d.name AS "deviceName",a.plot_id AS "plotId",p.name AS "plotName",
+        a.protocol AS "protocol",a.lifecycle AS "lifecycle",a.interval_seconds AS "intervalSeconds",
+        a.last_received_at AS "lastReceivedAt",c.metric AS "metric",
+        (SELECT n.id FROM telemetry_readings n%s WHERE n.tenant_id=d.tenant_id AND n.device_id=d.id AND n.metric=c.metric %s
+          ORDER BY n.tenant_id,n.device_id,n.metric,n.measured_at DESC,n.received_at DESC,n.id DESC LIMIT 1) AS "readingId",
+        (SELECT o.id FROM observations o WHERE o.tenant_id=d.tenant_id AND o.device_id=d.id AND d.metric=c.metric %s
+          ORDER BY o.measured_at DESC,COALESCE(o.received_at,%s) DESC,o.id DESC LIMIT 1) AS "observationId"
+      FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id
+      JOIN device_channels c ON c.tenant_id=d.tenant_id AND c.device_id=d.id
+      LEFT JOIN plots p ON p.tenant_id=a.tenant_id AND p.id=a.plot_id AND p.farm_id=d.farm_id
+      WHERE d.tenant_id=? AND d.farm_id=? AND c.metric IN (%s) ORDER BY d.name,d.id,c.metric
+      """.formatted(store.sql().useIndex("ix_telemetry_latest"),before==null?"":"AND n.measured_at<?",before==null?"":"AND "+store.sql().observationTime("o.measured_at")+"<?",store.sql().observationTime("o.measured_at"), String.join(",", Collections.nCopies(metrics.size(), "?"))), args.toArray());
+    var modern = batchReadings(tenant, scoped.stream().map(r -> (String) r.get("readingId")).filter(Objects::nonNull).toList(), false);
+    var legacy = batchReadings(tenant, scoped.stream().map(r -> (String) r.get("observationId")).filter(Objects::nonNull).toList(), true);
+    for (var row : scoped) {
+      var current = modern.get(row.remove("readingId"));
+      var old = legacy.get(row.remove("observationId"));
+      if (old != null && (current == null || later(old, current))) current = old;
+      row.put("latest", current);
+    }
+    return scoped;
+  }
+
+  private Map<String,Map<String,Object>> batchReadings(String tenant, List<String> ids, boolean legacy) {
+    var result = new HashMap<String,Map<String,Object>>();
+    for (int from=0; from<ids.size(); from+=500) {
+      var batch=ids.subList(from, Math.min(ids.size(),from+500));
+      var args=new ArrayList<Object>(); args.add(tenant); args.addAll(batch);
+      String at=legacy?store.sql().observationTime("measured_at"):"measured_at";
+      var rows=db.queryForList("SELECT id AS \"recordId\",'"+(legacy?"observations":"telemetry_readings")+"' AS \"recordStore\","+
+        at+" AS \"time\",measured_value AS \"value\",source AS \"source\",received_at AS \"receivedAt\" FROM "+
+        (legacy?"observations":"telemetry_readings")+" WHERE tenant_id=? AND id IN ("+String.join(",",Collections.nCopies(batch.size(),"?"))+")",args.toArray());
+      for(var row:rows) {
+        row.put("time",DatabaseTime.utc(row.get("time"))); row.put("receivedAt",DatabaseTime.utc(row.get("receivedAt")));
+        row.put("receivedAtKnown",row.get("receivedAt")!=null);
+        result.put(row.get("recordId").toString(),row);
+      }
+    }
+    return result;
+  }
+
+  private boolean later(Map<String,Object> candidate, Map<String,Object> current) {
+    int time=DatabaseTime.instant(candidate.get("time")).compareTo(DatabaseTime.instant(current.get("time")));
+    if(time!=0)return time>0;
+    int receipt=DatabaseTime.instant(candidate.get("receivedAt")==null?candidate.get("time"):candidate.get("receivedAt")).compareTo(DatabaseTime.instant(current.get("receivedAt")==null?current.get("time"):current.get("receivedAt")));
+    // On an exact cross-store tie the explicit telemetry row wins, matching latestSql().
+    return receipt>0;
+  }
+
+  public record ScopedHistory(String sql, List<Object> arguments) {}
+
+  /** Bounded canonical samples for farm aggregates: configured channels, one final correction per observation time. */
+  public ScopedHistory farmHistory(String tenant,String farm,Set<String> metrics,OffsetDateTime start,OffsetDateTime end) {
+    String filter=metrics.isEmpty()?"":" AND c.metric IN ("+String.join(",",Collections.nCopies(metrics.size(),"?"))+")";
+    String oldTime=store.sql().observationTime("o.measured_at");
+    String columns="d.tenant_id,d.id AS device_id,d.farm_id,a.plot_id,c.metric,a.protocol,a.lifecycle,a.interval_seconds,a.device_type,c.lower_limit,c.upper_limit,";
+    String scope=" FROM devices d JOIN asset_profiles a ON a.tenant_id=d.tenant_id AND a.device_id=d.id ";
+    String sql="SELECT * FROM (SELECT h.*,ROW_NUMBER() OVER(PARTITION BY device_id,metric,measured_at ORDER BY ordering_at DESC,record_priority DESC,record_id DESC) AS sample_rank FROM ("+
+      "SELECT "+columns+"n.id AS record_id,2 AS record_priority,n.measured_value,n.measured_at,n.received_at,n.received_at AS ordering_at,n.source"+scope+
+      "JOIN device_channels c ON c.tenant_id=d.tenant_id AND c.device_id=d.id JOIN telemetry_readings n"+store.sql().useIndex("ix_telemetry_history")+
+      " ON n.tenant_id=d.tenant_id AND n.device_id=d.id AND n.metric=c.metric WHERE d.tenant_id=? AND d.farm_id=? AND n.measured_at>=? AND n.measured_at<=?"+filter+
+      " UNION ALL SELECT "+columns+"o.id AS record_id,1 AS record_priority,o.measured_value,"+oldTime+" AS measured_at,o.received_at,COALESCE(o.received_at,"+oldTime+") AS ordering_at,o.source"+scope+
+      "JOIN device_channels c ON c.tenant_id=d.tenant_id AND c.device_id=d.id AND c.metric=d.metric JOIN observations o ON o.tenant_id=d.tenant_id AND o.device_id=d.id "+
+      "WHERE d.tenant_id=? AND d.farm_id=? AND "+oldTime+">=? AND "+oldTime+"<=?"+filter+
+      ") h) ranked WHERE sample_rank=1 AND "+MetricCatalog.validSampleSql("metric","measured_value");
+    var args=new ArrayList<Object>();
+    for(int i=0;i<2;i++){args.add(tenant);args.add(farm);args.add(start);args.add(end);args.addAll(metrics.stream().sorted().toList());}
+    return new ScopedHistory(sql,List.copyOf(args));
   }
 
   private String historyUnion() {
     return ("""
-    SELECT measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt"
-    FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=?
-    UNION ALL
-    SELECT %s AS "time",
-      o.measured_value AS "value",o.source AS "source",%s AS "receivedAt"
-    FROM observations o JOIN devices d ON d.tenant_id=o.tenant_id AND d.id=o.device_id
-    WHERE o.tenant_id=? AND o.device_id=? AND d.metric=?
-    """).formatted(store.sql().timestamp("o.measured_at"), store.sql().timestamp("o.measured_at"));
+    SELECT "time","value","source","receivedAt" FROM (
+      SELECT h.*,ROW_NUMBER() OVER(PARTITION BY "time" ORDER BY "orderingAt" DESC,"priority" DESC,"recordId" DESC) AS sample_rank FROM (
+        SELECT id AS "recordId",2 AS "priority",measured_at AS "time",measured_value AS "value",source AS "source",received_at AS "receivedAt",received_at AS "orderingAt"
+        FROM telemetry_readings WHERE tenant_id=? AND device_id=? AND metric=? AND measured_at>=? AND measured_at<=?
+        UNION ALL
+        SELECT o.id AS "recordId",1 AS "priority",%s AS "time",o.measured_value AS "value",o.source AS "source",o.received_at AS "receivedAt",COALESCE(o.received_at,%s) AS "orderingAt"
+        FROM observations o JOIN devices d ON d.tenant_id=o.tenant_id AND d.id=o.device_id
+        WHERE o.tenant_id=? AND o.device_id=? AND d.metric=? AND %s>=? AND %s<=?
+      ) h
+    ) ranked WHERE sample_rank=1 AND "source"=(SELECT protocol FROM asset_profiles a WHERE a.tenant_id=? AND a.device_id=?)
+    """).formatted(store.sql().observationTime("o.measured_at"), store.sql().observationTime("o.measured_at"),store.sql().observationTime("o.measured_at"),store.sql().observationTime("o.measured_at"));
   }
 
   public Map<String, Object> history(String id, String metric, int hours) {
@@ -235,35 +343,46 @@ public class AssetService {
     ) {
       throw new ApiException(400, "设备未配置该指标");
     }
-    var start = OffsetDateTime.now(ZoneOffset.UTC).minusHours(hours);
+    var end = clock.now();
+    var start = end.minusHours(hours);
     String bucket = store.sql().bucket("\"time\"", hours <= 24);
     var points = db.queryForList(
       "SELECT " + bucket + " AS \"time\"," +
         "AVG(\"value\") AS \"value\",MIN(\"value\") AS \"min\",MAX(\"value\") AS \"max\"," +
         "COUNT(*) AS \"samples\" FROM (" +
         historyUnion() +
-        ") r WHERE \"time\">=? " +
+        ") r " +
         "GROUP BY " + bucket + " ORDER BY \"time\"",
       Identity.tenant(),
       id,
       metric,
+      start,
+      end,
       Identity.tenant(),
       id,
       metric,
-      start
+      start,
+      end,
+      Identity.tenant(),
+      id
     );
     points.forEach(p -> p.put("time", DatabaseTime.utc(p.get("time"))));
     var sources = db.queryForList(
       "SELECT \"source\",COUNT(*) AS \"count\" FROM (" +
         historyUnion() +
-        ") r WHERE \"time\">=? GROUP BY \"source\"",
+        ") r GROUP BY \"source\"",
       Identity.tenant(),
       id,
       metric,
+      start,
+      end,
       Identity.tenant(),
       id,
       metric,
-      start
+      start,
+      end,
+      Identity.tenant(),
+      id
     );
     return Map.of(
       "metric",
@@ -275,7 +394,9 @@ public class AssetService {
       "points",
       points,
       "sources",
-      sources
+      sources,
+      "samplePolicy",
+      "当前接入协议；同一观测时刻保留最后接收修正；未来观测不纳入。此设备诊断图保留物理范围异常值，农场与 AI 汇总排除异常值；原始记录保留用于追溯。"
     );
   }
 
