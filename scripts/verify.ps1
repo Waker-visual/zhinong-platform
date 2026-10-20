@@ -40,7 +40,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '禾苗助手互动状态测试未通过' }
         node --test src/ai/ai-session.test.js src/ai/floating-assistant-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '小禾共享会话状态与页面资料范围测试未通过' }
-        node --test src/screen/screen-model.test.js
+        node --test src/screen/screen-model.test.js src/screen/agronomy-work.test.js
         if ($LASTEXITCODE -ne 0) { throw '展示大屏数据模型测试未通过' }
         node --test src/screen/scene-model.test.js src/screen/scene-markers.test.js
         if ($LASTEXITCODE -ne 0) { throw '三维农场数据转换测试未通过' }

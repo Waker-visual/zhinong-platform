@@ -14,7 +14,7 @@ import AssistantText from "../ai/AssistantText.vue";
 import SatelliteFarmMap from "./SatelliteFarmMap.vue";
 import FarmScene from "./FarmScene.vue";
 import SceneAmbience from "./SceneAmbience.vue";
-import FarmScene3D from "./scene/FarmScene3D.vue";
+import AgronomyWork from "./AgronomyWork.vue";
 import WeatherForecast from "./WeatherForecast.vue";
 import RiskOverview from "./RiskOverview.vue";
 import { satelliteGeometry } from "./satellite-model.js";
@@ -479,7 +479,6 @@ onBeforeUnmount(() => {
         'display-overview-stage': view === 'overview',
         'display-agronomy-stage': view === 'agronomy',
         'display-weather-stage': view === 'weather',
-        'display-scene-stage': view === 'tour',
       }"
     >
       <header class="display-header">
@@ -578,9 +577,6 @@ onBeforeUnmount(() => {
               @click="view = 'weather'"
             >
               <AppIcon name="bell" />天气预警
-            </button>
-            <button :aria-pressed="view === 'tour'" @click="view = 'tour'">
-              <AppIcon name="patrol" />农场导览
             </button>
           </nav>
           <p :title="readSummary">
@@ -970,8 +966,8 @@ onBeforeUnmount(() => {
           <template v-else-if="view === 'agronomy'">
             <section class="display-agronomy-intro display-agronomy-summary">
               <div>
-                <h2>智能农情与生产建议</h2>
-                <p>最新有效观测、历史趋势与当天建议，同屏核对。</p>
+                <h2>智能农情与农事进度</h2>
+                <p>监测、作业、种植与采收，同屏核对。</p>
               </div>
               <button class="display-primary" @click="ask()">
                 <AppIcon name="send" />询问 AI 农场助手
@@ -1017,6 +1013,16 @@ onBeforeUnmount(() => {
               </article>
             </section>
             <div class="display-agronomy-grid">
+              <AgronomyWork
+                :key="`work-${farmId}`"
+                :workspace="workspace"
+                :operations="operations"
+                :analysis="analysis"
+                :workspace-time="resourceTime('workspace')"
+                :operations-time="resourceTime('operations')"
+                :analysis-time="resourceTime('analysis')"
+                @navigate="navigate"
+              />
               <section
                 :key="`conditions-${farmId}`"
                 class="display-condition-panel"
@@ -1225,19 +1231,6 @@ onBeforeUnmount(() => {
               </section>
             </div>
           </template>
-          <FarmScene3D
-            v-else
-            :key="farmId"
-            :workspace="workspace"
-            :analysis="analysis"
-            :farm-name="farm?.name"
-            :now="clock"
-            :reduced-motion="reducedMotion"
-            :read-at="resourceStates.workspace?.readAt"
-            @navigate="navigate"
-            @ask="ask"
-            @alerts="emit('alerts', { farmId })"
-          />
         </template>
       </main>
     </div>
