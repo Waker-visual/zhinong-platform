@@ -1,3 +1,4 @@
+const { openPage } = require("./open_page.cjs");
 const fs = require("node:fs"),
   path = require("node:path");
 const root = path.resolve(__dirname, "..");
@@ -44,10 +45,7 @@ fs.mkdirSync(output, { recursive: true });
     await page
       .getByLabel("当前农场", { exact: true })
       .selectOption({ label: "青禾综合示范农场" });
-    await page
-      .locator("nav")
-      .getByRole("button", { name: "农场概览", exact: true })
-      .click();
+    await openPage(page, "农场概览");
     await state("ready");
     test(success > 0, "浏览器外域访问被阻断时，本机网关返回真实卫星瓦片");
     test(

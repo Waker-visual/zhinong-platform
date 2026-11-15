@@ -1,4 +1,5 @@
 // Browser acceptance uses an isolated in-memory server, never the local farm database.
+const { openPage } = require('./open_page.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -38,7 +39,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.getByRole('button', { name: label, exact: true }).click();
     await page.getByRole('option', { name, exact: true }).click();
   }
-  async function cameraPage() { await page.getByRole('button', { name: '田间实景', exact: true }).click(); }
+  async function cameraPage() { await openPage(page, "田间实景"); }
   async function ready() { await page.locator('.field-cameras .camera-frame[data-media-state="ready"]').waitFor(); }
   try {
     for (let n = 0; n < 120; n++) {

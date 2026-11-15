@@ -1,4 +1,5 @@
 // AI/browser integration on a disposable H2 server. Private model configuration is disabled.
+const { openPage } = require('./open_page.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -47,7 +48,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await context.addInitScript(value => sessionStorage.setItem('zhinong-session', value), token);
     page = await context.newPage(); page.on('pageerror', e => errors.push(e.message));
     await page.goto(base);
-    await page.getByRole('button', { name: '农场 AI 助手', exact: true }).first().click();
+    await openPage(page, "农场 AI 助手");
     await page.getByText('规则分析模式', { exact: true }).waitFor();
     await verifyRefresh(page);
     await page.getByLabel('农事问题', { exact: true }).fill('分析今天的天气和四情数据，不执行设备操作。');
@@ -76,7 +77,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     await page.getByRole('button', { name: '从此处分支', exact: true }).click();
     await page.waitForFunction(() => document.querySelectorAll('.ai-history-item').length === 2);
     await page.screenshot({ path: path.join(output, 'ai-merge-chat.png'), fullPage: true });
-    await page.reload(); await page.getByRole('button', { name: '农场 AI 助手', exact: true }).first().click();
+    await page.reload(); await openPage(page, "农场 AI 助手");
     await page.getByText('已置顶', { exact: true }).waitFor();
     await page.getByRole('button', { name: '天气与四情', exact: true }).click();
     await page.locator('.ai-condition-grid article').first().waitFor();

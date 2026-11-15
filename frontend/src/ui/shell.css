@@ -291,7 +291,7 @@ button[aria-busy="true"]::after {
 
 .app-layout {
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
+  grid-template-columns: 232px minmax(0, 1fr);
   min-height: 100vh;
   transition: grid-template-columns 280ms var(--ease-expo);
 }
@@ -409,27 +409,19 @@ button[aria-busy="true"]::after {
   color: var(--label-fg);
   font: 11px/16px var(--font-mono);
 }
+/* 侧栏只列一级模块；模块内的页面由页面顶部的 .module-tabs 切换。 */
 .sidebar nav {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-.nav-group {
-  display: grid;
   gap: 2px;
-}
-.nav-caption {
-  margin: 4px 12px 2px;
-  color: var(--label-fg);
-  font-size: 12px;
-  white-space: nowrap;
+  margin-top: var(--space-2);
 }
 .sidebar nav button {
   position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 38px;
+  height: 40px;
   padding: 0 10px 0 12px;
   border-radius: var(--radius-sm);
   color: var(--text-2);
@@ -453,7 +445,64 @@ button[aria-busy="true"]::after {
   font-weight: 600;
 }
 .sidebar nav button.selected .app-icon {
+  color: var(--brand);
+}
+/* 模块页签：位于页面标题之上，切换同一模块内的页面。 */
+.module-tabs {
+  display: flex;
+  gap: var(--space-1);
+  margin: -12px 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.module-tabs::-webkit-scrollbar {
+  display: none;
+}
+.module-tabs button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  color: var(--text-2);
+  font: var(--text-body);
+  white-space: nowrap;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+.module-tabs button .app-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--label-fg);
+}
+.module-tabs button:hover:not(:disabled) {
+  background: var(--control-hover);
   color: var(--text);
+}
+.module-tabs button.selected {
+  color: var(--brand);
+  font-weight: 600;
+}
+.module-tabs button.selected .app-icon {
+  color: var(--brand);
+}
+.module-tabs button.selected::after {
+  content: "";
+  position: absolute;
+  left: var(--space-3);
+  right: var(--space-3);
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--brand);
+}
+.module-tabs button:focus-visible {
+  outline-offset: -2px;
 }
 /* 当前位置指示条沿用主题色，任务计数仍使用独立的状态色。 */
 .sidebar nav button.selected::before {

@@ -1,4 +1,5 @@
 // A disposable, localhost-only browser acceptance run. No production database or account is used.
+const { openPage } = require("./open_page.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -110,10 +111,7 @@ async function freePort() {
     await page.route("**/api/map-tiles/**", (route) => route.abort());
     await page.goto(base);
     await select(page, "当前农场", "青禾设备联动演示场");
-    await page
-      .locator("nav")
-      .getByRole("button", { name: "农场概览", exact: true })
-      .click();
+    await openPage(page, "农场概览");
     await page.locator('.farm-map-panel[data-load-state="offline"]').waitFor();
     return { page, context };
   }
@@ -233,10 +231,7 @@ async function freePort() {
       "PASS clearing a map position preserves the device and measurements",
     );
 
-    await page
-      .locator("nav")
-      .getByRole("button", { name: "设备台账", exact: true })
-      .click();
+    await openPage(page, "设备台账");
     await page.getByRole("button", { name: /新增设备/ }).click();
     await select(page, "设备类型", "泵房控制器");
     await page

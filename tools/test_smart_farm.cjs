@@ -1,4 +1,5 @@
 // Disposable browser acceptance: synthetic data, random localhost port, no MQTT or RDS connection.
+const { openPage } = require("./open_page.cjs");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -153,10 +154,7 @@ const { chromium } = require(
     await page
       .getByRole("option", { name: "虚构现场联调农场", exact: true })
       .click();
-    await page
-      .locator("nav")
-      .getByRole("button", { name: "农场概览", exact: true })
-      .click();
+    await openPage(page, "农场概览");
     await page
       .getByRole("heading", { name: "地块现场监测", exact: true })
       .waitFor();
@@ -224,10 +222,7 @@ const { chromium } = require(
     await page
       .getByRole("option", { name: "虚构现场联调农场", exact: true })
       .click();
-    await page
-      .locator("nav")
-      .getByRole("button", { name: "农场概览", exact: true })
-      .click();
+    await openPage(page, "农场概览");
     await page
       .locator(".field-monitor-device")
       .filter({ hasText: device.name })

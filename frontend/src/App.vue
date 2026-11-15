@@ -1,7 +1,7 @@
 <script setup>
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, reactive, ref, shallowRef, watch } from "vue";
 import { api, connection, isConnectionError, setToken } from "./api";
-import { forms, labels, menus } from "./catalog";
+import { forms, labels, menus, modules } from "./catalog";
 import FarmHub from "./workspace/FarmHub.vue";
 import DeviceManager from "./workspace/DeviceManager.vue";
 import FieldCameras from "./workspace/FieldCameras.vue";
@@ -205,14 +205,38 @@ function selectFarm() {
   }
   if (scopedPage.value) refreshActive();
 }
-const groupOrder = ["日常作业", "农场与设备", "分析与管理", "平台管理"];
-const menuGroups = computed(() =>
-  groupOrder
-    .map((label) => ({
-      label,
-      items: visibleMenus.value.filter((m) => m.group === label),
+// 侧栏只列模块；模块内的页面在页面顶部的模块页签里切换。可见性仍由 visibleMenus 决定。
+const visibleModules = computed(() =>
+  modules
+    .map((module) => ({
+      ...module,
+      items: module.pages
+        .map((id) => visibleMenus.value.find((m) => m.id === id))
+        .filter(Boolean),
     }))
-    .filter((g) => g.items.length),
+    .filter((module) => module.items.some((item) => item.id !== "display")),
+);
+const currentModule = computed(
+  () =>
+    visibleModules.value.find((module) =>
+      module.items.some((item) => item.id === page.value),
+    ) || visibleModules.value[0],
+);
+const moduleTabs = computed(() =>
+  currentModule.value?.items.length > 1 ? currentModule.value.items : [],
+);
+// 每个模块保留上次停留的页面，再次点模块时回到那里。
+const lastModulePage = reactive({});
+function openModule(module) {
+  const remembered = module.items.find((item) => item.id === lastModulePage[module.id]);
+  navigate((remembered || module.items.find((item) => item.id !== "display")).id);
+}
+// 命令面板沿用分组结构：按模块列出全部页面。
+const menuGroups = computed(() =>
+  visibleModules.value.map((module) => ({
+    label: module.title,
+    items: module.items.map((item) => ({ ...item, group: module.title })),
+  })),
 );
 // 今日农场的计数覆盖本租户全部农场：逾期、受阻（不含已逾期）与待处理现场问题，颜色取最紧急的一项。
 const attention = computed(() => {
@@ -566,6 +590,7 @@ async function navigate(payload) {
   if (id === "devices") ledgerFocus.value = typeof payload === "object" ? { farmId: payload.farmId || "", deviceId: payload.deviceId || "", cameraOnly: !!payload.cameraOnly } : { farmId: "", deviceId: "", cameraOnly: false };
   const update = async () => {
     page.value = id;
+    if (currentModule.value) lastModulePage[currentModule.value.id] = id;
     navigationRevision.value++;
     // 农场概览直接打开顶栏选中的农场；未选农场时显示农场列表
     farmToOpen.value = id === "dashboard" ? farmScope.value : "";
@@ -1014,33 +1039,34 @@ onUnmounted(() => {
         ><kbd class="sidebar-label">Ctrl K</kbd>
       </button>
       <nav aria-label="工作空间">
-        <div v-for="group in menuGroups" :key="group.label" class="nav-group">
-          <p class="nav-caption sidebar-label">{{ group.label }}</p>
-          <button
-            v-for="item in group.items"
-            :key="item.id"
-            :aria-label="item.title"
-            :title="collapsed ? item.title : undefined"
-            :aria-current="page === item.id ? 'page' : undefined"
-            :aria-describedby="
-              item.id === 'daily' && attention ? 'attention-note' : undefined
-            "
-            :class="{ selected: page === item.id }"
-            @click="navigate(item.id)"
-            :disabled="account?.mustChangePassword"
+        <button
+          v-for="module in visibleModules"
+          :key="module.id"
+          :aria-label="module.title"
+          :title="collapsed ? module.title : undefined"
+          :aria-current="
+            currentModule?.id === module.id
+              ? module.items.length > 1 ? 'true' : 'page'
+              : undefined
+          "
+          :aria-describedby="
+            module.id === 'today' && attention ? 'attention-note' : undefined
+          "
+          :class="{ selected: currentModule?.id === module.id }"
+          @click="openModule(module)"
+          :disabled="account?.mustChangePassword"
+        >
+          <AppIcon :name="module.icon" /><span class="nav-label sidebar-label">{{
+            module.title
+          }}</span
+          ><span
+            v-if="module.id === 'today' && attention"
+            :class="['nav-count', attention.tone]"
+            :title="attention.label"
+            aria-hidden="true"
+            >{{ attention.total }}</span
           >
-            <AppIcon :name="item.icon" /><span class="nav-label sidebar-label">{{
-              item.title
-            }}</span
-            ><span
-              v-if="item.id === 'daily' && attention"
-              :class="['nav-count', attention.tone]"
-              :title="attention.label"
-              aria-hidden="true"
-              >{{ attention.total }}</span
-            >
-          </button>
-        </div>
+        </button>
       </nav>
       <div class="sidebar-bottom">
         <div
@@ -1095,7 +1121,8 @@ onUnmounted(() => {
         <span class="topbar-brand"
           ><img class="brand-mark" :src="brandLogo" alt="智禾农场标志" width="40" height="40" /><span>智禾农场</span></span
         ><span class="topbar-trail"
-          >工作空间 <b>/</b> {{ current.title }}</span
+          ><template v-if="moduleTabs.length">{{ currentModule.title }} <b>/</b> </template
+          >{{ current.title }}</span
         ><FarmSelect
           v-if="!platform && farmRows.length && !account?.mustChangePassword"
           v-model="farmScope"
@@ -1141,6 +1168,19 @@ onUnmounted(() => {
         v-if="account && !account.mustChangePassword"
         :style="activeMorph && page !== 'operations' ? { viewTransitionName: 'ops-morph' } : null"
       >
+        <nav v-if="moduleTabs.length" class="module-tabs" :aria-label="currentModule.title + '页面'">
+          <button
+            v-for="item in moduleTabs"
+            :key="item.id"
+            type="button"
+            :aria-current="page === item.id ? 'page' : undefined"
+            :aria-haspopup="item.id === 'display' ? 'dialog' : undefined"
+            :class="{ selected: page === item.id }"
+            @click="navigate(item.id)"
+          >
+            <AppIcon :name="item.icon" />{{ item.title }}
+          </button>
+        </nav>
         <div class="page-heading" :class="{ 'page-heading-ai': page === 'ai' }">
           <div class="page-heading-copy">
             <h1>{{ current.title }}</h1>

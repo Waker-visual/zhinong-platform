@@ -22,48 +22,54 @@ export const labels = {
   HUMIDITY: "空气湿度",
   SOIL_MOISTURE: "土壤水分",
 };
+// 侧栏的一级模块。pages 按模块页签的顺序列出页面 id，首个可进入的页面是模块默认页；
+// 页面本身的标题、说明与列定义仍在下方 menus 中。display 是打开展示大屏的动作，不是页面。
+export const modules = [
+  { id: "today", title: "今日农场", icon: "today", pages: ["daily"] },
+  { id: "land", title: "农场与地块", icon: "overview", pages: ["dashboard", "farms", "plots", "plantings"] },
+  { id: "work", title: "农事与生产", icon: "tasks", pages: ["tasks", "production"] },
+  { id: "devices", title: "设备与监测", icon: "devices", pages: ["operations", "devices", "cameras"] },
+  { id: "insight", title: "智能分析", icon: "sprout", pages: ["ai", "simulation", "display"] },
+  { id: "admin", title: "管理", icon: "members", pages: ["members", "audit"] },
+  { id: "platform", title: "平台管理", icon: "tenants", pages: ["platform/tenants"] },
+];
 export const menus = [
   {
-    id: "display", title: "展示大屏", icon: "screen", group: "分析与管理",
+    id: "display", title: "展示大屏", icon: "screen",
     description: "集中展示农场总览、智能农情与今日建议",
   },
   {
-    id: "ai", title: "农场 AI 助手", icon: "sprout", group: "分析与管理",
+    id: "ai", title: "农场 AI 助手", icon: "sprout",
     description: "对话问农事，结合天气与四情数据分析，审核定时灌溉建议",
   },
   {
     id: "daily",
     title: "今日农场",
     icon: "today",
-    group: "日常作业",
     description: "查看我的待办、上报现场问题，跟进每一次作业",
   },
   {
     id: "simulation",
     title: "经营模拟",
     icon: "simulation",
-    group: "分析与管理",
     description: "使用公开天气和农场快照，对比季度或年度经营方案",
   },
   {
     id: "dashboard",
     title: "农场概览",
     icon: "overview",
-    group: "农场与设备",
     description: "选择农场，查看平面图、设备与交互式经营数据",
   },
   {
     id: "operations",
     title: "运行概览",
     icon: "operations",
-    group: "农场与设备",
     description: "一屏查看设备上报是否正常、土壤水分走势和各项作业进展",
   },
   {
     id: "cameras",
     title: "田间实景",
     icon: "camera",
-    group: "农场与设备",
     description: "按农场查看田间画面，管理机位并联动设备台账",
   },
   {
@@ -71,7 +77,6 @@ export const menus = [
     noun: "农场",
     title: "农场档案",
     icon: "farms",
-    group: "农场与设备",
     description: "管理农场资料，进入独立的地图与生产工作台",
     columns: [
       ["name", "农场名称"],
@@ -84,7 +89,6 @@ export const menus = [
     empty: "还没有地块。先建好地块，种植计划、农事任务和设备才能落到具体的田上。",
     title: "地块管理",
     icon: "plots",
-    group: "农场与设备",
     description: "按农场管理地块、面积与作物",
     columns: [
       ["name", "地块名称"],
@@ -99,7 +103,6 @@ export const menus = [
     empty: "还没有种植计划。为地块安排作物和起止日期后，农场概览会显示当季种植。",
     title: "种植计划",
     icon: "plantings",
-    group: "农场与设备",
     description: "安排地块种植周期，追踪作物生长阶段",
     columns: [
       ["farmName", "所属农场"],
@@ -118,7 +121,6 @@ export const menus = [
     empty: "还没有农事任务。在今日农场安排农事，或从现场问题直接派工。",
     title: "农事任务",
     icon: "tasks",
-    group: "日常作业",
     description: "从任务安排到执行完成，留存农事过程",
     columns: [
       ["title", "任务名称"],
@@ -136,7 +138,6 @@ export const menus = [
     empty: "还没有生产记录。每次收获后登记产量，农场概览会自动汇总产量。",
     title: "生产记录",
     icon: "production",
-    group: "日常作业",
     description: "按种植批次登记收获，关联已完成任务，留存更正与作废记录",
     columns: [
       ["farmName", "所属农场"],
@@ -154,7 +155,6 @@ export const menus = [
     noun: "监测点",
     title: "设备台账",
     icon: "devices",
-    group: "农场与设备",
     description: "管理设备点位、多指标监测、接入配置与告警",
     columns: [
       ["name", "监测点"],
@@ -170,7 +170,6 @@ export const menus = [
     empty: "还没有其他成员。添加操作员和查看者，分工处理农事。",
     title: "成员权限",
     icon: "members",
-    group: "分析与管理",
     description: "管理本租户成员与角色",
     admin: true,
     columns: [
@@ -186,7 +185,6 @@ export const menus = [
     empty: "还没有操作记录。新增、修改或删除业务数据后会记录在这里。",
     title: "操作日志",
     icon: "audit",
-    group: "分析与管理",
     description: "查看本租户的业务变更记录",
     columns: [
       ["actor", "操作账号"],
@@ -201,7 +199,6 @@ export const menus = [
     empty: "还没有租户。新增租户后，租户管理员即可登录建立农场。",
     title: "租户管理",
     icon: "tenants",
-    group: "平台管理",
     description: "创建独立租户，管理服务启用状态",
     platform: true,
     columns: [

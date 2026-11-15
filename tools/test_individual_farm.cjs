@@ -1,3 +1,4 @@
+const { openPage } = require("./open_page.cjs");
 const fs = require("node:fs"),
   path = require("node:path"),
   assert = require("node:assert/strict");
@@ -217,10 +218,7 @@ async function main() {
   check("Read-only member can inspect the complete activity log");
   await viewer.keyboard.press("Escape");
   await viewer.locator(".daily-dialog").waitFor({ state: "hidden" });
-  await viewer
-    .getByRole("navigation")
-    .getByRole("button", { name: "运行概览", exact: true })
-    .click();
+  await openPage(viewer, "运行概览");
   await viewer.locator(".ops-slice").first().waitFor();
   assert.equal(
     await viewer.getByLabel("当前农场", { exact: true }).inputValue(),
@@ -258,10 +256,7 @@ async function main() {
   await owner.locator(".simulation-comparison").waitFor();
   await shot(owner, "quarter-comparison");
   check("Quarterly scenario history retains farm and renders results");
-  await owner
-    .getByRole("navigation")
-    .getByRole("button", { name: "地块管理", exact: true })
-    .click();
+  await openPage(owner, "地块管理");
   const temp = "验收临时地块" + tag;
   await owner.getByRole("button", { name: /新增地块/ }).click();
   const plotDialog = owner.getByRole("dialog");
