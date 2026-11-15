@@ -58,7 +58,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '手机告警选择与异步保存测试未通过' }
         node --test src/fieldwork/production-model.test.js src/ui/request-id.test.js
         if ($LASTEXITCODE -ne 0) { throw '生产关联筛选与幂等重试测试未通过' }
-        node --test src/metrics/measurement-model.test.js
+        node --test src/fieldwork/plot-overview-model.test.js
+    if ($LASTEXITCODE -ne 0) { throw '今日农场地块示意数据归并测试未通过' }
+    node --test src/metrics/measurement-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '监测缺失、时间窗口与指标口径测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }

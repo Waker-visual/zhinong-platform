@@ -6,6 +6,7 @@ import "./daily-farm.css";
 import ActionMenu from "../ui/ActionMenu.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 import DatePicker from "../ui/DatePicker.vue";
+import PlotOverview from "./PlotOverview.vue";
 const props = defineProps({
   identity: Object,
   farms: Array,
@@ -365,20 +366,39 @@ async function history(row) {
 <template>
   <div class="daily-farm" :aria-busy="loading">
     <section class="daily-hero">
-      <div>
+      <div class="daily-hero-main">
         <h2>{{ farm?.name || "从你的第一座农场开始" }}</h2>
-        <button v-if="priorityTask && canWork(priorityTask)" class="daily-priority-link" :disabled="loading" @click="open('progress', priorityTask, priorityTask.status === 'PENDING' ? 'RUNNING' : 'COMPLETED')">处理优先任务：{{ priorityTask.title }}</button>
-        <p v-else>
-          {{
-            admin
-              ? "先处理风险，再安排今天的农事。"
-              : identity.role === "OPERATOR"
-                ? "查看我的任务，记录现场发现与作业结果。"
-                : "查看农场进展、现场问题与作业记录。"
-          }}
+        <p v-if="farm" class="daily-hero-meta">
+          {{ farmPlots.length }} 块田 · {{ area }} 亩 · {{ identity.displayName }}
         </p>
       </div>
-      <small v-if="farm">{{ farmPlots.length }} 块田 · {{ area }} 亩<br />{{ identity.displayName }}</small>
+      <div v-if="priorityTask && canWork(priorityTask)" class="daily-hero-priority">
+        <div>
+          <small>先处理</small>
+          <strong>{{ priorityTask.title }}</strong>
+          <span>
+            {{ priorityTask.plotName }} · 计划 {{ priorityTask.dueDate }} ·
+            {{ statusText(priorityTask) }}
+          </span>
+        </div>
+        <button
+          class="primary daily-priority-link"
+          :disabled="loading"
+          :aria-label="'处理优先任务：' + priorityTask.title"
+          @click="open('progress', priorityTask, priorityTask.status === 'PENDING' ? 'RUNNING' : 'COMPLETED')"
+        >
+          {{ priorityTask.status === "PENDING" ? "开始任务" : "完成回执" }}
+        </button>
+      </div>
+      <p v-else class="daily-hero-guide">
+        {{
+          admin
+            ? "先处理风险，再安排今天的农事。"
+            : identity.role === "OPERATOR"
+              ? "查看我的任务，记录现场发现与作业结果。"
+              : "查看农场进展、现场问题与作业记录。"
+        }}
+      </p>
     </section>
     <p v-if="error && !modal" class="error" role="alert">
       {{ error }} <button @click="load">重新加载</button>
@@ -400,7 +420,7 @@ async function history(row) {
       <div class="daily-quick">
         <button
           v-if="writer"
-          class="primary"
+          :class="{ primary: !(priorityTask && canWork(priorityTask)) }"
           @click="open('issue')"
           :disabled="loading || !farmPlots.length"
         >
@@ -420,53 +440,69 @@ async function history(row) {
         ><button @click="emit('farm', farmId)">农场地图 →</button
         ><button @click="jump('simulation')">季度方案对照 →</button>
       </div>
-      <p v-if="!farmPlots.length && !loading" class="panel daily-empty">
-        农场尚无地块。<button v-if="admin" @click="jump('plots', true)">
-          添加第一块田</button
-        ><span v-else>请联系农场主添加地块。</span>
-      </p>
-      <div :class="['daily-kpis', { 'numbers-loading': firstLoad }]">
-        <article>
-          <small>{{ mine ? "我的待办（含未分配）" : "农场待办" }}</small
-          ><strong>{{ dataReady ? myPending.length : '—' }}<span>项</span></strong>
-          <p>待执行与执行中</p>
-        </article>
-        <article :class="{ 'attention danger': pending.some(overdue) }">
-          <small>农场逾期任务</small
-          ><strong>{{ dataReady ? pending.filter(overdue).length : '—' }}<span>项</span></strong>
-          <p>按农场日期 {{ data.today || "…" }}</p>
-        </article>
-        <article
-          :class="{ 'attention caution': pending.some((t) => t.blockedReason) }"
+      <div class="daily-overview">
+        <PlotOverview
+          :plots="farm?.plots || []"
+          :tasks="data.tasks"
+          :issues="data.issues"
+          :today="data.today"
+          :farm-name="farm?.name"
+          :loading="firstLoad"
+          @map="emit('farm', farmId)"
         >
-          <small>资源或现场受阻</small
-          ><strong
-            >{{ dataReady ? pending.filter((t) => t.blockedReason).length : '—'
-            }}<span>项</span></strong
-          >
-          <p>优先协调设备与人员</p>
-        </article>
-        <article>
-          <small>待跟进现场问题</small
-          ><strong>{{ dataReady ? openIssues.length : '—' }}<span>项</span></strong>
-          <p>处理后仍需农场主复核</p>
-        </article>
-      </div>
-      <details class="stat-notes disclosure daily-data-notes">
-        <summary>统计口径</summary>
-        <div class="disclosure-content">
-          <ul>
-            <li>
-              待办：本农场待执行与执行中的任务；勾选“只看我负责 /
-              未分配”时，只计自己负责和尚未分配的任务。
-            </li>
-            <li>逾期：计划日期早于服务器当天、仍未结束的任务。</li>
-            <li>受阻：执行人已报告受阻、尚未恢复进展的任务，可能同时逾期。</li>
-            <li>现场问题：巡田上报后尚未由农场主复核关闭的问题。</li>
-            <li>数字来自已保存的任务与上报记录，切换农场或刷新后重新统计。</li>
-          </ul>
+          <template #empty-action>
+            <button v-if="admin" class="primary" @click="jump('plots', true)">
+              添加第一块田
+            </button>
+            <span v-else>请联系农场主添加地块。</span>
+          </template>
+        </PlotOverview>
+        <div class="daily-overview-side">
+          <div :class="['daily-kpis', { 'numbers-loading': firstLoad }]">
+            <article class="featured">
+              <small>{{ mine ? "我的待办（含未分配）" : "农场待办" }}</small
+              ><strong>{{ dataReady ? myPending.length : '—' }}<span>项</span></strong>
+              <p>待执行与执行中</p>
+            </article>
+            <article :class="{ 'attention danger': pending.some(overdue) }">
+              <small>农场逾期任务</small
+              ><strong>{{ dataReady ? pending.filter(overdue).length : '—' }}<span>项</span></strong>
+              <p>按农场日期 {{ data.today || "…" }}</p>
+            </article>
+            <article
+              :class="{ 'attention caution': pending.some((t) => t.blockedReason) }"
+            >
+              <small>资源或现场受阻</small
+              ><strong
+                >{{ dataReady ? pending.filter((t) => t.blockedReason).length : '—'
+                }}<span>项</span></strong
+              >
+              <p>优先协调设备与人员</p>
+            </article>
+            <article>
+              <small>待跟进现场问题</small
+              ><strong>{{ dataReady ? openIssues.length : '—' }}<span>项</span></strong>
+              <p>处理后仍需农场主复核</p>
+            </article>
+          </div>
+          <details class="stat-notes disclosure daily-data-notes">
+            <summary>统计口径</summary>
+            <div class="disclosure-content">
+              <ul>
+                <li>
+                  待办：本农场待执行与执行中的任务；勾选“只看我负责 /
+                  未分配”时，只计自己负责和尚未分配的任务。
+                </li>
+                <li>逾期：计划日期早于服务器当天、仍未结束的任务。</li>
+                <li>受阻：执行人已报告受阻、尚未恢复进展的任务，可能同时逾期。</li>
+                <li>现场问题：巡田上报后尚未由农场主复核关闭的问题。</li>
+                <li>数字来自已保存的任务与上报记录，切换农场或刷新后重新统计。</li>
+              </ul>
+            </div>
+          </details>
+          <slot name="briefing" />
         </div>
-      </details>
+      </div>
       <div class="daily-columns">
         <section class="panel daily-worklist">
           <div class="daily-section-title">
@@ -605,7 +641,6 @@ async function history(row) {
           </article>
         </section>
         <aside class="daily-right">
-          <slot name="briefing" />
           <section class="panel daily-risk">
             <div class="daily-section-title">
               <div>
@@ -685,24 +720,6 @@ async function history(row) {
                 </article>
               </div>
             </details>
-          </section>
-          <section class="panel daily-season">
-            <h3>我的地块</h3>
-            <div v-for="p in farmPlots" :key="p.id" class="daily-plot">
-              <span
-                >{{ p.name }}<small>{{ p.crop || "作物待填写" }}</small></span
-              ><b>{{ p.areaMu }} 亩</b>
-            </div>
-            <button class="outline" @click="jump('plantings')">
-              查看种植计划 →
-            </button>
-          </section>
-          <section class="daily-tip">
-            <h3>无人机缺位，如何补位？</h3>
-            <p>
-              先记录缺口，调整负责人和作业方式，再用季度对照检查人工能力是否足够。
-            </p>
-            <button @click="jump('simulation')">打开方案演练 →</button>
           </section>
         </aside>
       </div>

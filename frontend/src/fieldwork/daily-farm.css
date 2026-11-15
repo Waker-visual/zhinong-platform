@@ -1,147 +1,236 @@
+/* 今日农场：头图带 → 首屏主体（地块示意 + 指标与简报）→ 农事队列与现场问题。 */
 .daily-farm {
   display: grid;
-  gap: 16px;
+  gap: var(--space-4);
   min-width: 0;
 }
 .daily-farm button {
-  min-height: 40px;
+  min-height: 36px;
 }
+/* 头图带：左侧农场，右侧“先处理”的一件事与页面唯一的主按钮。 */
 .daily-hero {
-  background: var(--hero-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 16px 20px;
   display: flex;
-  justify-content: space-between;
-  gap: 24px;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--space-5);
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--brand-soft);
 }
-/* 农场名低于页面标题一级（页面 h1 为 27px） */
+.daily-hero-main {
+  min-width: 0;
+}
 .daily-hero h2 {
-  font-size: 22px;
-  margin: 0 0 5px;
-  letter-spacing: -0.5px;
+  font: var(--text-section);
 }
-.daily-hero p {
-  line-height: 1.7;
+.daily-hero-meta {
+  margin-top: var(--space-1);
+  color: var(--text-2);
+  font: var(--text-small);
+  font-variant-numeric: tabular-nums;
+}
+.daily-hero-guide {
+  max-width: 44ch;
+  color: var(--text-2);
+  font: var(--text-body);
+  text-align: right;
+}
+.daily-hero-priority {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-width: 0;
+  max-width: 60%;
+  padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.daily-hero-priority > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.daily-hero-priority small {
+  color: var(--brand);
+  font: var(--text-caption);
+  font-weight: 600;
+}
+.daily-hero-priority strong {
+  overflow: hidden;
+  font: var(--text-title);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.daily-hero-priority span {
+  color: var(--label-fg);
+  font: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
 .daily-hero .daily-priority-link {
-  min-height: 32px;
-  padding: 0;
-  color: var(--text);
-  background: transparent;
-  text-align: left;
-  font-size: 13px;
-  line-height: 1.8;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-}
-.daily-hero small {
-  display: block;
   flex: none;
-  color: var(--text);
-  text-align: right;
-  line-height: 1.8;
+  min-height: 40px;
+  padding: 0 var(--space-5);
+  font-size: 14px;
 }
 .daily-quick {
   display: flex;
-  gap: 10px;
   flex-wrap: wrap;
+  gap: var(--space-2);
+}
+.daily-quick button {
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
 }
 .daily-quick button:not(.primary),
 .daily-task-actions > button:not(.primary),
 .daily-task-actions .action-menu-trigger {
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
   color: var(--text);
-  transition: background-color 0.16s ease;
+  transition: background-color 0.15s ease;
 }
 .daily-quick button:not(.primary):hover,
 .daily-task-actions > button:not(.primary):hover,
 .daily-task-actions .action-menu-trigger:hover {
   background: var(--control-hover);
 }
+/* 首屏主体：左侧地块示意，右侧四项指标与今日简报。 */
+.daily-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--space-4);
+  align-items: stretch;
+}
+.daily-overview-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.daily-overview-side > .briefing,
+.daily-overview-side > section {
+  flex: 1;
+}
 .daily-kpis {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
 }
 .daily-kpis article {
-  background: var(--surface);
+  position: relative;
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
-  padding: 12px 16px;
   border-radius: var(--radius);
+  background: var(--surface);
+}
+.daily-kpis small {
+  color: var(--label-fg);
+  font: var(--text-caption);
 }
 .daily-kpis strong {
-  font-size: 27px;
   display: block;
-  margin-top: 4px;
+  margin-top: 2px;
+  font: var(--text-figure);
   font-variant-numeric: tabular-nums;
 }
 .daily-kpis strong span {
-  font-size: 13px;
-  margin-left: 7px;
-  font-weight: 400;
-}
-.daily-kpis small,
-.daily-kpis p {
-  color: var(--text-2);
-  font-size: 12px;
+  margin-left: var(--space-1);
+  color: var(--label-fg);
+  font: var(--text-small);
 }
 .daily-kpis p {
-  margin: 6px 0 0;
+  margin: 2px 0 0;
+  color: var(--label-fg);
+  font: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
-.daily-kpis .attention.danger {
-  border-top: 3px solid var(--danger);
+/* 主卡用主题色实底；需要处理的状态只给数字着色并加一条顶线，不整卡变色。 */
+.daily-kpis .featured {
+  border-color: var(--brand);
+  background: var(--brand);
+  color: var(--on-brand);
 }
-.daily-kpis .attention.caution {
-  border-top: 3px solid var(--caution-line);
+.daily-kpis .featured small,
+.daily-kpis .featured p,
+.daily-kpis .featured strong span {
+  color: inherit;
+  opacity: 0.86;
+}
+.daily-kpis .attention::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: var(--space-4);
+  right: var(--space-4);
+  height: 2px;
+  border-radius: 0 0 2px 2px;
+}
+.daily-kpis .attention.danger::before {
+  background: var(--danger);
+}
+.daily-kpis .attention.danger strong {
+  color: var(--danger);
+}
+.daily-kpis .attention.caution::before {
+  background: var(--caution-line);
+}
+.daily-kpis .attention.caution strong {
+  color: var(--caution);
 }
 .daily-columns {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(270px, 1fr);
-  gap: 22px;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--space-4);
   align-items: start;
 }
 .daily-worklist,
-.daily-risk,
-.daily-season {
-  padding: 22px;
+.daily-risk {
+  padding: var(--space-5);
 }
 .daily-section-title {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
 }
 .daily-section-title h3 {
-  font-size: 19px;
-  margin: 5px 0;
+  font: var(--text-title);
 }
 .daily-check {
   display: flex;
   align-items: center;
-  gap: 7px;
-  font-size: 12px;
+  gap: var(--space-2);
+  color: var(--text-2);
+  font: var(--text-small);
 }
 .daily-check input {
   width: 16px;
   height: 16px;
   margin: 0;
+  accent-color: var(--brand);
 }
+/* 状态筛选：分段控件。 */
 .daily-tabs {
-  display: flex;
-  gap: 6px;
-  margin: 18px 0 12px;
+  display: inline-flex;
   flex-wrap: wrap;
-}
-.daily-tabs button {
+  gap: 2px;
+  margin: var(--space-4) 0 var(--space-3);
+  padding: 3px;
   border-radius: var(--radius-sm);
-  padding: 8px 15px;
-  color: var(--text-2);
   background: var(--sunken);
-  transition: background-color 0.16s ease, color 0.16s ease;
+}
+.daily-farm .daily-tabs button {
+  min-height: 30px;
+  padding: 0 14px;
+  border-radius: 6px;
+  color: var(--text-2);
+  font: var(--text-small);
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 .daily-tabs button:hover {
   color: var(--text);
@@ -149,40 +238,61 @@
 .daily-tabs button[aria-pressed="true"] {
   background: var(--surface);
   color: var(--text);
-  font-weight: 500;
-  box-shadow: 0 0 0 1px var(--border), var(--shadow);
+  font-weight: 600;
+  box-shadow: var(--shadow);
 }
 .daily-search {
   width: 100%;
 }
+/* 任务行：状态与任务名一行，元信息与操作一行；备注只占一行。 */
 .daily-task {
-  padding: 20px 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-4);
+  align-items: center;
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--border);
 }
 .daily-task:last-child {
   border-bottom: 0;
   padding-bottom: 0;
 }
+.daily-task > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
 .daily-task-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-3);
+}
+.daily-task .daily-task-line {
+  grid-column: 2;
+  grid-row: 1;
+  justify-content: flex-end;
 }
 .daily-task time {
-  color: var(--text-2);
-  font-size: 12px;
+  color: var(--label-fg);
+  font: var(--text-caption);
+  font-variant-numeric: tabular-nums;
 }
 .daily-task h4 {
-  font-size: 17px;
-  margin: 12px 0 8px;
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+  overflow: hidden;
+  font: var(--text-title);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .daily-status {
-  border-radius: var(--radius-xs);
-  padding: 4px 8px;
+  padding: 1px 8px;
+  border-radius: 6px;
   background: var(--neutral-bg);
-  font-size: 12px;
   color: var(--text-2);
+  font: var(--text-caption);
+  font-weight: 600;
   white-space: nowrap;
 }
 .daily-status.warning {
@@ -204,100 +314,89 @@
 .daily-meta,
 .daily-note,
 .daily-task-footer small {
+  color: var(--label-fg);
+  font: var(--text-caption);
+}
+.daily-meta {
   color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.7;
+}
+.daily-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .daily-blocker,
 .daily-receipt {
-  padding: 12px;
-  background: var(--subtle-bg);
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
   border-left: 3px solid var(--caution-line);
   border-radius: 0 var(--radius-xs) var(--radius-xs) 0;
-  line-height: 1.7;
-  font-size: 13px;
+  background: var(--subtle-bg);
+  font: var(--text-small);
 }
 .daily-receipt {
   border-color: var(--ok);
 }
 .daily-task-footer {
-  margin-top: 15px;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
 }
 .daily-task-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 7px;
+  gap: var(--space-2);
 }
-.daily-task-actions > button,
-.daily-task-actions .action-menu-trigger {
+.daily-farm .daily-task-actions > button,
+.daily-farm .daily-task-actions .action-menu-trigger {
+  min-height: 32px;
+  padding: 0 12px;
   font-size: 13px;
-  padding: 6px 12px;
 }
 .daily-right {
   display: grid;
-  gap: 20px;
+  gap: var(--space-4);
+}
+.daily-risk > .muted {
+  margin-top: var(--space-1);
+  color: var(--label-fg);
+  font: var(--text-caption);
 }
 .daily-issue {
-  padding: 16px 0;
+  padding: var(--space-4) 0;
   border-bottom: 1px solid var(--border);
 }
+.daily-issue:last-of-type {
+  border-bottom: 0;
+}
+.daily-issue b {
+  font: var(--text-body);
+  font-weight: 600;
+}
 .daily-issue p {
-  font-size: 13px;
-  line-height: 1.8;
+  margin-top: var(--space-1);
+  font: var(--text-small);
   overflow-wrap: anywhere;
 }
 .daily-issue small {
   display: block;
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1.7;
-  margin: 8px 0;
+  margin-top: var(--space-1);
+  color: var(--label-fg);
+  font: var(--text-caption);
 }
-.daily-issue button {
-  margin-top: 8px;
-  width: 100%;
-}
-.daily-plot {
-  padding: 14px 0;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.daily-plot small {
-  display: block;
-  margin-top: 5px;
-  color: var(--text-2);
-}
-.daily-season > button {
-  width: 100%;
-  margin-top: 18px;
-}
-.daily-tip {
-  padding: 22px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-}
-.daily-tip p {
-  line-height: 1.8;
-  color: var(--text-2);
-  font-size: 13px;
-}
-.daily-tip button {
-  color: var(--link-fg);
-  padding-left: 0;
+.daily-farm .daily-issue button {
+  min-height: 32px;
+  margin-top: var(--space-3);
+  padding: 0 14px;
 }
 .daily-empty {
   padding: 28px 14px;
-  color: var(--text-2);
-  line-height: 1.8;
+  color: var(--label-fg);
+  font: var(--text-small);
   text-align: center;
 }
 .daily-dialog {
@@ -387,53 +486,43 @@
   padding: 0 18px 16px;
 }
 @media (max-width: 1150px) {
+  .daily-overview,
   .daily-columns {
     grid-template-columns: 1fr;
   }
-  .daily-right {
-    grid-template-columns: 1fr 1fr;
-  }
-  .daily-risk {
-    grid-row: span 2;
+  .daily-hero-priority {
+    max-width: 70%;
   }
 }
 @media (max-width: 760px) {
   .daily-hero {
-    padding: 14px 16px;
-    gap: 12px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    padding: var(--space-4);
   }
-  .daily-hero small {
+  .daily-hero-priority {
+    max-width: none;
+  }
+  .daily-hero-guide {
     text-align: left;
-    font-size: 12px;
-  }
-  .daily-hero small br {
-    display: block;
-  }
-  .daily-hero h2 {
-    font-size: 20px;
   }
   .daily-hero .daily-priority-link {
     min-height: 44px;
   }
   .daily-kpis {
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
+    gap: var(--space-2);
   }
   .daily-kpis article {
     padding: 10px 12px;
   }
   .daily-kpis strong {
-    font-size: 25px;
-  }
-  .daily-columns,
-  .daily-right {
-    grid-template-columns: 1fr;
+    font-size: 26px;
+    line-height: 32px;
   }
   .daily-worklist,
-  .daily-risk,
-  .daily-season {
-    padding: 16px;
+  .daily-risk {
+    padding: var(--space-4);
   }
   .daily-section-title {
     align-items: flex-start;
@@ -442,9 +531,23 @@
   .daily-check {
     margin: 0;
   }
-  .daily-task-actions > button,
-  .daily-task-actions .action-menu-trigger,
-  .daily-quick button {
+  .daily-task {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .daily-task h4,
+  .daily-task .daily-task-line {
+    grid-column: 1;
+    grid-row: auto;
+    white-space: normal;
+  }
+  .daily-task .daily-task-line {
+    justify-content: space-between;
+  }
+  .daily-farm .daily-task-actions > button,
+  .daily-farm .daily-task-actions .action-menu-trigger,
+  .daily-farm .daily-quick button,
+  .daily-farm .daily-tabs button,
+  .daily-farm .daily-issue button {
     min-height: 44px;
   }
   .daily-form-grid {
