@@ -93,8 +93,7 @@ p {
   margin: 0;
 }
 h1 {
-  font-size: 28px;
-  letter-spacing: 1px;
+  font: var(--text-page);
 }
 h2 {
   font-size: 17px;
@@ -326,21 +325,28 @@ label select {
   color: var(--primary-fg);
   border: 1px solid var(--primary-bg);
   border-radius: var(--radius-sm);
-  padding: 12px 17px 10px;
+  min-height: 36px;
+  padding: 0 16px;
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 1;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease;
 }
 .primary:hover {
   background: var(--primary-hover);
   border-color: var(--primary-hover);
 }
 .outline {
-  border: 1px solid var(--border);
-  padding: 10px 14px;
+  border: 1px solid var(--border-strong);
+  min-height: 36px;
+  padding: 0 14px;
   border-radius: var(--radius-sm);
   background: var(--surface);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 0.15s ease;
 }
 .outline:hover {
   background: var(--control-hover);
@@ -375,15 +381,12 @@ main {
 }
 .page-heading h1 {
   color: var(--text);
-  font-size: 20px;
-  font-weight: 600;
-  line-height: 1.2;
+  font: var(--text-page);
 }
 .page-heading .muted {
-  color: var(--text-2);
-  font-size: 14px;
-  line-height: 1.5;
-  margin-top: 9px;
+  color: var(--label-fg);
+  font: var(--text-small);
+  margin-top: var(--space-1);
 }
 .welcome-banner {
   border-radius: var(--radius);
@@ -509,7 +512,7 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
-  padding: 23px;
+  padding: var(--space-5);
 }
 .section-title {
   display: flex;
@@ -557,12 +560,12 @@ main {
 /* 状态色与主题色无关：待执行为中性，进行中为蓝，完成为绿，取消降为辅助文字 */
 .badge {
   display: inline-block;
-  padding: 2px 8px;
-  border-radius: var(--radius-xs);
+  padding: 1px 8px;
+  border-radius: 6px;
   background: var(--neutral-bg);
   color: var(--text-2);
   font-size: 12px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 20px;
   white-space: nowrap;
 }
@@ -663,8 +666,9 @@ main {
   display: inline-block;
   background: var(--sunken);
   font-size: 12px;
-  padding: 3px 7px;
-  border-radius: var(--radius);
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
   margin-left: 6px;
   color: var(--text-2);
 }
@@ -691,10 +695,10 @@ table {
 }
 th {
   background: var(--subtle-bg);
-  color: var(--text-2);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 13px 20px;
+  color: var(--label-fg);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 10px 20px;
   white-space: nowrap;
 }
 td {

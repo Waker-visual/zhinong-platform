@@ -112,44 +112,44 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --field-gold: #dfbc70;
   --field-soft: #eaf0e7;
   /* 浅色角色色 */
-  --light-page: #fcfcfb;
-  --light-navigation: #fbfbf9;
-  --light-surface: #ffffff;
-  --light-input: #fefefd;
-  --light-recessed: #f9f9f7;
-  --light-control: #f0f0ef;
-  --light-navigation-selected: #edece8;
-  --light-line: #e3e3e2;
-  --light-strong-line: #cececd;
-  --light-text: #0b0b0b;
-  --light-secondary: #52514e;
-  --light-label: #6f6d67;
-  --light-muted: #898781;
+  --light-page: #f6f3ea;
+  --light-navigation: #f1ede1;
+  --light-surface: #fffefa;
+  --light-input: #fffefa;
+  --light-recessed: #f3f0e5;
+  --light-control: #ebe7da;
+  --light-navigation-selected: #dfe8d3;
+  --light-line: #e3dfd0;
+  --light-strong-line: #cdc8b6;
+  --light-text: #18261d;
+  --light-secondary: #48564b;
+  --light-label: #5f695b;
+  --light-muted: #7d8474;
   --light-link: #1e5baa;
   --light-focus: #2a78d6;
   /* 深色角色色：侧栏比页面暗，卡片、输入、控件、选中依次变亮 */
-  --dark-navigation: #111111;
-  --dark-page: #151515;
-  --dark-surface: #1f1f1f;
-  --dark-input: #212121;
-  --dark-control: #2d2d2d;
-  --dark-selected: #343434;
-  --dark-line: #2d2d2d;
-  --dark-control-line: #414141;
-  --dark-text: #f0efec;
-  --dark-text-secondary: #c3c2b7;
-  --dark-text-muted: #898781;
+  --dark-navigation: #101814;
+  --dark-page: #141d18;
+  --dark-surface: #1b2620;
+  --dark-input: #1d2922;
+  --dark-control: #27352c;
+  --dark-selected: #2f4035;
+  --dark-line: #27352c;
+  --dark-control-line: #3a4b40;
+  --dark-text: #edf1e8;
+  --dark-text-secondary: #c2ccbc;
+  --dark-text-muted: #97a492;
   --dark-primary: #ffffff;
   --dark-link: #8dc3fb;
   --dark-focus: #2a78d6;
   /* 主题色：按常见开源设计系统的浅色 50/700、深色 300/950 对照搭配 */
-  /* FOREST 是历史存储值，视觉上作为默认黑白主题保留兼容。 */
-  --accent-forest: #18181b;
-  --accent-forest-soft: #f4f4f5;
-  --accent-forest-dark: #f4f4f5;
-  --accent-forest-dark-soft: #27272a;
-  --accent-forest-dark-on: #18181b;
-  --accent-blue: #2563eb;
+  /* FOREST 是默认主题色的存储值：田野绿，与标志、登录页同源。 */
+  --accent-forest: #2c6244;
+  --accent-forest-soft: #e3ecd9;
+  --accent-forest-dark: #a6c995;
+  --accent-forest-dark-soft: #23382a;
+  --accent-forest-dark-on: #17251c;
+  --accent-blue: #1d4ed8;
   --accent-blue-soft: #dbeafe;
   --accent-blue-dark: #60a5fa;
   --accent-blue-dark-soft: #172554;
@@ -214,7 +214,7 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --input-line: var(--light-muted);
   --link-fg: var(--brand-light);
   --focus-ring: var(--brand-light);
-  --date-selected: var(--light-focus);
+  --date-selected: var(--brand-light);
   --date-selected-fg: var(--light-surface);
   /* 主操作按钮使用当前主题色；悬停时沿同一色阶变化。 */
   --primary-bg: var(--brand-light);
@@ -267,6 +267,23 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
     "Microsoft YaHei", system-ui, sans-serif;
   --font-mono: ui-monospace, "Cascadia Mono", Consolas, "Zhihe Han", monospace;
   --font-serif: Georgia, "Songti SC", "STSong", "SimSun", serif;
+  /* 字号层级：字重 字号/行高，配合 font 简写使用，例如 font: var(--text-title)。
+   * 承载信息的文字不小于 12px；地图标注与图表刻度可用 11px。 */
+  --text-caption: 400 12px/18px var(--font-sans);
+  --text-small: 400 13px/20px var(--font-sans);
+  --text-body: 400 14px/22px var(--font-sans);
+  --text-title: 600 16px/24px var(--font-sans);
+  --text-section: 600 20px/28px var(--font-sans);
+  --text-page: 600 24px/32px var(--font-sans);
+  --text-figure: 600 32px/36px var(--font-sans);
+  /* 间距刻度：卡片内边距 16 或 24，卡片间距 16，区块间距 24，页面边距 32。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
   /* 展开用磐隐的 expo，收起用加速曲线 */
   --ease-expo: cubic-bezier(0.19, 1, 0.22, 1);
   --ease-exit: cubic-bezier(0.3, 0, 0.8, 0.15);
@@ -314,8 +331,8 @@ html[data-theme="dark"],
   --input-line: var(--dark-text-muted);
   --link-fg: var(--brand-dark);
   --focus-ring: var(--brand-dark);
-  --date-selected: var(--dark-focus);
-  --date-selected-fg: var(--dark-primary);
+  --date-selected: var(--brand-dark);
+  --date-selected-fg: var(--brand-dark-on);
   --primary-bg: var(--brand-dark);
   --primary-fg: var(--brand-dark-on);
   --primary-hover: var(--brand-dark-hover);
