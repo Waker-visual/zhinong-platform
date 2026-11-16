@@ -63,14 +63,49 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --pastoral-harvester-grain: #efd07b;
 }
 
-/* 展示大屏固定采用湖蓝与田野绿；作用域内保持图表和正文同一配色。 */
+/* 展示大屏跟随工作台主题：浅色为明亮田园配色，与晴朗白天的三维场景一致；深色沿用原湖蓝夜色。
+ * 名称沿用历史角色：lake 为页面底色，white 为正文墨色，leaf/gold 为可作文字的强调色。 */
 .farm-display {
-  --scene-parcel-paper: #f3f8e9;
+  --scene-parcel-paper: #fbfcf4;
   --scene-parcel-ink: #244b38;
-  --scene-parcel-border: #84a887;
-  --scene-parcel-shadow: #173b3530;
+  --scene-parcel-border: #93b394;
+  --scene-parcel-shadow: #2c4a3a2e;
   --scene-parcel-selected: #fff0af;
   --scene-parcel-selected-border: #bc8c25;
+  --display-lake: #f2f5ec;
+  --display-teal: #3f8a8c;
+  --display-leaf: #2e7350;
+  --display-gold: #8a5f0d;
+  --display-white: #1f3a2d;
+  --display-muted: #56695d;
+  --display-header: #fbfcf7;
+  --display-map: #e5ede0;
+  --display-map-line: #c5d3bf;
+  --display-map-label: #2a4f3c;
+  --display-crop-0: #a9cf9a;
+  --display-crop-1: #cfdc9d;
+  --display-crop-2: #9fc8ad;
+  --display-crop-3: #e0d39a;
+  --display-leaf-soft: #deeddc;
+  --display-leaf-line: #8fbb9b;
+  --display-gold-soft: #f6ecd2;
+  --display-gold-line: #d6b56e;
+  --page: var(--display-lake);
+  --surface: #fdfefa;
+  --subtle-bg: #e5eee1;
+  --text: var(--display-white);
+  --text-2: var(--display-muted);
+  --label-fg: var(--display-muted);
+  --border: #dbe4d4;
+  --border-strong: #bfcdb9;
+  --brand: var(--display-leaf);
+  --info: var(--display-leaf);
+  --danger: #be3b2b;
+}
+html[data-theme="dark"] .farm-display {
+  --scene-parcel-paper: #f3f8e9;
+  --scene-parcel-border: #84a887;
+  --scene-parcel-shadow: #173b3530;
   --display-lake: #0d2534;
   --display-teal: #123f49;
   --display-leaf: #82c5a0;
@@ -89,16 +124,11 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --display-leaf-line: #467764;
   --display-gold-soft: #3c3c30;
   --display-gold-line: #7e714f;
-  --page: var(--display-lake);
   --surface: #112f3d;
   --subtle-bg: var(--display-teal);
-  --text: var(--display-white);
-  --text-2: var(--display-muted);
-  --label-fg: var(--display-muted);
   --border: #29434d;
   --border-strong: #41616a;
-  --brand: var(--display-leaf);
-  --info: var(--display-leaf);
+  --danger: #f0876f;
 }
 
 /* 智禾农场设计令牌。
@@ -1413,7 +1443,7 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --atlas-roof: #a3785c;
   --atlas-wall: #f1e8cd;
 }
-html[data-theme="dark"], .farm-display {
+html[data-theme="dark"] {
   --atlas-ground: #263d32;
   --atlas-grass: #3a5240;
   --atlas-field: #546e45;

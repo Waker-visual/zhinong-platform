@@ -46,7 +46,7 @@ public partial class FarmScene : MonoBehaviour
     Material Mat(string name, string hex, float smooth = 0)
     {
         if (materials.TryGetValue(name, out var existing)) return existing;
-        var mat = new Material(Shader.Find(name == "crops" || name == "vegetable foliage" || name.StartsWith("crop cover ") ? "Farm/Foliage" : name == "earth" || name == "grass" || name == "road" || name == "water" || name == "paddy" || name.StartsWith("field ") ? "Farm/Ground" : "Standard"));
+        var mat = new Material(Shader.Find(name == "image traced water" ? "Farm/Water" : name == "crops" || name == "vegetable foliage" || name.StartsWith("crop cover ") ? "Farm/Foliage" : name == "earth" || name == "grass" || name == "road" || name == "water" || name == "paddy" || name.StartsWith("field ") ? "Farm/Ground" : "Standard"));
         ColorUtility.TryParseHtmlString(hex, out var color);
         mat.color = color; mat.SetFloat("_Glossiness", smooth);
         if(name=="crops" || name=="vegetable foliage")mat.SetFloat("_Detail",1);
@@ -68,6 +68,8 @@ public partial class FarmScene : MonoBehaviour
 #if UNITY_WEBGL && !UNITY_EDITOR
         WebGLInput.captureAllKeyboardInput = false;
 #endif
+        // The scene is generated without a lighting bake; derive ambient light from the sky.
+        DynamicGI.UpdateEnvironment();
         crops = Mat("crops", "#8eae4d"); earth = Mat("earth", "#96815c"); selected = Mat("selected", "#f4d77c");
         cameraView = Camera.main;
         ResetView("");
@@ -109,8 +111,9 @@ public partial class FarmScene : MonoBehaviour
         farmRadius = Mathf.Max(40,halfSize.x,halfSize.y);
         maxDistance = Mathf.Max(100, farmBounds.size.magnitude * 1.65f);
         environmentRadius = Mathf.Max(1800, maxDistance * 4.5f);
-        RenderSettings.fogStartDistance = maxDistance * 1.05f;
-        RenderSettings.fogEndDistance = maxDistance * 2.6f;
+        // Light aerial perspective: far fields soften, the working farm stays crisp.
+        RenderSettings.fogStartDistance = maxDistance * 1.35f;
+        RenderSettings.fogEndDistance = maxDistance * 3.6f;
         cameraView.farClipPlane = environmentRadius * 3;
         ResetView("");
         Material grass = Mat("grass", "#8a9d64"), road = Mat("road", "#bca777"), water = Mat("water", "#659fbc", .7f);
@@ -446,7 +449,10 @@ public partial class FarmScene : MonoBehaviour
         obj.transform.localScale=Vector3.one*(height/Mathf.Max(.01f,prefab.GetComponent<MeshFilter>().sharedMesh.bounds.size.y));
         return true;
     }
-    public void SetSeason(string value) { season = value; ColorUtility.TryParseHtmlString(value == "autumn" ? "#d8b960" : value == "spring" ? "#8cbb65" : "#95af51", out var color); crops.color = color; foreach(var entry in materials) { if(entry.Key.StartsWith("field ") && entry.Key!="field vegetable")entry.Value.color=color*.94f; if(entry.Key.StartsWith("crop cover ") && entry.Key!="crop cover vegetable")entry.Value.color=color; } }
+    public void SetSeason(string value) { season = value;
+        // Surrounding land cover follows the selected crop stage (its imagery is a harvest-time capture).
+        Shader.SetGlobalFloat("_SeasonShift", value == "spring" ? -.45f : value == "autumn" ? .12f : -.25f);
+        ColorUtility.TryParseHtmlString(value == "autumn" ? "#d8b960" : value == "spring" ? "#8cbb65" : "#95af51", out var color); crops.color = color; foreach(var entry in materials) { if(entry.Key.StartsWith("field ") && entry.Key!="field vegetable")entry.Value.color=color*.94f; if(entry.Key.StartsWith("crop cover ") && entry.Key!="crop cover vegetable")entry.Value.color=color; } }
     public void SelectPlot(string id)
     {
         FocusDevice("");

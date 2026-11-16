@@ -243,7 +243,7 @@ function retry() {
   markerOffsets.clear();
   cancelAnimationFrame(projectionFrame);
   projectionFrame = 0;
-  frame.value.src = "/farm-scene/index.html?v=daylight-20261014-2";
+  frame.value.src = "/farm-scene/index.html?v=pastoral-20261116-2";
   startTimeout();
 }
 function startTimeout() {
@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
   <section class="farm-landscape" aria-label="交互式三维农场">
     <iframe
       ref="frame"
-      src="/farm-scene/index.html?v=daylight-20261014-2"
+      src="/farm-scene/index.html?v=pastoral-20261116-2"
       title="三维农田：左键旋转，右键平移，滚轮缩放，点击田块"
     />
     <div
@@ -367,6 +367,17 @@ onBeforeUnmount(() => {
     </div>
     <div v-if="!ready || error" class="farm-landscape-loading" role="status">
       <strong>{{ error || `正在准备三维农田 · ${progress}%` }}</strong>
+      <div
+        v-if="!error"
+        class="scene-progress"
+        role="progressbar"
+        aria-label="三维场景下载进度"
+        :aria-valuenow="progress"
+        aria-valuemin="0"
+        aria-valuemax="100"
+      >
+        <span :style="{ width: `${progress}%` }"></span>
+      </div>
       <p v-if="!error">首次加载需要下载场景，随后即可拖动浏览。</p>
       <button v-if="error" @click="retry">重新加载</button
       ><button @click="emit('satellite')">查看卫星图</button>
