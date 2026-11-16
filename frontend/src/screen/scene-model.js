@@ -1,6 +1,19 @@
 import { numeric } from "./screen-model.js";
 import { geographicPoint } from "./satellite-model.js";
 
+// Pick a registered working asset for the entry camera, independent of telemetry.
+export function sceneEntryDevice(devices = []) {
+  const positioned = devices.filter(
+    (device) =>
+      device.id && Number.isFinite(device.x) && Number.isFinite(device.z),
+  );
+  for (const kind of ["TRACTOR", "HARVESTER", "SPRAYER", "PUMP", "DRONE"]) {
+    const device = positioned.find((item) => item.kind === kind);
+    if (device) return device;
+  }
+  return positioned[0] || null;
+}
+
 export function sceneDeviceState(device, now = Date.now()) {
   const age = Math.max(180, (numeric(device.intervalSeconds) ?? 60) * 3) * 1000;
   const recent = (time) => {

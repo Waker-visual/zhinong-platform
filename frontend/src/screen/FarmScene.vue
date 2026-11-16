@@ -16,6 +16,7 @@ import {
   sceneDeviceState,
   sceneGeometry,
   sceneZoneStates,
+  sceneEntryDevice,
 } from "./scene-model.js";
 const props = defineProps({
   geometry: { type: Object, required: true },
@@ -91,6 +92,19 @@ function locateDevice(id) {
 function resetView() {
   selectedDevice.value = "";
   send("ResetView");
+  frameEntryView();
+}
+function frameEntryView() {
+  const anchor = sceneEntryDevice(scene.value.devices);
+  if (anchor) {
+    // Existing WebGL commands keep the released scene binary compatible.
+    // Step back from the device close-up to include its field and nearby equipment.
+    send("SelectDevice", anchor.id);
+    for (let step = 0; step < 5; step++) send("Zoom", "out");
+    send("SelectDevice", "");
+  } else {
+    for (let step = 0; step < 2; step++) send("Zoom", "in");
+  }
 }
 const overlappingDevices = computed(() => {
   const selected = scene.value.devices.find(
@@ -184,6 +198,8 @@ function send(method, value = "") {
 }
 function sync() {
   send("LoadFarm", JSON.stringify(scene.value));
+  selectedDevice.value = "";
+  frameEntryView();
   send("SelectPlot", props.selectedPlot || "");
   updateDevices();
 }

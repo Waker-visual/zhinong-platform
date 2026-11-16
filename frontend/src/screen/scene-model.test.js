@@ -4,7 +4,28 @@ import {
   sceneGeometry,
   sceneDeviceState,
   sceneZoneStates,
+  sceneEntryDevice,
 } from "./scene-model.js";
+
+test("entry view chooses registered machinery before sensors without using live status", () => {
+  const sensor = { id: "sensor", kind: "SOIL", x: 2, z: 3 };
+  const tractor = { id: "tractor", kind: "TRACTOR", x: 5, z: 6, alert: true };
+  const pump = { id: "pump", kind: "PUMP", x: 1, z: 2 };
+  assert.equal(sceneEntryDevice([sensor, pump, tractor]), tractor);
+  assert.equal(sceneEntryDevice([sensor, pump]), pump);
+  assert.equal(sceneEntryDevice([sensor]), sensor);
+  assert.equal(sceneEntryDevice([{ ...tractor, alert: false }]).id, tractor.id);
+});
+test("entry view ignores unlocated assets and falls back safely on empty farms", () => {
+  assert.equal(sceneEntryDevice([]), null);
+  assert.equal(
+    sceneEntryDevice([{ id: "bad", kind: "TRACTOR", x: null, z: 0 }]),
+    null,
+  );
+  assert.equal(sceneEntryDevice([{ id: "bad", x: Infinity, z: 1 }]), null);
+  const sensor = { id: "sensor", kind: "SOIL", x: 0, z: 0 };
+  assert.equal(sceneEntryDevice([{ id: "", x: 1, z: 1 }, sensor]), sensor);
+});
 
 test("world dimensions retain physical metres and do not normalize different farms", () => {
   const farm = (size) =>
