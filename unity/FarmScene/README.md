@@ -37,7 +37,7 @@ cd ..
 
 无需 Unity 的协作者可下载完整 WebGL Build，校验后解压到仓库，再正常构建前后端。下载与启动步骤见 [WebGL开发包使用指南](../../docs/WebGL开发包使用指南.md)。
 
-恢复步骤：使用安装了 UnityPy 的 Python 环境运行 `scripts/extract-farm-reference.py --source '<解压后的 UnityWebData 路径>'`，再运行场景构建。模型生成在被忽略的 `Assets/Resources/ReferenceFarm` 中，来源记录随模型保存。程序不会上传捕获材料，也不复用参考网站的商标与业务文本。
+恢复步骤：使用安装了 UnityPy 的 Python 环境运行 `scripts/extract-farm-reference.py --source '<解压后的 UnityWebData 路径>'`，再运行场景构建。捕获中拖拉机车轮、仓库正面和粮仓开口是主网格旁的独立物体，脚本按原相对位置把它们并入同一模型（`companions` 列表），否则模型会缺轮或缺半边。模型生成在被忽略的 `Assets/Resources/ReferenceFarm` 中，来源记录随模型保存。程序不会上传捕获材料，也不复用参考网站的商标与业务文本。
 
 网页仅通过同源消息传入已授权田块轮廓、田块 ID、设备 ID、类型、位置和有效采样状态。Unity 不持有会话、不请求业务接口、不在构建中保存农场数据。切换农场或退出视图会卸载承载页面。
 
@@ -57,13 +57,13 @@ cd ..
 
 ## 程序化地表与自制场景美术
 
-三维地面不再直接显示卫星照片。准备好影像后运行 `python tools/scene/classify_landcover.py`（需要 numpy、OpenCV），它从 `region.jpg`、`context.jpg` 推定积水/沟渠、作物成熟度、道路和田埂，以及每块田的作物行方向，写出被忽略的 `SatelliteImagery/landcover-*.png`、`landflow-*.png`。`Farm/LandCover` 着色器据此在米级尺度绘制作物行、裸土、稻田水面、田埂草带和砂石路：田块、水系和道路位置与影像一致，但画面全部为程序化材质。缺少这些图时自动回退到原卫星贴图，干净仓库仍可构建。分类结果只是色调推定，不是土地用途调查，业务数据不由其产生。
+三维地面不再直接显示卫星照片。准备好影像后运行 `python tools/scene/classify_landcover.py`（需要 numpy、OpenCV），它从 `region.jpg`、`context.jpg` 推定积水/沟渠、作物成熟度、道路和田埂，以及每块田的作物行方向与可信度，写出被忽略的 `SatelliteImagery/landcover-*.png`、`landflow-*.png`。`Farm/LandCover` 着色器据此在米级尺度绘制作物行、裸土、稻田水面、田埂草带和砂石路：田块、水系和道路位置与影像一致，但画面全部为程序化材质。行方向按田块（田埂、道路和水面围合的区域）整体取一个值，作物行在一块田内保持笔直；影像上看不出行纹的田块不画行线，只显示柔和的作物色块，避免逐像素方向漂移形成类似等高线的弯曲条带。缺少这些图时自动回退到原卫星贴图，干净仓库仍可构建。分类结果只是色调推定，不是土地用途调查，业务数据不由其产生。
 
 “作物”切换会同时调整周边田野的成熟度示意（周边影像为收获期拍摄）。远处作物行在小于约两个像素前淡化为平均色，避免摩尔纹。
 
 树木、农房、长条仓棚、塑料大棚、电杆和草捆由 `tools/blender/build_farm_art.py` 在 Blender 中程序化生成并导出到 `Assets/Resources/FarmArt`（提交 Git，项目自制）。在仓库根目录运行 `blender --background --factory-startup --python tools/blender/build_farm_art.py`；Microsoft Store 版 Blender 通过 `blender-launcher.exe` 运行且不输出控制台，结果写入 `.cache/blender-farm-art.log`，追加 `-- --preview` 可在 `.cache/review` 渲染一张样张。`FarmArtImporter` 保证网格可读、不生成材质；树木远景使用低面数 `_far` 版本。构建会关闭网格通道裁剪，因为这些网格的顶点色只在运行时材质中使用。
 
-摆放规则在 `FarmSceneArt.cs`：描绘林带以杨树为主（约 78%），间有垂柳和阔叶树；林地以阔叶树为主并混有杨树；描绘河渠两岸以垂柳为主、间植杨树；农房周边以阔叶树为主；按描绘屋顶的长宽比放置农房、仓棚或大棚并缩放到屋顶轮廓；描绘道路一侧每约 42 米一根电杆并连三相导线。所有布景都与登记地块保持间距、避开设备避让范围，不改变地块、设备、管网或镜头接口。树种分配集中在 `TreeVariantFor`，可按当地植被调整。
+摆放规则在 `FarmSceneArt.cs`：描绘林带以杨树为主（约 78%），间有垂柳和阔叶树；林地以阔叶树为主并混有杨树；描绘河渠两岸以垂柳为主、间植杨树；农房周边以阔叶树为主；按描绘屋顶的长宽比放置农房、仓棚或大棚并缩放到屋顶轮廓；描绘道路一侧每约 42 米一根电杆并连三相导线。所有布景（包括影像描绘的林带与林地树木）都与登记地块保持至少 4 米间距、避开设备避让范围，演示田块压在真实林带上时树木让出田块，不改变地块、设备、管网或镜头接口。树种分配集中在 `TreeVariantFor`，可按当地植被调整。
 
 本机图片验收使用 Unity CLI 的 `com.unity.pipeline` 开发工具连接 Editor。进入 Play 模式前开启自动 tick，验收时同时记录推进帧数，避免把停帧截图当成运行证明。截图和带演示记录的临时验收输入放在被忽略的 `.cache` 中，不进入构建资源。
 

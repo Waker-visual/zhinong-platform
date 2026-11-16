@@ -1,6 +1,6 @@
 # 无需 Unity 的三维农场开发包
 
-下载 [2026-11-16 WebGL 开发包](https://github.com/Waker-visual/zhinong-platform/releases/tag/farm-scene-webgl-20261116) 中的 `zhinong-farm-scene-webgl.zip` 和同名 `.sha256` 文件。该包提供已编译的三维场景（程序化地表、自制树木与农房布景），仍需本项目源码及 Node.js 22、JDK 21、Maven；无需安装 Unity、Blender 或重新提取模型。旧的 [2026-10-14 开发包](https://github.com/Waker-visual/zhinong-platform/releases/tag/farm-scene-webgl-20261014) 仅适用于此前的源码。
+下载 [2026-11-16 第 2 版 WebGL 开发包](https://github.com/Waker-visual/zhinong-platform/releases/tag/farm-scene-webgl-20261116-2) 中的 `zhinong-farm-scene-webgl.zip` 和同名 `.sha256` 文件。该包提供已编译的三维场景（程序化地表、自制树木与农房布景，含完整拖拉机车轮、田内笔直作物行，树木不进入登记田块），仍需本项目源码及 Node.js 22、JDK 21、Maven；无需安装 Unity、Blender 或重新提取模型。同日首版 [farm-scene-webgl-20261116](https://github.com/Waker-visual/zhinong-platform/releases/tag/farm-scene-webgl-20261116) 缺少这些修复，旧的 [2026-10-14 开发包](https://github.com/Waker-visual/zhinong-platform/releases/tag/farm-scene-webgl-20261014) 仅适用于此前的源码。
 
 先检出包含三维场景美术的版本（包内 `farm-scene-manifest.json` 的 `packagedFromCommit` 或其后兼容版本），在仓库根目录执行以下 PowerShell 命令，将下载路径改为实际位置：
 
