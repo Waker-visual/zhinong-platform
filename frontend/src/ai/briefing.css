@@ -6,15 +6,17 @@
   border-radius: var(--radius);
   background: var(--surface);
 }
+/* 紧凑形态与今日农场的其他卡片同一套边框、内边距与标题字号。 */
 .briefing-compact {
   margin: 0;
-  padding: 18px;
+  padding: var(--space-5);
+  border-top: 1px solid var(--border);
 }
 .briefing-compact .briefing-heading {
-  align-items: flex-start;
+  align-items: center;
 }
 .briefing-compact .briefing-heading-title h2 {
-  font-size: 17px;
+  font: var(--text-title);
 }
 .briefing-toggle {
   flex: none;
@@ -24,24 +26,29 @@
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
   overflow: hidden;
-  margin-top: 12px;
-  font-size: 13px;
+  margin-top: var(--space-3);
+  font: var(--text-small);
   color: var(--text-2);
-  line-height: 1.8;
 }
+.briefing-compact-summary > p strong {
+  color: var(--text);
+  font-weight: 600;
+}
+/* 生成时间跟在链接后面靠左：卡片右下角是小禾入口的默认位置，不放信息。 */
 .briefing-compact-summary .briefing-actions {
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: var(--space-4);
   margin-top: 8px;
 }
-.daily-right .briefing-overview,
-.daily-right .briefing-facts {
+.daily-overview-side .briefing-overview,
+.daily-overview-side .briefing-facts {
   grid-template-columns: 1fr;
   gap: 16px;
 }
-.daily-right .briefing-facts {
+.daily-overview-side .briefing-facts {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-.daily-right .briefing-next {
+.daily-overview-side .briefing-next {
   border-left: 0;
   border-top: 1px solid var(--border);
   padding: 16px 0 0;

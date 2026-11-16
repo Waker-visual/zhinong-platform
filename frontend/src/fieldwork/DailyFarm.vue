@@ -390,7 +390,7 @@ async function history(row) {
           {{ priorityTask.status === "PENDING" ? "开始任务" : "完成回执" }}
         </button>
       </div>
-      <p v-else class="daily-hero-guide">
+      <p v-else-if="farm" class="daily-hero-guide">
         {{
           admin
             ? "先处理风险，再安排今天的农事。"
@@ -448,6 +448,7 @@ async function history(row) {
           :today="data.today"
           :farm-name="farm?.name"
           :loading="firstLoad"
+          :ready="dataReady"
           @map="emit('farm', farmId)"
         >
           <template #empty-action>
@@ -598,7 +599,8 @@ async function history(row) {
             <h4>{{ t.title }}</h4>
             <p class="daily-meta">
               {{ t.plotName }} · {{ word(t.taskType) }} ·
-              {{ t.assigneeName || "未分配" }}
+              {{ t.assigneeName || "未分配" }} ·
+              {{ methods[t.method] || "尚未安排资源" }}
             </p>
             <p v-if="t.note" class="daily-note">{{ t.note }}</p>
             <p v-if="t.blockedReason" class="daily-blocker">
@@ -608,7 +610,6 @@ async function history(row) {
               <b>作业回执：</b>{{ t.completionNote }} · {{ t.actualAreaMu }} 亩
             </p>
             <div class="daily-task-footer">
-              <small>{{ methods[t.method] || "尚未安排资源" }}</small>
               <div class="daily-task-actions">
                 <ActionMenu
                   v-if="moreActions(t).length > 1"

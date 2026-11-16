@@ -312,13 +312,18 @@
   color: var(--info);
 }
 .daily-meta,
-.daily-note,
-.daily-task-footer small {
+.daily-note {
   color: var(--label-fg);
   font: var(--text-caption);
 }
-.daily-meta {
+.daily-task .daily-meta {
+  grid-column: 1;
+  grid-row: 2;
   color: var(--text-2);
+}
+.daily-task .daily-note {
+  grid-column: 1;
+  grid-row: 3;
 }
 .daily-note {
   overflow: hidden;
@@ -337,13 +342,11 @@
 .daily-receipt {
   border-color: var(--ok);
 }
-.daily-task-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-top: var(--space-2);
+/* 操作收在标题行下方的右侧，与说明文字同高，一行任务不再多占一行按钮。 */
+.daily-task .daily-task-footer {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  align-self: end;
 }
 .daily-task-actions {
   display: flex;
@@ -356,6 +359,17 @@
   min-height: 32px;
   padding: 0 12px;
   font-size: 13px;
+}
+/* 实心主按钮只留给头图带的优先任务；列表里的推进操作用浅底，十几行并排也不抢眼。 */
+.daily-farm .daily-task-actions > .primary,
+.daily-farm .daily-issue .primary {
+  border-color: transparent;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.daily-farm .daily-task-actions > .primary:hover,
+.daily-farm .daily-issue .primary:hover {
+  background: color-mix(in srgb, var(--brand) 16%, var(--brand-soft));
 }
 .daily-right {
   display: grid;
@@ -398,6 +412,20 @@
   color: var(--label-fg);
   font: var(--text-small);
   text-align: center;
+}
+/* 还没有农场时的整页引导：标题、说明、按钮各占一行并留出间距。 */
+.panel.daily-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  padding: var(--space-7) var(--space-5);
+}
+.panel.daily-empty h3 {
+  color: var(--text);
+  font: var(--text-title);
+}
+.panel.daily-empty button {
+  margin-top: var(--space-3);
 }
 .daily-dialog {
   border: 1px solid var(--border);
@@ -535,10 +563,19 @@
     grid-template-columns: minmax(0, 1fr);
   }
   .daily-task h4,
-  .daily-task .daily-task-line {
+  .daily-task .daily-task-line,
+  .daily-task .daily-meta,
+  .daily-task .daily-note,
+  .daily-task .daily-task-footer {
     grid-column: 1;
     grid-row: auto;
     white-space: normal;
+  }
+  .daily-task .daily-task-footer {
+    margin-top: var(--space-2);
+  }
+  .daily-task-actions {
+    justify-content: flex-end;
   }
   .daily-task .daily-task-line {
     justify-content: space-between;

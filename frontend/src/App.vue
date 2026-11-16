@@ -8,7 +8,6 @@ import FieldCameras from "./workspace/FieldCameras.vue";
 import "./workspace/workspace.css";
 import SettingsDialog from "./account/SettingsDialog.vue";
 import { applyAppearance, colorMode } from "./account/appearance";
-import SimulationPage from "./simulation/SimulationPage.vue";
 import FarmAssistant from "./ai/FarmAssistant.vue";
 import { aiSession } from "./ai/ai-session.js";
 import FarmBriefing from "./ai/FarmBriefing.vue";
@@ -44,6 +43,8 @@ import "./ui/shell.css";
 
 // 小窗入口在工作台加载后再取，不占主包；面板资料也只在打开时读取。
 const FloatingAssistant = defineAsyncComponent(() => import("./ai/FloatingAssistant.vue"));
+// 经营模拟体量大且非每日使用，进入该页时再加载，主包留给常用页面。
+const SimulationPage = defineAsyncComponent(() => import("./simulation/SimulationPage.vue"));
 const identity = ref(null);
 const account = ref(null),
   settingsOpen = ref(false),

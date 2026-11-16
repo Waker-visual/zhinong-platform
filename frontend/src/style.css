@@ -773,6 +773,12 @@ footer {
   margin-top: 30px;
   letter-spacing: 0.5px;
 }
+/* 工作台页脚靠左并在下方留出小禾入口（104×116，距底 24）的位置，页面滚到底时右下角内容不被压在下面。 */
+main > footer {
+  justify-content: flex-start;
+  gap: var(--space-4);
+  padding-bottom: 120px;
+}
 .modal-backdrop {
   position: fixed;
   inset: 0;
