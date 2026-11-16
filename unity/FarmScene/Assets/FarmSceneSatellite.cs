@@ -118,6 +118,9 @@ public partial class FarmScene
     void AddImageTree(Vector3 p,int seed,TreeContext context)
     {
         if(p.sqrMagnitude>1600*1600)return;
+        // Traced belts and woods come from the photo; registered demo plots may sit on top of them.
+        // Keep every tree, with its crown, out of plots and device clearances.
+        if(!ScenicSpotFree(p,4))return;
         if(AddArtTree(p,seed,context))return;
         var mesh=ImageTreeMesh(seed%3);
         if(!materials.TryGetValue("image tree canopy",out var material)) {

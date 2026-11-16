@@ -62,6 +62,40 @@ def keep_lines(mask, length):
     return best
 
 
+def field_rows(jxx, jyy, jxy, water, road, bund):
+    """One straight row direction per field, plus how sure we are that the field shows rows at all.
+
+    Rows painted from a per-pixel direction bend wherever the estimate drifts and read as contour
+    lines. Each field (area enclosed by bunds, roads and water) instead takes the direction of its
+    summed structure tensor; fields whose texture has no clear direction get zero confidence and are
+    shaded without rows."""
+    interior = ((water < 0.5) & (road < 0.3) & (bund < 0.35)).astype(np.uint8)
+    interior = cv2.erode(interior, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(interior, connectivity=4)
+    flat = labels.ravel()
+    sxx = np.bincount(flat, jxx.ravel(), count)
+    syy = np.bincount(flat, jyy.ravel(), count)
+    sxy = np.bincount(flat, jxy.ravel(), count)
+    area = stats[:, cv2.CC_STAT_AREA].astype(np.float64)
+    energy = sxx + syy
+    coherence = np.sqrt((sxx - syy) ** 2 + 4 * sxy ** 2) / np.maximum(energy, 1e-6)
+    strength = energy / np.maximum(area, 1)
+    # Rows are perpendicular to the dominant gradient; image y points south, world z points north.
+    row = -(0.5 * np.arctan2(2 * sxy, sxx - syy) + np.pi / 2)
+    confidence = smoothstep(0.18, 0.4, coherence) * smoothstep(60, 180, strength) * smoothstep(40, 120, area)
+    confidence[0] = 0
+    # Let each field's direction reach a few pixels into its bunds so filtering at edges stays straight.
+    grown = labels.astype(np.float32)
+    for _ in range(4):
+        grown = np.where(grown > 0, grown, cv2.dilate(grown, np.ones((3, 3), np.uint8)))
+    index = grown.astype(np.int32)
+    flow = np.stack([np.cos(2 * row), np.sin(2 * row)], -1)[index].astype(np.float32)
+    fields = np.count_nonzero(area[1:] >= 40)
+    rowed = np.count_nonzero(confidence[1:] > 0.5)
+    print(f"  fields {fields}, with clear rows {rowed}; coherence median {np.median(coherence[1:][area[1:] >= 40]):.2f}, strength median {np.median(strength[1:][area[1:] >= 40]):.0f}")
+    return flow, confidence[index].astype(np.float32)
+
+
 def classify(path, name, native_scale, out_scale):
     """native_scale: imagery upsampling factor; out_scale: output size relative to native."""
     image = read_image(path)
@@ -90,7 +124,9 @@ def classify(path, name, native_scale, out_scale):
     water = np.maximum(1 - smoothstep(18, 34, light), ditch)
     # Crop maturity follows field brightness and yellowness: dark green -> golden stubble.
     maturity = np.clip(smoothstep(52, 128, light) * 0.8 + smoothstep(8, 26, yellow) * 0.3, 0, 1)
-    # Median removes stubble speckle so each field reads as one crop stage.`n    maturity = cv2.medianBlur((maturity * 255).astype(np.uint8), 5).astype(np.float32) / 255`n    maturity = cv2.GaussianBlur(maturity, (0, 0), 1.0)
+    # Median removes stubble speckle so each field reads as one crop stage.
+    maturity = cv2.medianBlur((maturity * 255).astype(np.uint8), 5).astype(np.float32) / 255
+    maturity = cv2.GaussianBlur(maturity, (0, 0), 1.0)
 
     # Grass bunds sit where neighbouring fields differ but no road was found.
     gx = cv2.Sobel(light, cv2.CV_32F, 1, 0, ksize=3)
@@ -103,18 +139,14 @@ def classify(path, name, native_scale, out_scale):
     jxx = cv2.GaussianBlur(sx * sx, (0, 0), 6)
     jyy = cv2.GaussianBlur(sy * sy, (0, 0), 6)
     jxy = cv2.GaussianBlur(sx * sy, (0, 0), 6)
-    gradient = 0.5 * np.arctan2(2 * jxy, jxx - jyy)
-    # Rows are perpendicular to the gradient; image y points south, world z points north.
-    row = -(gradient + np.pi / 2)
-    flow = np.stack([np.cos(2 * row), np.sin(2 * row)], -1)
-    flow = cv2.GaussianBlur(flow, (0, 0), 4)
+    flow, confidence = field_rows(jxx, jyy, jxy, water, road, bund)
 
     size = (nw * out_scale, nh * out_scale)
     up = lambda a: cv2.resize(a, size, interpolation=cv2.INTER_CUBIC)
     cover = np.stack([up(water), up(maturity), up(road), up(bund)], -1)
     cover = np.clip(cover * 255 + 0.5, 0, 255).astype(np.uint8)
-    flow_img = np.clip((cv2.resize(flow, (nw, nh)) * 0.5 + 0.5) * 255 + 0.5, 0, 255).astype(np.uint8)
-    flow_img = np.dstack([flow_img, np.full((nh, nw), 128, np.uint8)])
+    flow_img = np.clip((flow * 0.5 + 0.5) * 255 + 0.5, 0, 255).astype(np.uint8)
+    flow_img = np.dstack([flow_img, np.clip(confidence * 255 + 0.5, 0, 255).astype(np.uint8)])
 
     # OpenCV writes BGR(A); reorder so the PNG channels read R,G,B,A as documented.
     write_image(os.path.join(IMAGERY, f"landcover-{name}.png"), cv2.cvtColor(cover, cv2.COLOR_RGBA2BGRA))
@@ -127,7 +159,13 @@ def classify(path, name, native_scale, out_scale):
     preview = preview * (1 - water[..., None]) + np.array([0.25, 0.45, 0.55]) * water[..., None]
     preview = preview * (1 - bund[..., None]) + np.array([0.45, 0.55, 0.30]) * bund[..., None]
     preview = preview * (1 - road[..., None]) + np.array([0.88, 0.85, 0.78]) * road[..., None]
-    preview = cv2.cvtColor((preview * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+    # Third panel: the rows the shader will draw (4 px apart), faded where the field shows none.
+    yy, xx = np.mgrid[0:nh, 0:nw].astype(np.float32)
+    angle = np.arctan2(flow[..., 1], flow[..., 0]) * 0.5
+    across = -xx * np.sin(angle) - yy * np.cos(angle)
+    stripes = (0.5 + 0.5 * np.cos(across * np.pi / 2)) * confidence
+    rows_panel = preview * (1 - 0.45 * stripes[..., None])
+    preview = cv2.cvtColor((np.hstack([preview, rows_panel]) * 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
     write_image(os.path.join(REVIEW, f"landcover-{name}-preview.png"), np.hstack([native, preview]))
     print(f"{name}: native {nw}x{nh} -> cover {size[0]}x{size[1]}; water {water.mean():.1%} road {road.mean():.1%} bund {bund.mean():.1%}")
     return True

@@ -4,7 +4,7 @@ Shader "Farm/LandCover" {
     // positions, but every surface is drawn as crop rows, soil, water or gravel at metre scale.
     Properties {
         _Cover ("Land cover: R water, G maturity, B road, A bund", 2D) = "black" {}
-        _Flow ("Row direction (cos 2a, sin 2a)", 2D) = "gray" {}
+        _Flow ("Row direction (cos 2a, sin 2a), B row confidence", 2D) = "gray" {}
         _WorldRect ("West, south, width, depth", Vector) = (0,0,1,1)
         _RowSpacing ("Crop row spacing (m)", Float) = 0.9
         _SkyTint ("Reflected sky", Color) = (.56,.69,.80,1)
@@ -35,7 +35,11 @@ Shader "Farm/LandCover" {
             float2 p=IN.worldPos.xz;
             float2 uv=(p-_WorldRect.xy)/_WorldRect.zw;
             float4 cover=tex2D(_Cover,uv);
-            float2 flow=tex2D(_Flow,uv).rg*2-1;
+            float3 flowSample=tex2D(_Flow,uv).rgb;
+            float2 flow=flowSample.rg*2-1;
+            // One direction per field (see classify_landcover.py); fields without visible rows have
+            // zero confidence and get no stripes, so rows never bend into contour-like bands.
+            float rowConfidence=smoothstep(.25,.75,flowSample.b);
             float angle=atan2(flow.y,flow.x)*.5;
             float2 along=float2(cos(angle),sin(angle)), across=float2(-along.y,along.x);
             float dist=distance(_WorldSpaceCameraPos,IN.worldPos);
@@ -53,8 +57,11 @@ Shader "Farm/LandCover" {
             // Fade rows well before they reach pixel size, or distant fields shimmer with moire.
             float aa=saturate(fwidth(rowCoord)*2.6-.3);
             float density=lerp(.78,.42,maturity);
-            float rows=lerp(ridge(rowCoord,density),density,aa);
-            float plant=noise(float2(rowCoord*2.2,dot(p,along)*2.6));
+            float rowDetail=(1-aa)*rowConfidence;
+            float rows=lerp(density,ridge(rowCoord,density),rowDetail);
+            // Unrowed fields: soft, direction-free patches instead of stripes.
+            float patches=noise(p*.45)*.6+noise(p*1.7)*.4;
+            float plant=lerp(patches,noise(float2(rowCoord*2.2,dot(p,along)*2.6)),rowConfidence);
             float leaf=lerp(.5,plant,near*(1-aa));
 
             // Crop palette in linear space: lush green -> heading yellow-green -> golden stubble.
@@ -63,13 +70,13 @@ Shader "Farm/LandCover" {
             crop*=.8+leaf*.4;
             // Stubble: short straw streaks along the rows over pale, cut soil.
             float straw=noise(float2(rowCoord*5,dot(p,along)*.9))*noise(float2(rowCoord*11,dot(p,along)*3.7));
-            crop=lerp(crop,crop*(.75+straw*.7),smoothstep(.6,.9,maturity)*near*(1-aa));
+            crop=lerp(crop,crop*(.75+straw*.7),smoothstep(.6,.9,maturity)*near*rowDetail);
             float3 soil=lerp(float3(.075,.058,.038),float3(.25,.19,.12),maturity)*(.85+noise(p*3.1)*.3*near);
             // Each field gets its own light/dark cast, like real neighbouring plots.
             float3 field=lerp(soil,crop,rows)*(.86+macro*.28);
 
             // Flooded paddies: dark water with faint seedling rows where the field is planted.
-            float seedlings=step(.42,macro)*ridge(rowCoord*1.15,.22)*(1-aa)*.55;
+            float seedlings=step(.42,macro)*ridge(rowCoord*1.15,.22)*rowDetail*.55;
             float3 paddy=lerp(float3(.03,.065,.07),young*1.2,seedlings);
 
             // Verges: patchy grass with drier tufts, so wide bunds never read as flat paint.
@@ -85,7 +92,7 @@ Shader "Farm/LandCover" {
             // Row relief: bend the normal across rows, flatter where water, roads or distance win.
             float e=.08;
             float slope=(ridge(rowCoord+e,density)-ridge(rowCoord-e,density))/(2*e*_RowSpacing);
-            float relief=.16*(1-aa)*(1-water)*(1-road)*(1-bund)*near;
+            float relief=.16*rowDetail*(1-water)*(1-road)*(1-bund)*near;
             float2 grad=across*slope*relief;
             o.Normal=normalize(float3(-grad.x,grad.y,1));
 
