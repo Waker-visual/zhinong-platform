@@ -165,14 +165,17 @@ const summary = computed(() =>
   min-height: 0;
 }
 .plot-overview-body.wide {
-  grid-template-columns: 1fr;
-  grid-template-rows: minmax(216px, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-3);
 }
-/* 画布只占用卡片的剩余高度：自身不按取景比例撑高卡片，首屏才能完整容纳清单。 */
+/* 画布以 216px 为基准占用卡片的剩余高度，不按取景比例撑高卡片；
+   右侧简报展开、卡片被拉长时最多长到 380px，多出的留白落在卡片底部。 */
 .plot-overview-body.wide .plot-overview-canvas {
-  height: 0;
-  min-height: 100%;
+  flex: 1 1 216px;
+  height: auto;
+  min-height: 216px;
+  max-height: 380px;
 }
 .plot-overview-canvas {
   width: 100%;
@@ -236,7 +239,7 @@ const summary = computed(() =>
 }
 .plot-overview-body.wide .plot-overview-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(184px, 1fr));
   align-items: start;
 }
 .plot-overview-body.wide .plot-overview-list li {
@@ -310,11 +313,9 @@ const summary = computed(() =>
     grid-template-columns: 1fr;
     gap: var(--space-3);
   }
-  .plot-overview-body.wide {
-    grid-template-rows: auto auto;
-  }
   .plot-overview-body .plot-overview-canvas,
   .plot-overview-body.wide .plot-overview-canvas {
+    flex: none;
     height: 200px;
     min-height: 0;
   }

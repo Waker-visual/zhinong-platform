@@ -36,7 +36,9 @@ const modal = ref(""),
   issueId = ref(""),
   logs = ref([]),
   dailyMorphSource = ref(""),
-  dailyMorphActive = ref(false);
+  dailyMorphActive = ref(false),
+  // 形变名同一时刻只能挂在一个元素上：展开前在来源卡片，展开后在弹窗。
+  dailyMorphOnDialog = ref(false);
 const form = reactive({});
 const research = ref(null);
 const methods = {
@@ -241,11 +243,17 @@ async function showDialog() {
     dialogElement.value?.showModal();
     return;
   }
+  dailyMorphOnDialog.value = false;
   dailyMorphActive.value = true;
   document.documentElement.classList.add("daily-morphing");
-  const transition = document.startViewTransition(() =>
-    dialogElement.value?.showModal(),
-  );
+  await nextTick();
+  const transition = document.startViewTransition(async () => {
+    dialogElement.value?.showModal();
+    dailyMorphOnDialog.value = true;
+    await nextTick();
+  });
+  // 页面在后台等情况下过渡会被跳过，弹窗照常打开，不当作异常。
+  transition.ready.catch(() => {});
   await transition.finished.catch(() => {});
   dailyMorphActive.value = false;
   document.documentElement.classList.remove("daily-morphing");
@@ -302,12 +310,17 @@ async function close() {
     dailyMorphActive.value = false;
     return;
   }
+  dailyMorphOnDialog.value = true;
   dailyMorphActive.value = true;
   document.documentElement.classList.add("daily-morphing");
-  const transition = document.startViewTransition(() => {
+  await nextTick();
+  const transition = document.startViewTransition(async () => {
     dialogElement.value?.close();
     modal.value = "";
+    dailyMorphOnDialog.value = false;
+    await nextTick();
   });
+  transition.ready.catch(() => {});
   await transition.finished.catch(() => {});
   dailyMorphActive.value = false;
   dailyMorphSource.value = "";
@@ -585,7 +598,7 @@ async function history(row) {
             class="daily-task"
             :data-task-id="t.id"
             :style="
-              dailyMorphActive && dailyMorphSource === `task:${t.id}`
+              dailyMorphActive && !dailyMorphOnDialog && dailyMorphSource === `task:${t.id}`
                 ? { viewTransitionName: 'daily-morph' }
                 : null
             "
@@ -664,7 +677,7 @@ async function history(row) {
               class="daily-issue"
               :data-issue-id="i.id"
               :style="
-                dailyMorphActive && dailyMorphSource === `issue:${i.id}`
+                dailyMorphActive && !dailyMorphOnDialog && dailyMorphSource === `issue:${i.id}`
                   ? { viewTransitionName: 'daily-morph' }
                   : null
               "
@@ -744,7 +757,7 @@ async function history(row) {
       ref="dialogElement"
       class="daily-dialog"
       :style="
-        dailyMorphActive ? { viewTransitionName: 'daily-morph' } : null
+        dailyMorphActive && dailyMorphOnDialog ? { viewTransitionName: 'daily-morph' } : null
       "
       @cancel="saving ? $event.preventDefault() : close()"
     >

@@ -553,7 +553,7 @@
     padding: var(--space-4);
   }
   .daily-section-title {
-    align-items: flex-start;
+    align-items: center;
     flex-wrap: wrap;
   }
   .daily-check {

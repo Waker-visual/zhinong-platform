@@ -71,13 +71,22 @@ async function shot(page, name) {
     fullPage: true,
   });
 }
+// 表单下拉是自绘的 SelectMenu：按可见名称展开，再按选项文字选择。
+async function pick(page, label, option) {
+  await page.getByRole("button", { name: label, exact: true }).click();
+  await page
+    .getByRole("listbox", { name: label, exact: true })
+    .getByRole("option", { name: option })
+    .first()
+    .click();
+}
+const farmShown = async (page) =>
+  (await page.getByLabel("当前农场", { exact: true }).innerText()).trim();
 async function main() {
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const owner = await signIn("owner");
   // 顶栏农场选择器是自绘按钮，没有表单值：以它显示的农场名与今日农场头图一致为准。
-  const selectedFarm = (
-    await owner.getByLabel("当前农场", { exact: true }).innerText()
-  ).trim();
+  const selectedFarm = await farmShown(owner);
   assert.notEqual(selectedFarm, "选择农场");
   assert.equal(
     (await owner.locator(".daily-hero h2").innerText()).trim(),
@@ -88,8 +97,7 @@ async function main() {
   await owner.getByRole("button", { name: "记录收获", exact: true }).click();
   await owner.getByRole("dialog", { name: "新增生产记录", exact: true }).waitFor();
   assert.equal(await owner.getByLabel("筛选所属农场").count(), 0); // form is scoped by the existing farm selector
-  const productionFarm = owner.getByRole("dialog").locator("select").first();
-  assert.equal(await productionFarm.inputValue(), fixture.farmId);
+  assert.equal(await farmShown(owner), selectedFarm);
   check("Harvest quick action retains current farm and opens form");
   await owner.getByRole("button", { name: "关闭", exact: true }).click();
   await owner
@@ -123,9 +131,11 @@ async function main() {
   await worker
     .getByRole("button", { name: "＋ 巡田上报", exact: true })
     .click();
-  await worker
-    .getByLabel("所属地块")
-    .selectOption(fixture.plots.find((p) => p.crop === "水稻").id);
+  await pick(
+    worker,
+    "所属地块",
+    new RegExp(fixture.plots.find((p) => p.crop === "水稻").name),
+  );
   await worker
     .getByLabel("现场情况", { exact: true })
     .fill(tag + "：田边虫害，现场无人机缺位。");
@@ -134,7 +144,7 @@ async function main() {
   await fresh(owner);
   const issue = owner.locator(".daily-issue").filter({ hasText: tag });
   await issue.getByRole("button", { name: "安排处理", exact: true }).click();
-  await owner.getByLabel("负责人").selectOption(fixture.workerId);
+  await pick(owner, "负责人", /田间操作员小禾/);
   await owner.getByLabel("任务名称", { exact: true }).fill(tag + "处理");
   await save(owner);
   check("Owner dispatches linked task with assignee");
@@ -166,7 +176,7 @@ async function main() {
   await ownerTask
     .getByRole("menuitem", { name: "调整安排", exact: true })
     .click();
-  await owner.getByLabel("计划作业方式").selectOption("MANUAL");
+  await pick(owner, "计划作业方式", /人工作业/);
   await owner
     .getByLabel("安排说明", { exact: true })
     .fill("已协调人工队伍，按实际覆盖面积回报。");
@@ -179,7 +189,7 @@ async function main() {
   check("Replanning keeps the blocker visible until actual progress");
   await fresh(worker);
   await task.getByRole("button", { name: "完成回执", exact: true }).click();
-  await worker.getByLabel("实际作业方式").selectOption("MANUAL");
+  await pick(worker, "实际作业方式", /人工作业/);
   await worker.getByLabel("实际完成面积（亩）", { exact: true }).fill("60");
   await worker
     .getByLabel("实际作业结果", { exact: true })
@@ -225,10 +235,7 @@ async function main() {
   await viewer.locator(".daily-dialog").waitFor({ state: "hidden" });
   await openPage(viewer, "运行概览");
   await viewer.locator(".ops-slice").first().waitFor();
-  assert.equal(
-    await viewer.getByLabel("当前农场", { exact: true }).inputValue(),
-    fixture.farmId,
-  );
+  assert.equal(await farmShown(viewer), selectedFarm);
   assert.equal(await viewer.locator(".ops-slice").count(), 100);
   assert.equal(await viewer.locator(".ops-run").count(), 4);
   assert((await viewer.locator(".ops-mx-row").count()) > 0);
@@ -236,7 +243,7 @@ async function main() {
   await viewer.keyboard.press("Home");
   assert.match(
     await viewer.locator(".ops-readout").innerText(),
-    /^\d\d\/\d\d \d\d:\d\d–/,
+    /^\d\d\/\d\d \d\d:\d\d(:\d\d)?–/,
   );
   await shot(viewer, "viewer-operations");
   await viewer.getByRole("button", { name: "查看农事 →", exact: true }).click();
@@ -247,17 +254,10 @@ async function main() {
     .click();
   await owner.getByLabel("模拟农场", { exact: true }).waitFor();
   assert.equal(
-    await owner.getByLabel("模拟农场", { exact: true }).inputValue(),
-    fixture.farmId,
+    (await owner.getByLabel("模拟农场", { exact: true }).innerText()).trim(),
+    selectedFarm,
   );
-  const historyOption = owner
-    .getByLabel("历史模拟", { exact: true })
-    .locator("option")
-    .filter({ hasText: "家庭农场季度验收 · 无人机缺位" });
-  await historyOption.waitFor({ state: "attached" });
-  await owner
-    .getByLabel("历史模拟", { exact: true })
-    .selectOption(await historyOption.getAttribute("value"));
+  await pick(owner, "历史模拟", /家庭农场季度验收 · 无人机缺位/);
   await owner.locator(".simulation-comparison").waitFor();
   await shot(owner, "quarter-comparison");
   check("Quarterly scenario history retains farm and renders results");
@@ -265,7 +265,8 @@ async function main() {
   const temp = "验收临时地块" + tag;
   await owner.getByRole("button", { name: /新增地块/ }).click();
   const plotDialog = owner.getByRole("dialog");
-  await plotDialog.locator("select").first().selectOption(fixture.farmId);
+  await plotDialog.locator(".select-menu-trigger").first().click();
+  await plotDialog.getByRole("option", { name: selectedFarm }).first().click();
   await plotDialog.getByLabel("地块名称").fill(temp);
   await plotDialog.getByLabel("面积（亩）").fill("2");
   await plotDialog.getByRole("button", { name: /保存/ }).click();
