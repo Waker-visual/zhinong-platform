@@ -463,3 +463,76 @@
 .skeleton-issues {
   padding: 14px 0;
 }
+
+/* 今日农场：紧凑概况、地图主视图、测点与简报联动。 */
+.daily-hero { background: transparent; border: 0; border-radius: 0; padding: 0; }
+.daily-hero h2 { font-size: 21px; }
+.daily-hero small { color: var(--label-fg); }
+.daily-kpis { gap: 0; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.daily-kpis article { border: 0; border-right: 1px solid var(--border); border-radius: 0; padding: 14px 20px; background: transparent; }
+.daily-kpis article:last-child { border-right: 0; }
+.daily-kpis .attention.danger, .daily-kpis .attention.caution { border-top: 0; }
+.daily-kpis .attention.danger strong { color: var(--danger); }
+.daily-kpis .attention.caution strong { color: var(--caution); }
+.daily-kpis strong { font-size: 29px; margin: 4px 0; }
+.daily-kpis p { font-size: 11px; }
+.daily-landscape { display: grid; gap: 18px; min-width: 0; }
+.daily-landscape-grid { display: grid; grid-template-columns: minmax(0, 1fr) 270px; gap: 18px; align-items: stretch; }
+.daily-landscape-grid .farm-map-panel { min-width: 0; border-radius: var(--radius-lg); overflow: hidden; }
+.daily-landscape-grid .map-toolbar { background: var(--surface); flex-wrap: wrap; align-items: start; gap: 12px; }
+.daily-landscape-grid .map-toolbar > div:first-child { flex-wrap: wrap; }
+.daily-landscape-grid .map-layer-controls { flex-wrap: wrap; gap: 10px; }
+.daily-landscape-grid .farm-map { height: 365px; }
+.daily-landscape-grid .map-network-status { font-size: 11px; }
+.daily-plot-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; min-width: 0; }
+.daily-plot-heading { display: flex; justify-content: space-between; color: var(--label-fg); font-size: 12px; margin-bottom: 12px; }
+.daily-plot-card .select-menu { width: 100%; }
+.daily-plot-card h3 { margin: 14px 0 5px; font-size: 22px; }
+.daily-plot-area { font-size: 12px; color: var(--text-2); display: flex; justify-content: space-between; gap: 8px; }
+.daily-reading { margin-top: 17px; padding-top: 16px; border-top: 1px solid var(--border); }
+.daily-reading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px; justify-content: space-between; }
+.daily-reading > div > span { font-size: 10px; color: var(--ok); }
+.daily-reading > div > span.stale { color: var(--caution); }
+.daily-reading strong { display: block; font-size: 30px; line-height: 1.6; font-variant-numeric: tabular-nums; }
+.daily-reading strong small { font-size: 13px; margin-left: 5px; font-weight: 400; }
+.daily-reading p, .daily-reading time { font-size: 11px; color: var(--label-fg); line-height: 1.8; }
+.daily-plot-card > button { width: 100%; margin-top: 18px; }
+.daily-plot-note { display: block; font-size: 10px; color: var(--label-fg); line-height: 1.8; margin-top: 10px; }
+.daily-insight-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; }
+.daily-insight-grid.briefing-only { grid-template-columns: 1fr; }
+.daily-trend { min-width: 0; padding: 18px 20px 6px; }
+.daily-trend header { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.daily-trend h3 { margin: 0 0 7px; font-size: 17px; }
+.daily-trend header p { color: var(--label-fg); font-size: 12px; }
+.daily-trend .data-chart { height: 215px; }
+.daily-trend-empty { min-height: 190px; display: grid; place-items: center; color: var(--label-fg); font-size: 13px; line-height: 1.8; }
+.daily-briefing-panel { min-width: 0; padding: 18px; background: var(--brand-soft); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.daily-briefing-panel .farm-briefing { background: transparent; border: 0; padding: 0; box-shadow: none; }
+.daily-landscape-loading { min-height: 350px; display: grid; place-items: center; color: var(--label-fg); }
+@media (max-width: 1200px) {
+  .daily-landscape-grid { grid-template-columns: minmax(0, 1fr) 235px; gap: 12px; }
+  .daily-insight-grid { grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; }
+  .daily-plot-card { padding: 16px; }
+}
+@media (max-width: 900px) {
+  .daily-landscape-grid, .daily-insight-grid { grid-template-columns: 1fr; }
+  .daily-plot-card { display: grid; grid-template-columns: 1fr 1fr; column-gap: 20px; }
+  .daily-plot-heading, .daily-plot-card > .select-menu, .daily-plot-card > button, .daily-plot-note { grid-column: 1 / -1; }
+  .daily-plot-card .daily-plot-area { align-self: center; }
+  .daily-kpis article { padding: 12px; }
+}
+@media (max-width: 600px) {
+  .daily-kpis { grid-template-columns: 1fr 1fr; }
+  .daily-kpis article:nth-child(2) { border-right: 0; }
+  .daily-kpis article:nth-child(-n+2) { border-bottom: 1px solid var(--border); }
+  .daily-landscape-grid .farm-map { height: 310px; }
+  .daily-trend { padding: 16px 10px 0; }
+}
+
+.main-shell main:has(.daily-farm) .page-heading { margin-bottom: 18px; }
+.daily-landscape-grid .map-network-status { padding: 6px 16px; }
+.daily-landscape-grid .map-data-provenance { padding: 7px 16px; }
+.daily-landscape-grid .map-legend { padding: 8px 16px; }
+.daily-briefing-panel .briefing-heading { flex-wrap: wrap; gap: 10px; }
+.daily-briefing-panel .briefing-heading-title { flex-wrap: wrap; }
+.daily-briefing-panel .briefing-heading-title h2 { font-size: 17px; }

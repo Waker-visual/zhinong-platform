@@ -308,13 +308,14 @@ button[aria-busy="true"]::after {
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 14px 12px 12px;
-  overflow: hidden auto;
-  scrollbar-width: thin;
+  overflow: hidden;
+  align-self: start;
   background: var(--nav-bg);
   box-shadow: 1px 0 0 var(--border);
   color: var(--text-2);
@@ -413,10 +414,17 @@ button[aria-busy="true"]::after {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 .nav-group {
   display: grid;
   gap: 2px;
+  flex-shrink: 0;
 }
 .nav-caption {
   margin: 4px 12px 2px;
@@ -502,6 +510,8 @@ button[aria-busy="true"]::after {
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--nav-bg);
 }
 .sidebar-avatar {
   display: flex;
@@ -1540,4 +1550,51 @@ label > .select-menu {
   button:active:not(:disabled) {
     transform: none;
   }
+}
+
+/* 分组展开只改变导航密度；收起整个侧栏后保留全部图标入口。 */
+.nav-items { display: grid; gap: 3px; }
+.sidebar nav .nav-group-toggle { height: 32px; font-size: 12px; gap: 8px; color: var(--label-fg); }
+.nav-group-toggle small { margin-left: auto; font-size: 11px; font-variant-numeric: tabular-nums; }
+.nav-group-chevron { font-size: 20px; line-height: 1; transition: transform 160ms ease; }
+.nav-group-toggle[aria-expanded="true"] .nav-group-chevron { transform: rotate(90deg); }
+.sidebar nav button.selected, .sidebar nav button.selected .app-icon { color: var(--primary-fg); }
+.sidebar nav button.selected { background: var(--primary-bg); }
+.sidebar nav button.selected::before { display: none; }
+.nav-items > button { width: 100%; }
+.topbar { gap: 12px; }
+.topbar-meta { white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) { .nav-group-chevron { transition: none; } }
+
+/* 页脚留在视口底部，只有模块目录滚动；顶部入口也不会被目录挤走。 */
+.sidebar > :not(nav) { flex-shrink: 0; }
+.sidebar-scene-entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 67px;
+  padding: 12px;
+  margin: 3px 0 5px;
+  border: 1px solid var(--brand);
+  border-radius: var(--radius);
+  color: var(--primary-fg);
+  background: var(--primary-bg);
+  text-align: left;
+}
+.sidebar-scene-entry:hover:not(:disabled) { background: var(--primary-hover); }
+.sidebar-scene-entry > .app-icon { width: 28px; height: 28px; flex: none; }
+.sidebar-scene-entry > span:first-of-type { flex: 1; min-width: 0; }
+.sidebar-scene-entry strong { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.sidebar-scene-entry small { display: block; font-size: 11px; margin-top: 4px; white-space: nowrap; color: inherit; opacity: .85; }
+.scene-entry-arrow { font-size: 20px; }
+.sidebar-collapsed .sidebar-scene-entry { min-height: 40px; width: 40px; padding: 7px; gap: 0; }
+.sidebar-collapsed .sidebar-scene-entry > .app-icon { width: 24px; height: 24px; }
+.sidebar-collapsed .sidebar-scene-entry .sidebar-label { display: none; }
+@media (max-height: 580px) {
+  .sidebar { padding-top: 8px; padding-bottom: 8px; gap: 5px; }
+  .sidebar .tenant-box { padding-top: 4px; padding-bottom: 4px; }
+  .sidebar-scene-entry { min-height: 44px; padding: 8px 12px; }
+  .sidebar-scene-entry small { display: none; }
+  .sidebar-collapsed .sidebar-bottom { flex-direction: row; flex-wrap: wrap; }
 }

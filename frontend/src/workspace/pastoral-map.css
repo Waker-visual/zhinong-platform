@@ -1,0 +1,107 @@
+.pastoral-map .farm-map,
+.pastoral-map .display-satellite-canvas {
+  background-color: var(--atlas-ground);
+  background-image: radial-gradient(
+    var(--atlas-grass) 0.8px,
+    transparent 0.8px
+  );
+  background-size: 11px 11px;
+}
+.pastoral-parcel {
+  stroke: var(--atlas-edge);
+  stroke-width: 7;
+  stroke-linejoin: round;
+  paint-order: stroke fill;
+  filter: drop-shadow(0 3px 1px var(--atlas-shadow));
+  transition:
+    stroke-width 180ms ease,
+    filter 180ms ease;
+}
+.pastoral-scenery { pointer-events: none; }
+.pastoral-parcel.pastoral-selected {
+  stroke: var(--atlas-selected);
+  stroke-width: 9;
+}
+.pastoral-parcel:hover,
+.pastoral-parcel:focus-visible {
+  stroke: var(--atlas-selected);
+  stroke-width: 11;
+  outline: none;
+}
+.pastoral-map .plan-plot-label,
+.pastoral-map .satellite-parcel-label {
+  background: var(--atlas-label-bg);
+  border: 1px solid var(--atlas-edge);
+  color: var(--atlas-ink);
+  border-radius: 7px;
+  padding: 4px 9px;
+  text-shadow: none;
+  font-weight: 600;
+  box-shadow: var(--shadow);
+}
+.map-style-switch {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.map-style-switch button {
+  padding: 7px 10px;
+  color: var(--text-2);
+  border-radius: 6px;
+}
+.map-style-switch button[aria-pressed="true"] {
+  color: var(--primary-fg);
+  background: var(--primary-bg);
+}
+.display-satellite-map > .map-style-switch {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 500;
+}
+.ai-water-map .map-style-switch {
+  margin-bottom: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pastoral-parcel {
+    transition: none;
+  }
+}
+
+.farm-display .pastoral-map .display-satellite-canvas {
+  background-color: var(--atlas-ground);
+  background-image: radial-gradient(
+    var(--atlas-grass) 0.8px,
+    transparent 0.8px
+  );
+  background-size: 11px 11px;
+}
+.farm-display .display-satellite-map .satellite-status {
+  top: 62px;
+  max-width: calc(100% - 24px);
+}
+.farm-display .pastoral-map .satellite-parcel-label {
+  color: var(--atlas-ink);
+  background: var(--atlas-label-bg);
+}
+.ai-water-map.pastoral-map svg,
+.route-figure.pastoral-map svg {
+  background: var(--atlas-ground);
+}
+.ai-water-map.pastoral-map polygon {
+  stroke: var(--atlas-edge);
+  stroke-width: 6;
+}
+.ai-water-map.pastoral-map .selected polygon,
+.ai-water-map.pastoral-map polygon:focus-visible {
+  stroke: var(--atlas-selected);
+  stroke-width: 7;
+}
+.route-figure .map-style-switch {
+  margin-bottom: 10px;
+}
+
+.pastoral-map .farm-map .field-parcel-label { color: var(--atlas-ink); background: var(--atlas-label-bg); border: 1px solid var(--atlas-edge); border-radius: 7px; text-shadow: none; }

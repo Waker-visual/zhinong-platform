@@ -112,30 +112,30 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --field-gold: #dfbc70;
   --field-soft: #eaf0e7;
   /* 浅色角色色 */
-  --light-page: #fcfcfb;
-  --light-navigation: #fbfbf9;
+  --light-page: #f5f7f2;
+  --light-navigation: #eaf0e7;
   --light-surface: #ffffff;
   --light-input: #fefefd;
-  --light-recessed: #f9f9f7;
-  --light-control: #f0f0ef;
-  --light-navigation-selected: #edece8;
-  --light-line: #e3e3e2;
-  --light-strong-line: #cececd;
-  --light-text: #0b0b0b;
-  --light-secondary: #52514e;
-  --light-label: #6f6d67;
+  --light-recessed: #f0f4ed;
+  --light-control: #e8eee4;
+  --light-navigation-selected: #dce7d4;
+  --light-line: #e1e8dc;
+  --light-strong-line: #c7d3c2;
+  --light-text: #22382e;
+  --light-secondary: #53685b;
+  --light-label: #5a6d60;
   --light-muted: #898781;
   --light-link: #1e5baa;
   --light-focus: #2a78d6;
   /* 深色角色色：侧栏比页面暗，卡片、输入、控件、选中依次变亮 */
-  --dark-navigation: #111111;
-  --dark-page: #151515;
-  --dark-surface: #1f1f1f;
-  --dark-input: #212121;
-  --dark-control: #2d2d2d;
-  --dark-selected: #343434;
-  --dark-line: #2d2d2d;
-  --dark-control-line: #414141;
+  --dark-navigation: #12221c;
+  --dark-page: #17291f;
+  --dark-surface: #203329;
+  --dark-input: #24392d;
+  --dark-control: #2c4435;
+  --dark-selected: #3c5745;
+  --dark-line: #344a3c;
+  --dark-control-line: #566c5b;
   --dark-text: #f0efec;
   --dark-text-secondary: #c3c2b7;
   --dark-text-muted: #898781;
@@ -143,12 +143,12 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --dark-link: #8dc3fb;
   --dark-focus: #2a78d6;
   /* 主题色：按常见开源设计系统的浅色 50/700、深色 300/950 对照搭配 */
-  /* FOREST 是历史存储值，视觉上作为默认黑白主题保留兼容。 */
-  --accent-forest: #18181b;
-  --accent-forest-soft: #f4f4f5;
-  --accent-forest-dark: #f4f4f5;
-  --accent-forest-dark-soft: #27272a;
-  --accent-forest-dark-on: #18181b;
+  /* FOREST 保留历史存储值，默认采用田园深绿。 */
+  --accent-forest: #244e3b;
+  --accent-forest-soft: #eaf0e7;
+  --accent-forest-dark: #b0d0a3;
+  --accent-forest-dark-soft: #253d2d;
+  --accent-forest-dark-on: #1c3024;
   --accent-blue: #2563eb;
   --accent-blue-soft: #dbeafe;
   --accent-blue-dark: #60a5fa;
@@ -292,9 +292,9 @@ html[data-accent="rose"] {
   --brand-dark-soft: var(--accent-rose-dark-soft);
   --brand-dark-on: var(--accent-rose-dark-on);
 }
-/* 语义别名 · 深色。地图面板和大屏模式始终使用深色。 */
+/* 语义别名 · 深色。普通影像地图保持深色，田园地图随页面主题。 */
 html[data-theme="dark"],
-.farm-map-panel,
+.farm-map-panel:not(.pastoral-map),
 .farm-workspace.screen-mode {
   color-scheme: dark;
   --bg: var(--dark-page);
@@ -1388,3 +1388,69 @@ html[data-theme="dark"] .login-story, .login-color-sample[data-palette="night"] 
   --pastoral-festival-cloth: #cda18a;
   --pastoral-festival-ink: #a7bca8;
 }
+
+/* 原创田园地图：纹理只表达作物类别，不代表实测行距或道路。 */
+:root {
+  --atlas-ground: #e6eddd;
+  --atlas-grass: #c9d8bd;
+  --atlas-field: #bdcf9c;
+  --atlas-soil: #d9d5a6;
+  --atlas-row: #acbb8d;
+  --atlas-leaf: #7e9f60;
+  --atlas-leaf-light: #a4bc7d;
+  --atlas-stem: #5b7c49;
+  --atlas-grain: #a89b51;
+  --atlas-fruit: #c87c55;
+  --atlas-edge: #f9f8e9;
+  --atlas-selected: #a88739;
+  --atlas-shadow: #4e67442b;
+  --atlas-label-bg: #fcfdf4ed;
+  --atlas-ink: #294330;
+  --season-sky: #dfece3;
+  --season-sun: #deba6d;
+  --season-hill: #a8bf99;
+  --atlas-water: #9cbdb9;
+  --atlas-roof: #a3785c;
+  --atlas-wall: #f1e8cd;
+}
+html[data-theme="dark"], .farm-display {
+  --atlas-ground: #263d32;
+  --atlas-grass: #3a5240;
+  --atlas-field: #546e45;
+  --atlas-soil: #716e46;
+  --atlas-row: #425a36;
+  --atlas-leaf: #8ba56b;
+  --atlas-leaf-light: #a6bc82;
+  --atlas-stem: #344e2d;
+  --atlas-grain: #c8bd7d;
+  --atlas-fruit: #dba07b;
+  --atlas-edge: #83957b;
+  --atlas-selected: #e3c476;
+  --atlas-shadow: #10251f55;
+  --atlas-label-bg: #20362ded;
+  --atlas-ink: #edf4e4;
+  --season-sky: #263f35;
+  --season-sun: #d5bc7b;
+  --season-hill: #526e48;
+  --atlas-water: #537d79;
+  --atlas-roof: #ac8b6e;
+  --atlas-wall: #b1b6a1;
+}
+
+.solar-term-dialog {
+  --season-field: #c8d9ad; --season-water: #8bb9ba;
+  --season-house: #f3e8cb; --season-roof: #99765c;
+  --season-leaf: #6d9669; --season-flower: #da9daf;
+}
+.solar-term-dialog[data-season="spring"] { --season-sky: #e3efe8; --season-hill: #adcca1; --season-field: #cee2ae; --season-leaf: #70a171; }
+.solar-term-dialog[data-season="summer"] { --season-sky: #ddecdf; --season-hill: #82ad82; --season-field: #aec98c; --season-leaf: #4d8059; }
+.solar-term-dialog[data-season="autumn"] { --season-sky: #eee9d8; --season-hill: #babe8e; --season-field: #dfce98; --season-leaf: #af874b; }
+.solar-term-dialog[data-season="winter"] { --season-sky: #e4ecec; --season-hill: #b0c2b3; --season-field: #cdd8c7; --season-leaf: #78917f; }
+html[data-theme="dark"] .solar-term-dialog {
+  --season-field: #496548; --season-water: #628e8c; --season-house: #b8baa1;
+  --season-roof: #816f5b; --season-leaf: #719b77; --season-flower: #bb8da4;
+}
+html[data-theme="dark"] .solar-term-dialog[data-season="spring"] { --season-sky: #2b433c; --season-hill: #4c7156; --season-field: #608159; }
+html[data-theme="dark"] .solar-term-dialog[data-season="summer"] { --season-sky: #243f37; --season-hill: #3e6147; --season-field: #557249; }
+html[data-theme="dark"] .solar-term-dialog[data-season="autumn"] { --season-sky: #3b4034; --season-hill: #626b48; --season-field: #7d744b; --season-leaf: #c5a363; }
+html[data-theme="dark"] .solar-term-dialog[data-season="winter"] { --season-sky: #2c4141; --season-hill: #4d6962; --season-field: #678078; --season-leaf: #9caf9c; }

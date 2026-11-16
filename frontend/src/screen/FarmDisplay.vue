@@ -671,7 +671,7 @@ onBeforeUnmount(() => {
                       }}
                     </p>
                   </div>
-                  <span class="display-tag display-tag-leaf">卫星实景</span>
+                  <span class="display-tag display-tag-leaf">地块地图</span>
                 </div>
                 <SatelliteFarmMap
                   :key="farmId"

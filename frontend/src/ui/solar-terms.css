@@ -1,0 +1,519 @@
+.solar-term-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 11px;
+  border-radius: 20px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  white-space: nowrap;
+  flex: none;
+}
+.solar-term-chip svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+.solar-term-chip small {
+  font-size: 11px;
+}
+.solar-term-dialog {
+  width: min(760px, calc(100vw - 32px));
+  overflow: hidden;
+  border-radius: var(--radius);
+}
+.solar-term-landscape {
+  position: relative;
+  height: 270px;
+  overflow: hidden;
+  background: var(--season-sky);
+}
+.solar-term-landscape > svg {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  inset: 0;
+}
+.solar-landscape-copy {
+  position: relative;
+  padding: 26px;
+  color: var(--atlas-ink);
+  max-width: 75%;
+}
+.solar-term-landscape h2 {
+  margin: 6px 0;
+  font-size: 42px;
+  font-weight: 600;
+  letter-spacing: 8px;
+}
+.solar-term-landscape p {
+  font-size: 13px;
+  line-height: 1.8;
+  max-width: 26em;
+  background: var(--atlas-label-bg);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.solar-term-close {
+  position: absolute;
+  right: 13px;
+  top: 13px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  font-size: 24px;
+  color: var(--atlas-ink);
+  background: var(--atlas-label-bg);
+}
+.solar-term-body {
+  padding: 24px;
+}
+.solar-term-timeline {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  font-size: 13px;
+}
+.solar-term-timeline > span:last-child {
+  text-align: right;
+}
+.solar-term-timeline small {
+  display: block;
+  color: var(--label-fg);
+  margin-top: 5px;
+  font-size: 11px;
+}
+.solar-term-progress {
+  height: 5px;
+  margin: 14px 0 22px;
+  border-radius: 5px;
+  background: var(--sunken);
+  overflow: hidden;
+}
+.solar-term-progress i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+  border-radius: inherit;
+}
+.solar-term-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  gap: 20px;
+}
+.solar-term-tabs button {
+  padding: 0 0 10px;
+  color: var(--text-2);
+  border-bottom: 2px solid transparent;
+}
+.solar-term-tabs button[aria-pressed="true"] {
+  color: var(--brand);
+  border-color: var(--brand);
+}
+.solar-term-notes article {
+  display: flex;
+  gap: 14px;
+  margin: 20px 0;
+}
+.solar-term-notes article > span {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 25px;
+  border-radius: 12px;
+}
+.solar-term-notes h3,
+.solar-term-about h3 {
+  font-size: 15px;
+  margin: 0 0 7px;
+}
+.solar-term-notes p,
+.solar-term-about p {
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1.9;
+}
+.solar-term-notes .solar-term-footnote {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  font-size: 11px;
+  color: var(--label-fg);
+}
+.solar-term-about {
+  padding-top: 20px;
+}
+.solar-term-about small {
+  color: var(--label-fg);
+  font-size: 11px;
+}
+@media (max-width: 1250px) {
+  .solar-term-chip small,
+  .solar-term-dot {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .solar-term-dialog {
+    width: 100%;
+  }
+  .solar-term-body {
+    padding: 18px 8px;
+  }
+  .solar-landscape-copy {
+    padding: 20px 16px;
+    max-width: 85%;
+  }
+}
+
+.topbar .solar-term-chip {
+  margin-left: auto;
+}
+.topbar .solar-term-chip + .topbar-meta {
+  margin-left: 0;
+}
+
+.modal.solar-dialog-window {
+  width: 760px;
+  max-height: 92dvh;
+  overflow-y: auto;
+}
+.solar-dialog-window > .dialog-body {
+  padding: 0;
+}
+.solar-dialog-window .solar-term-dialog {
+  width: 100%;
+}
+.solar-landscape-copy {
+  pointer-events: none;
+}
+.solar-landscape-copy > small {
+  color: inherit;
+  opacity: 0.85;
+}
+.season-hotspots,
+.season-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.season-hotspot {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 44px;
+  padding: 5px 9px 5px 6px;
+  border-radius: 24px;
+  color: var(--atlas-ink);
+  background: var(--atlas-label-bg);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  translate: -50% -50%;
+  white-space: nowrap;
+  border: 1px solid var(--atlas-edge);
+}
+.season-hotspot > span {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--atlas-grass);
+  font-size: 18px;
+}
+.season-hotspot small {
+  font-size: 11px;
+  color: inherit;
+}
+.season-hotspot[aria-pressed="true"] {
+  border-color: var(--atlas-ink);
+}
+.hotspot-plants {
+  left: 35%;
+  top: 87%;
+}
+.hotspot-water {
+  left: 88%;
+  top: 90%;
+}
+.hotspot-shelter {
+  left: 75%;
+  top: 67%;
+}
+.season-explore-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.season-explore-tools > span {
+  font-size: 12px;
+  color: var(--text-2);
+}
+.season-explore-tools small {
+  display: block;
+  margin-top: 5px;
+  color: var(--label-fg);
+  font-size: 11px;
+}
+.season-play {
+  min-height: 42px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.season-play > span {
+  margin-left: 6px;
+}
+.season-discovery {
+  padding: 14px 16px;
+  background: var(--brand-soft);
+  border-radius: 10px;
+  margin-bottom: 18px;
+  border-left: 3px solid var(--brand);
+}
+.season-discovery strong {
+  font-size: 14px;
+}
+.season-discovery p {
+  font-size: 12px;
+  color: var(--text-2);
+  margin: 6px 0 0;
+  line-height: 1.8;
+}
+.season-browser {
+  margin-bottom: 20px;
+}
+.season-browser-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 10px;
+  font-size: 13px;
+}
+.season-browser-heading button {
+  min-height: 32px;
+  font-size: 12px;
+  color: var(--brand);
+}
+.season-browser-heading button:disabled {
+  color: var(--label-fg);
+}
+.season-selectors {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.season-selectors button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: center;
+  min-height: 48px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 12px;
+}
+.season-selectors button > span {
+  font-size: 21px;
+}
+.season-selectors button[aria-pressed="true"] {
+  background: var(--brand-soft);
+  border-color: var(--brand);
+  color: var(--brand);
+}
+.season-terms {
+  display: grid;
+  grid-template-columns: 28px repeat(6, 1fr) 28px;
+  gap: 4px;
+  margin-top: 10px;
+}
+.season-terms button {
+  position: relative;
+  min-height: 40px;
+  border-radius: 7px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.season-terms button[aria-pressed="true"] {
+  background: var(--brand);
+  color: var(--primary-fg);
+}
+.season-terms .season-step {
+  font-size: 22px;
+}
+.season-terms i {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  bottom: 3px;
+  left: calc(50% - 2px);
+}
+.season-preview-note {
+  font-size: 11px;
+  color: var(--label-fg);
+  margin: 12px 0 18px;
+}
+.season-particles {
+  overflow: hidden;
+}
+.season-particles i {
+  position: absolute;
+  left: var(--particle-x);
+  top: -15px;
+  width: 4px;
+  height: 4px;
+  background: var(--atlas-edge);
+  border-radius: 50%;
+  animation: season-fall 2s ease-in var(--particle-delay) both;
+}
+[data-season="spring"] .season-particles i {
+  width: 2px;
+  height: 15px;
+  background: var(--season-water);
+}
+[data-season="summer"] .season-particles i {
+  width: 30px;
+  height: 2px;
+  top: var(--particle-x);
+  border-radius: 50%;
+  animation-name: season-breeze;
+}
+[data-season="autumn"] .season-particles i {
+  width: 9px;
+  height: 6px;
+  background: var(--season-leaf);
+  border-radius: 1px 8px 1px 8px;
+}
+.season-playing .season-tree {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: season-sway 800ms ease-in-out 3;
+}
+@keyframes season-fall {
+  from {
+    opacity: 0;
+    transform: translate(15px, 0) rotate(var(--particle-turn));
+  }
+  15% {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+    transform: translate(-40px, 280px)
+      rotate(calc(var(--particle-turn) + 100deg));
+  }
+}
+@keyframes season-breeze {
+  from {
+    opacity: 0;
+    transform: translateX(-120px);
+  }
+  40% {
+    opacity: 0.85;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(120px);
+  }
+}
+@keyframes season-sway {
+  50% {
+    rotate: 4deg;
+  }
+}
+@media (max-width: 600px) {
+  .solar-term-landscape {
+    height: 235px;
+  }
+  .solar-term-landscape > svg {
+    width: 100%;
+    height: 100%;
+  }
+  .solar-landscape-copy {
+    padding: 18px;
+    max-width: 70%;
+  }
+  .solar-term-landscape h2 {
+    font-size: 34px;
+  }
+  .solar-term-landscape p {
+    font-size: 12px;
+    max-width: 18em;
+  }
+  .season-hotspot small {
+    display: none;
+  }
+  .season-hotspot {
+    width: 44px;
+    padding: 5px;
+    justify-content: center;
+  }
+  .hotspot-plants {
+    left: 35%;
+    top: 90%;
+  }
+  .hotspot-water {
+    left: 92%;
+    top: 90%;
+  }
+  .hotspot-shelter {
+    left: 76%;
+    top: 83%;
+  }
+  .season-selectors {
+    gap: 5px;
+  }
+  .season-selectors button {
+    gap: 5px;
+  }
+  .season-terms {
+    gap: 0;
+    grid-template-columns: 24px repeat(6, 1fr) 24px;
+  }
+  .season-terms button {
+    font-size: 11px;
+    padding: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .season-playing .season-tree,
+  .season-particles i {
+    animation: none;
+  }
+  .season-particles i {
+    top: var(--particle-x);
+    opacity: 0.7;
+  }
+}
+@media (max-width: 600px) {
+  .topbar {
+    gap: 6px;
+  }
+  .topbar .topbar-brand > span {
+    display: none;
+  }
+  .topbar .solar-term-chip {
+    padding: 6px 7px;
+    gap: 4px;
+    margin-left: 0;
+    font-size: 12px;
+  }
+  .topbar .topbar-farm select {
+    max-width: 110px;
+  }
+  .solar-dialog-window .solar-term-body {
+    padding: 18px;
+  }
+}

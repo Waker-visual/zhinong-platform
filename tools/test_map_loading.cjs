@@ -26,24 +26,40 @@ fs.mkdirSync(output, { recursive: true });
   const state = (s) =>
     page
       .locator('.farm-map-panel[data-load-state="' + s + '"]')
-      .waitFor({ timeout: 25000 });
+      .waitFor({ timeout: 40000 });
   const test = (ok, name) => {
     if (!ok) throw Error(name);
     checks.push(name);
     console.log("PASS " + name);
   };
+  const choose = async (label, name) => {
+    await page.getByRole("button", { name: label, exact: true }).click();
+    await page.getByRole("option", { name, exact: true }).click();
+  };
+  const chooseMode = (mode) =>
+    choose(
+      "地图底图",
+      {
+        SATELLITE: "卫星影像",
+        STREET: "街道地图",
+        PLAN: "离线平面图",
+        PASTORAL: "田园插画",
+      }[mode],
+    );
   try {
     // A browser unable to reach either third-party tile domain must still display the local gateway's tiles.
     await page.route(/https:\/\/.*(arcgisonline|openstreetmap)\./, (r) =>
       r.abort(),
     );
+    // This suite exercises online tile failures; pin the mode independently of browser preferences.
+    await page.addInitScript(() =>
+      localStorage.setItem("zhihe-map-style-v2", "SATELLITE"),
+    );
     await page.goto(base);
     await page.getByLabel("密码", { exact: true }).fill(password);
     await page.getByRole("button", { name: /进入工作空间/ }).click();
     // 顶栏“当前农场”选定后，农场概览直接打开该农场的工作台
-    await page
-      .getByLabel("当前农场", { exact: true })
-      .selectOption({ label: "青禾综合示范农场" });
+    await choose("当前农场", "青禾综合示范农场");
     await page
       .locator("nav")
       .getByRole("button", { name: "农场概览", exact: true })
@@ -72,7 +88,7 @@ fs.mkdirSync(output, { recursive: true });
       (await page.locator(".asset-marker.chosen").count()) === 1,
       "设备点位可点击且无异常",
     );
-    await page.getByLabel("地图底图").selectOption("STREET");
+    await chooseMode("STREET");
     await state("ready");
     test(
       await page
@@ -92,7 +108,7 @@ fs.mkdirSync(output, { recursive: true });
         body: JSON.stringify({ message: "验收模拟：上游不可用" }),
       });
     await page.route(pattern, fail);
-    await page.getByLabel("地图底图").selectOption("STREET");
+    await chooseMode("STREET");
     await state("failed");
     test(
       await page
@@ -120,20 +136,21 @@ fs.mkdirSync(output, { recursive: true });
       return r.continue();
     };
     await page.route(pattern, partial);
-    await page.getByLabel("地图底图").selectOption("SATELLITE");
+    await chooseMode("SATELLITE");
     await state("partial");
     test(true, "单瓦片失败显示部分加载状态");
     await page.unroute(pattern, partial);
     await page.getByRole("button", { name: "重试底图", exact: true }).click();
     await state("ready");
     const slow = async (r) => {
-      await new Promise((resolve) => setTimeout(resolve, 17000));
+      // The tile client allows 30 seconds for the bounded upstream attempts.
+      await new Promise((resolve) => setTimeout(resolve, 35000));
       try {
         await fail(r);
       } catch {}
     };
     await page.route(pattern, slow);
-    await page.getByLabel("地图底图").selectOption("STREET");
+    await chooseMode("STREET");
     await state("failed");
     test(
       (await page.locator(".map-network-status").innerText()).includes("超时"),
@@ -148,8 +165,7 @@ fs.mkdirSync(output, { recursive: true });
       "离线布局保留业务点位并明确标识",
     );
     await page.unroute(pattern, slow);
-    for (const mode of ["STREET", "PLAN", "SATELLITE"])
-      await page.getByLabel("地图底图").selectOption(mode);
+    for (const mode of ["STREET", "PLAN", "SATELLITE"]) await chooseMode(mode);
     await state("ready");
     test(true, "快速切换后无旧请求干扰新图层");
     await page.setViewportSize({ width: 390, height: 844 });

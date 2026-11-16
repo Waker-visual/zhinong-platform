@@ -13,6 +13,11 @@ import { AuthenticatedTileLayer } from "../workspace/AuthenticatedTileLayer.js";
 import { tokenColor } from "../ui/tokens.js";
 import { numberText } from "./screen-model.js";
 import "./satellite-map.css";
+import { paintPastoralParcel, readMapMode, saveMapMode } from "../workspace/pastoral-map.js";
+import { updatePastoralScenery } from "../workspace/pastoral-scenery.js";
+import { colorMode } from "../account/appearance";
+import "../workspace/pastoral-map.css";
+const pastoral = ref(readMapMode() === "PASTORAL");
 
 const props = defineProps({
   geometry: { type: Object, required: true },
@@ -42,6 +47,7 @@ const reducedMotion = () =>
 const paint = (token) => tokenColor(`var(${token})`, host.value);
 const warning = computed(() => ["partial", "failed"].includes(status.value));
 const statusText = computed(() => {
+  if (pastoral.value) return "田园插画 · 已保存坐标，作物、树木与房舍为装饰示意";
   if (status.value === "ready") return "卫星影像已加载 · 非实时画面";
   if (status.value === "partial") return "部分卫星影像未加载，请重试";
   if (status.value === "failed") return "卫星影像连接失败，请检查网络后重试";
@@ -137,6 +143,7 @@ function updateLabels() {
 }
 function renderFeatures() {
   if (!map || !features) return;
+  if (pastoral.value) updatePastoralScenery(L, map, L.latLngBounds(props.geometry.bounds));
   const focused = host.value.contains(document.activeElement)
     ? document.activeElement
     : null;
@@ -153,6 +160,7 @@ function renderFeatures() {
       weight: selected ? 3 : 1.5,
       className: `satellite-parcel${selected ? " selected" : ""}`,
     }).addTo(features);
+    if (pastoral.value) paintPastoralParcel(area, shape.crop, selected);
     parcelLayers.push({ shape, layer: area });
     const select = () => {
       activeShapeId = shape.id;
@@ -237,6 +245,7 @@ function initialize() {
   map = L.map(host.value, {
     minZoom: 3,
     maxZoom: 20,
+    zoomSnap: pastoral.value ? 0.25 : 1,
     zoomControl: false,
     scrollWheelZoom: false,
     zoomAnimation: !reducedMotion(),
@@ -245,8 +254,8 @@ function initialize() {
   L.control
     .zoom({
       position: "topright",
-      zoomInTitle: "放大卫星地图",
-      zoomOutTitle: "缩小卫星地图",
+      zoomInTitle: "放大地图",
+      zoomOutTitle: "缩小地图",
     })
     .addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
@@ -286,7 +295,8 @@ function initialize() {
   features = L.layerGroup().addTo(map);
   map.on("zoomend moveend", updateLabels);
   resetView(false);
-  tiles.addTo(map);
+  if (pastoral.value) { tiles = null; status.value = "ready"; }
+  else tiles.addTo(map);
   renderFeatures();
   previousLocation = props.geometry.locationKey;
 }
@@ -317,6 +327,8 @@ function resizeMap() {
   else map.invalidateSize({ pan: false });
   updateLabels();
 }
+watch(pastoral, value => { saveMapMode(value ? "PASTORAL" : "SATELLITE"); initialize(); });
+watch(colorMode, renderFeatures, { flush: "post" });
 watch(() => props.geometry, refreshGeometry, { deep: true, flush: "post" });
 watch(
   () => props.selectedPlot,
@@ -363,14 +375,16 @@ onBeforeUnmount(() => {
 <template>
   <div
     class="display-map display-satellite-map"
+    :class="{ 'pastoral-map': pastoral }"
     :data-map-state="geometry.bounds.length ? status : 'unlocated'"
   >
     <div
       ref="host"
       class="display-satellite-canvas"
-      aria-label="农场卫星地图，可使用方向键移动和加减号缩放"
+      :aria-label="(pastoral ? '农场田园地图' : '农场卫星地图') + '，可使用方向键移动和加减号缩放'"
     />
     <template v-if="geometry.bounds.length">
+      <div class="map-style-switch" role="group" aria-label="大屏地图风格"><button :aria-pressed="pastoral" @click="pastoral = true">田园插画</button><button :aria-pressed="!pastoral" @click="pastoral = false">普通卫星</button></div>
       <div
         class="satellite-status"
         :class="{ warning }"

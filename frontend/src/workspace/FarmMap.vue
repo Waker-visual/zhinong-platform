@@ -16,6 +16,10 @@ import SelectMenu from "../ui/SelectMenu.vue";
 import { planToWgs84, wgs84ToPlan, assetPlanPoint } from "./coordinates";
 import { deviceSvg, deviceState } from "./deviceSymbols";
 import { routePrefix } from "./fieldSpatial";
+import { paintPastoralParcel, readMapMode, saveMapMode } from "./pastoral-map.js";
+import { updatePastoralScenery } from "./pastoral-scenery.js";
+import { colorMode } from "../account/appearance";
+import "./pastoral-map.css";
 const props = defineProps({
   geo: Object,
   plots: Array,
@@ -78,12 +82,13 @@ let map,
   tileLayer,
   loadingTimer;
 let generation = 0;
-const viewMode = ref(props.geo?.mode || "SATELLITE"),
+const viewMode = ref(readMapMode(undefined, props.geo?.mode)),
   mapStatus = ref("loading"),
   mapFailure = ref(""),
   loadedTiles = ref(0),
   failedTiles = ref(0),
   slowLoad = ref(false);
+const pastoral = computed(() => viewMode.value === "PASTORAL");
 const geographic = computed(() => viewMode.value !== "PLAN");
 function reference() {
   return (
@@ -120,6 +125,7 @@ const shownDevices = computed(() =>
   ),
 );
 const mapModeOptions = [
+  { value: "PASTORAL", label: "田园插画" },
   { value: "SATELLITE", label: "卫星影像" },
   { value: "STREET", label: "街道地图" },
   { value: "PLAN", label: "离线平面图" },
@@ -217,6 +223,7 @@ function clearPosition() {
 }
 function render() {
   if (!map) return;
+  if (pastoral.value) updatePastoralScenery(L, map, sceneryBounds());
   plotLayer.clearLayers();
   deviceLayer.clearLayers();
   sketchLayer.clearLayers();
@@ -249,6 +256,7 @@ function render() {
       polygon.on("click", () => {
         if (!editing.value) emit("plot", p.id);
       });
+      if (pastoral.value) paintPastoralParcel(polygon, p.crop, props.selectedPlot === p.id || props.selectedParcel === p.id);
       const el = polygon.getElement();
       el?.setAttribute("data-plot-id", p.id);
       el?.setAttribute("aria-label", "地块 " + p.name);
@@ -348,6 +356,7 @@ function renderSpatial() {
       polygon.on("click", () => {
         if (!props.routeDrawing) emit("parcel", p.id);
       });
+      if (pastoral.value) paintPastoralParcel(polygon, p.crop, props.selectedPlot === p.id || props.selectedParcel === p.id);
       const el = polygon.getElement();
       el?.setAttribute("data-parcel-id", p.id);
       el?.setAttribute("data-plot-id", p.plotId);
@@ -545,6 +554,19 @@ function clickMap(event) {
     render();
   }
 }
+function sceneryBounds() {
+  const all = L.latLngBounds([]);
+  for (const parcel of props.parcels) for (const p of parcel.boundary) all.extend(world(p));
+  for (const plot of props.plots) {
+    if (!editing.value && props.parcels.some(parcel => parcel.plotId === plot.id)) continue;
+    for (const p of plotPoints(plot)) all.extend(xy(p));
+  }
+  for (const device of props.devices) {
+    const point = devicePoint(device);
+    if (point) all.extend(xy(point));
+  }
+  return all.isValid() ? all : bounds();
+}
 function resetView() {
   map?.invalidateSize({ pan: false });
   const all =
@@ -563,7 +585,7 @@ function initializeMap() {
   clearTimeout(loadingTimer);
   map?.remove();
   tileLayer = null;
-  mapStatus.value = geographic.value ? "loading" : "offline";
+  mapStatus.value = pastoral.value ? "pastoral" : geographic.value ? "loading" : "offline";
   mapFailure.value = "";
   loadedTiles.value = 0;
   failedTiles.value = 0;
@@ -572,10 +594,10 @@ function initializeMap() {
     crs: geographic.value ? L.CRS.EPSG3857 : L.CRS.Simple,
     minZoom: geographic.value ? 3 : -2,
     maxZoom: geographic.value ? 20 : 3,
-    zoomSnap: geographic.value ? 1 : 0.25,
+    zoomSnap: pastoral.value ? 0.25 : geographic.value ? 1 : 0.25,
     attributionControl: geographic.value,
   });
-  if (geographic.value) {
+  if (geographic.value && !pastoral.value) {
     const satellite = viewMode.value === "SATELLITE";
     const tiles = new AuthenticatedTileLayer(viewMode.value, {
       maxZoom: 20,
@@ -625,7 +647,7 @@ function initializeMap() {
       interactive: false,
     }).addTo(map);
     L.control.scale({ imperial: false }).addTo(map);
-  } else {
+  } else if (!pastoral.value) {
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="700"><defs><pattern id="grid" width="50" height="50" patternUnits="userSpaceOnUse"><path d="M50 0H0V50" fill="none" stroke="${paint("var(--border)")}"/></pattern></defs><rect width="1000" height="700" fill="${paint("var(--surface)")}"/><rect width="1000" height="700" fill="url(#grid)"/></svg>`;
     L.imageOverlay(
       "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg),
@@ -660,16 +682,18 @@ onMounted(async () => {
   observer = new ResizeObserver(() => map?.invalidateSize({ pan: false }));
   observer.observe(host.value);
 });
-watch(viewMode, initializeMap);
+watch(viewMode, mode => { saveMapMode(mode); initializeMap(); });
+watch(colorMode, render, { flush: "post" });
 watch(
-  () => props.geo,
-  () => {
+  () => JSON.stringify(props.geo),
+  (value, previous) => {
     if (!editing.value) {
-      viewMode.value = props.geo?.mode || "SATELLITE";
-      initializeMap();
+      const before = previous ? JSON.parse(previous) : null;
+      if (before && before.mode !== props.geo?.mode && ["SATELLITE", "STREET", "PLAN"].includes(props.geo?.mode) && viewMode.value !== props.geo.mode)
+        viewMode.value = props.geo.mode;
+      else initializeMap();
     }
   },
-  { deep: true },
 );
 watch(
   () => [
@@ -728,10 +752,10 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <section class="farm-map-panel" :data-load-state="mapStatus">
+  <section class="farm-map-panel" :class="{ 'pastoral-map': pastoral }" :data-load-state="mapStatus">
     <div class="map-toolbar">
       <div>
-        <strong>农场实景地图</strong
+        <strong>地块总览</strong
         ><small>{{ geo?.locationLabel || "示例位置待校准" }}</small>
       </div>
       <div class="map-layer-controls">
@@ -787,6 +811,7 @@ onBeforeUnmount(() => {
           ? "卫星影像已加载 · 非实时视频"
           : "街道底图已加载 · 农田区域道路资料较少，查看实景请切换卫星影像"
       }}</span>
+      <span v-else-if="pastoral">田园插画 · 沿用已保存坐标；作物、树木与房舍为装饰示意，非真实地物。</span>
       <span v-else-if="mapStatus === 'offline'"
         >当前为离线布局，仅展示已保存的地块和设备，不是卫星影像。</span
       >
@@ -879,7 +904,7 @@ onBeforeUnmount(() => {
       ><span><i class="alert-dot" />待处理告警</span
       ><span><i class="stale-dot" />暂无有效指标</span
       ><span>{{
-        geographic
+        pastoral ? "WGS84 位置映射 · 作物纹理为示意" : geographic
           ? "WGS84 位置映射 · 卫星影像非实时视频"
           : "本地平面坐标 1000 × 700"
       }}</span>

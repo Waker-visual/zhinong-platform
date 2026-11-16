@@ -1,5 +1,10 @@
 <script setup>
-import { computed } from 'vue';
+import { computed, ref, useId } from 'vue';
+import { cropPatternMarkup, readDiagramStyle, saveDiagramStyle } from '../workspace/pastoral-map.js';
+import '../workspace/pastoral-map.css';
+const pastoral = ref(readDiagramStyle());
+const textureId = 'water-' + useId().replaceAll(':', '');
+function styleMap(value) { pastoral.value = value; saveDiagramStyle(value); }
 const props=defineProps({zones:{type:Array,default:()=>[]},selected:String});
 defineEmits(['select']);
 const shapes=computed(()=>{
@@ -18,15 +23,17 @@ const shapes=computed(()=>{
 });
 </script>
 <template>
-  <figure class="ai-water-map" v-if="shapes.length">
+  <figure class="ai-water-map" :class="{ 'pastoral-map': pastoral }" v-if="shapes.length">
+    <div class="map-style-switch" role="group" aria-label="灌溉图风格"><button :aria-pressed="pastoral" @click="styleMap(true)">田园插画</button><button :aria-pressed="!pastoral" @click="styleMap(false)">普通示意</button></div>
     <svg viewBox="0 0 600 300" role="group" aria-label="灌溉覆盖区与管线示意，可选择分区">
+      <defs v-html="cropPatternMarkup(textureId, '')" />
       <g v-for="z in shapes" :key="z.id" :class="{selected:z.id===selected}">
-        <polygon :points="z.ring" tabindex="0" role="button" :aria-label="'选择'+z.name" :aria-pressed="z.id===selected" @click="$emit('select',z.id)" @keydown.enter.prevent="$emit('select',z.id)" @keydown.space.prevent="$emit('select',z.id)" />
+        <polygon :style="pastoral ? { fill: `url(#${textureId})` } : null" :class="{ 'pastoral-parcel': pastoral, 'pastoral-selected': pastoral && z.id === selected }" :points="z.ring" tabindex="0" role="button" :aria-label="'选择'+z.name" :aria-pressed="z.id===selected" @click="$emit('select',z.id)" @keydown.enter.prevent="$emit('select',z.id)" @keydown.space.prevent="$emit('select',z.id)" />
         <polyline :points="z.line" />
         <circle v-for="(n,i) in z.nodes" :key="i" :cx="n.xy[0]" :cy="n.xy[1]" r="3"><title>{{n.name}}</title></circle>
         <text :x="z.center[0]" :y="z.center[1]">{{z.name.replace(' 灌溉分区','')}}</text>
       </g>
     </svg>
-    <figcaption>蓝线：管线 · 圆点：节点 · 浅蓝区域：覆盖范围<br>沿用地图坐标的估绘/模拟布局示意，非实测管网；节点尚未独立控制。</figcaption>
+    <figcaption>蓝线：管线 · 圆点：节点 · 区域边界：覆盖范围<br>沿用地图坐标的估绘/模拟布局示意，非实测管网；作物纹理为示意，节点尚未独立控制。</figcaption>
   </figure>
 </template>

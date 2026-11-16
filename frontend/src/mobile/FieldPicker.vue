@@ -2,6 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, ref } from "vue";
 import AppIcon from "../ui/AppIcon.vue";
 import FarmThumbnail from "./FarmStamp.vue";
+import { readDiagramStyle, saveDiagramStyle } from "../workspace/pastoral-map.js";
+import "../workspace/pastoral-map.css";
+const pastoral = ref(readDiagramStyle());
+function styleMap(value) { pastoral.value = value; saveDiagramStyle(value); }
 import FieldIcon from "./FieldIcon.vue";
 const props = defineProps({ modelValue: String, label: String, options: { type: Array, default: () => [] }, disabled: Boolean, icon: { type: String, default: "field" } });
 const emit = defineEmits(["update:modelValue"]);
@@ -16,7 +20,7 @@ onBeforeUnmount(() => dialog.value?.close());
   <div class="field-picker">
     <span class="picker-label">{{ label }}</span>
     <button type="button" class="picker-trigger" :aria-label="label" aria-haspopup="dialog" :disabled="disabled" @click="open">
-      <FarmThumbnail v-if="selected?.plots" class="picker-thumbnail" :plots="selected.plots" :name="selected.name" />
+      <FarmThumbnail :pastoral="pastoral" v-if="selected?.plots" class="picker-thumbnail" :plots="selected.plots" :name="selected.name" />
       <span v-else class="symbol-tile"><FieldIcon :name="icon" /></span>
       <span class="picker-copy"><strong>{{ selected?.name || `选择${label}` }}</strong><small>{{ selected?.caption || '轻触查看可选项目' }}</small></span>
       <AppIcon name="chevronDown" />
@@ -24,9 +28,10 @@ onBeforeUnmount(() => dialog.value?.close());
     <dialog ref="dialog" class="picker-sheet" :aria-label="`选择${label}`" @click.self="dialog.close()">
       <header><div><p class="eyebrow">田间工作空间</p><h2>选择{{ label }}</h2></div><button type="button" class="icon-button" aria-label="关闭选择" @click="dialog.close()">×</button></header>
       <label class="search-label"><AppIcon name="search" /><input v-model="search" :aria-label="`搜索${label}`" placeholder="搜索名称或位置" /></label>
+      <div v-if="options.some(option => option.plots?.length)" class="map-style-switch" role="group" aria-label="地块缩略图风格"><button :aria-pressed="pastoral" @click="styleMap(true)">田园插画</button><button :aria-pressed="!pastoral" @click="styleMap(false)">普通轮廓</button></div>
       <div class="picker-options">
         <button v-for="option in visible" :key="option.id" type="button" class="picker-option" :data-option-id="option.id" :aria-pressed="option.id === modelValue" :disabled="disabled || option.disabled" @click="choose(option)">
-          <FarmThumbnail v-if="option.plots" class="picker-thumbnail" :plots="option.plots" :name="option.name" />
+          <FarmThumbnail :pastoral="pastoral" v-if="option.plots" class="picker-thumbnail" :plots="option.plots" :name="option.name" />
           <span v-else class="symbol-tile"><FieldIcon :name="option.icon || icon" /></span>
           <span class="picker-copy"><strong>{{ option.name }}</strong><small>{{ option.caption }}</small><span v-if="option.meta" class="picker-meta">{{ option.meta }}</span></span>
           <AppIcon v-if="option.id === modelValue" name="check" />

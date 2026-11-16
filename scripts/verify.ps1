@@ -60,6 +60,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '生产关联筛选与幂等重试测试未通过' }
         node --test src/metrics/measurement-model.test.js
         if ($LASTEXITCODE -ne 0) { throw '监测缺失、时间窗口与指标口径测试未通过' }
+        node --test src/ui/solar-terms.test.js src/workspace/pastoral-map.test.js src/fieldwork/daily-landscape-data.test.js
+        if ($LASTEXITCODE -ne 0) { throw '节气时刻与地图、导航偏好测试未通过' }
         npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw '前端构建未通过' }
     } finally { Pop-Location }
@@ -67,6 +69,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw '前端包体超出预算' }
     node tools/check_fonts.cjs
     if ($LASTEXITCODE -ne 0) { throw '界面字体子集未覆盖全部界面汉字' }
+    node tools/generate_solar_terms.cjs --check
+    if ($LASTEXITCODE -ne 0) { throw '节气日期表需要重新生成' }
     node tools/generate_lunar_festivals.cjs --check
     if ($LASTEXITCODE -ne 0) { throw '登录场景农历节日日期表需要重新生成' }
     node --test tools/tests/check_project.test.cjs

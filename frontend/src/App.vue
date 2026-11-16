@@ -41,6 +41,8 @@ import {
   important,
 } from "./ui/feedback";
 import "./ui/shell.css";
+const SolarTermButton = defineAsyncComponent(() => import("./ui/SolarTermButton.vue"));
+import { navigationGroups, readGroups, saveGroups } from "./ui/navigation-groups.js";
 
 // 小窗入口在工作台加载后再取，不占主包；面板资料也只在打开时读取。
 const FloatingAssistant = defineAsyncComponent(() => import("./ai/FloatingAssistant.vue"));
@@ -205,7 +207,13 @@ function selectFarm() {
   }
   if (scopedPage.value) refreshActive();
 }
-const groupOrder = ["日常作业", "农场与设备", "分析与管理", "平台管理"];
+const groupOrder = navigationGroups;
+const expandedGroups = ref(readGroups());
+watch(expandedGroups, groups => saveGroups(groups), { deep: true });
+watch(page, id => {
+  const group = menus.find(item => item.id === id)?.group;
+  if (group) expandedGroups.value[group] = true;
+});
 const menuGroups = computed(() =>
   groupOrder
     .map((label) => ({
@@ -1013,9 +1021,30 @@ onUnmounted(() => {
         <AppIcon name="search" /><span class="sidebar-label">搜索页面…</span
         ><kbd class="sidebar-label">Ctrl K</kbd>
       </button>
+      <button
+        v-if="!platform && account && !account.mustChangePassword"
+        type="button"
+        class="sidebar-scene-entry"
+        aria-label="进入 3D 农场"
+        aria-haspopup="dialog"
+        :title="collapsed ? '进入 3D 农场' : undefined"
+        :disabled="screenOpening"
+        :aria-busy="screenOpening"
+        @click="openDisplay"
+      >
+        <AppIcon name="cube" />
+        <span class="sidebar-label"><strong>{{ screenOpening ? '正在进入…' : '3D 农场' }}</strong><small>走进你的田野</small></span>
+        <span class="scene-entry-arrow sidebar-label" aria-hidden="true">↗</span>
+      </button>
       <nav aria-label="工作空间">
         <div v-for="group in menuGroups" :key="group.label" class="nav-group">
-          <p class="nav-caption sidebar-label">{{ group.label }}</p>
+          <button v-if="!collapsed" type="button" class="nav-group-toggle"
+            :aria-expanded="expandedGroups[group.label]" :aria-controls="'nav-items-' + groupOrder.indexOf(group.label)"
+            @click="expandedGroups[group.label] = !expandedGroups[group.label]">
+            <span class="nav-group-chevron" aria-hidden="true">›</span><span>{{ group.label }}</span>
+            <small>{{ group.items.length }}</small>
+          </button>
+          <div v-show="collapsed || expandedGroups[group.label]" :id="'nav-items-' + groupOrder.indexOf(group.label)" class="nav-items">
           <button
             v-for="item in group.items"
             :key="item.id"
@@ -1040,6 +1069,7 @@ onUnmounted(() => {
               >{{ attention.total }}</span
             >
           </button>
+          </div>
         </div>
       </nav>
       <div class="sidebar-bottom">
@@ -1103,7 +1133,7 @@ onUnmounted(() => {
           :disabled="pageLoading"
           @change="selectFarm"
         />
-        <span class="topbar-meta">{{ today }}</span
+        <SolarTermButton /><span class="topbar-meta">{{ today }}</span
         ><StatusCapsule @refresh="refreshActive" />
         <button
           v-if="!platform && account && !account.mustChangePassword"

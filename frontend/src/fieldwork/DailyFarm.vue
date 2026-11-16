@@ -1,8 +1,9 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
+import { defineAsyncComponent, computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { api, loadError } from "../api";
 import { labels } from "../catalog";
 import "./daily-farm.css";
+const DailyLandscape = defineAsyncComponent(() => import("./DailyLandscape.vue"));
 import ActionMenu from "../ui/ActionMenu.vue";
 import SelectMenu from "../ui/SelectMenu.vue";
 import DatePicker from "../ui/DatePicker.vue";
@@ -452,6 +453,7 @@ async function history(row) {
           <p>处理后仍需农场主复核</p>
         </article>
       </div>
+      <DailyLandscape :key="farmId" :farm-id="farmId" :revision="revision" @farm="emit('farm', $event)"><slot name="briefing" /></DailyLandscape>
       <details class="stat-notes disclosure daily-data-notes">
         <summary>统计口径</summary>
         <div class="disclosure-content">
@@ -605,7 +607,6 @@ async function history(row) {
           </article>
         </section>
         <aside class="daily-right">
-          <slot name="briefing" />
           <section class="panel daily-risk">
             <div class="daily-section-title">
               <div>

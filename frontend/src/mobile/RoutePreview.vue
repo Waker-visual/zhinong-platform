@@ -1,5 +1,10 @@
 <script setup>
-import { computed } from "vue";
+import { computed, ref, useId } from "vue";
+import { cropPatternMarkup, readDiagramStyle, saveDiagramStyle } from "../workspace/pastoral-map.js";
+import "../workspace/pastoral-map.css";
+const pastoral = ref(readDiagramStyle());
+const textureId = 'route-' + useId().replaceAll(':', '');
+function styleMap(value) { pastoral.value = value; saveDiagramStyle(value); }
 const props = defineProps({ boundary: Array, points: Array });
 const shape = computed(() => {
   const all = [...(props.boundary || []), ...(props.points || [])];
@@ -13,7 +18,9 @@ const shape = computed(() => {
     288 / (Math.max(...all.map(x)) - minX || 1),
     188 / (Math.max(...all.map(y)) - minY || 1),
   );
-  const point = (p) => [16 + (x(p) - minX) * scale, 16 + (y(p) - minY) * scale];
+  const width = (Math.max(...all.map(x)) - minX) * scale;
+  const height = (Math.max(...all.map(y)) - minY) * scale;
+  const point = (p) => [16 + (288 - width) / 2 + (x(p) - minX) * scale, 16 + (188 - height) / 2 + (y(p) - minY) * scale];
   const route = (props.points || []).map(point);
   return {
     boundary: (props.boundary || []).map((p) => point(p).join(",")).join(" "),
@@ -24,13 +31,14 @@ const shape = computed(() => {
 });
 </script>
 <template>
-  <figure class="route-figure" v-if="shape">
+  <figure class="route-figure" :class="{ 'pastoral-map': pastoral }" v-if="shape">
+    <div class="map-style-switch" role="group" aria-label="路线图风格"><button :aria-pressed="pastoral" @click="styleMap(true)">田园插画</button><button :aria-pressed="!pastoral" @click="styleMap(false)">普通示意</button></div>
     <svg
       viewBox="0 0 320 220"
       role="img"
       aria-label="估绘田块与计划路线，非实际轨迹"
     >
-      <polygon :points="shape.boundary" class="route-boundary" />
+      <defs v-html="cropPatternMarkup(textureId, '')" /><polygon :points="shape.boundary" class="route-boundary" :class="{ 'pastoral-parcel': pastoral }" :style="pastoral ? { fill: `url(#${textureId})` } : null" />
       <polyline :points="shape.route" class="route-path" />
       <g v-if="shape.start">
         <circle
