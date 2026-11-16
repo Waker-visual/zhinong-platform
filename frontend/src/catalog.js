@@ -28,8 +28,8 @@ export const menus = [
     description: "集中展示农场总览、智能农情与今日建议",
   },
   {
-    id: "ai", title: "农场 AI 助手", icon: "sprout", group: "分析与管理",
-    description: "对话问农事，结合天气与四情数据分析，审核定时灌溉建议",
+    id: "ai", title: "小禾AI", icon: "sprout", group: "分析与管理",
+    description: "你的专属田间助手",
   },
   {
     id: "daily",

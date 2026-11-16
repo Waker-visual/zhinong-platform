@@ -591,6 +591,9 @@ button[aria-busy="true"]::after {
 
 /* 顶栏 */
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 1001;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -1568,7 +1571,7 @@ label > .select-menu {
 
 /* 页脚留在视口底部，只有模块目录滚动；顶部入口也不会被目录挤走。 */
 .sidebar > :not(nav) { flex-shrink: 0; }
-.sidebar-scene-entry {
+.sidebar-feature-entry {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -1582,19 +1585,20 @@ label > .select-menu {
   background: var(--primary-bg);
   text-align: left;
 }
-.sidebar-scene-entry:hover:not(:disabled) { background: var(--primary-hover); }
-.sidebar-scene-entry > .app-icon { width: 28px; height: 28px; flex: none; }
-.sidebar-scene-entry > span:first-of-type { flex: 1; min-width: 0; }
-.sidebar-scene-entry strong { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; }
-.sidebar-scene-entry small { display: block; font-size: 11px; margin-top: 4px; white-space: nowrap; color: inherit; opacity: .85; }
+.sidebar-feature-entry:hover:not(:disabled) { background: var(--primary-hover); }
+.sidebar-feature-entry[aria-current="page"] { box-shadow: inset 0 0 0 1px var(--primary-fg); }
+.sidebar-feature-entry > .app-icon { width: 28px; height: 28px; flex: none; }
+.sidebar-feature-entry > span:first-of-type { flex: 1; min-width: 0; }
+.sidebar-feature-entry strong { display: block; font-size: 16px; font-weight: 600; white-space: nowrap; }
+.sidebar-feature-entry small { display: block; font-size: 11px; margin-top: 4px; white-space: nowrap; color: inherit; opacity: .85; }
 .scene-entry-arrow { font-size: 20px; }
-.sidebar-collapsed .sidebar-scene-entry { min-height: 40px; width: 40px; padding: 7px; gap: 0; }
-.sidebar-collapsed .sidebar-scene-entry > .app-icon { width: 24px; height: 24px; }
-.sidebar-collapsed .sidebar-scene-entry .sidebar-label { display: none; }
+.sidebar-collapsed .sidebar-feature-entry { min-height: 40px; width: 40px; padding: 7px; gap: 0; }
+.sidebar-collapsed .sidebar-feature-entry > .app-icon { width: 24px; height: 24px; }
+.sidebar-collapsed .sidebar-feature-entry .sidebar-label { display: none; }
 @media (max-height: 580px) {
   .sidebar { padding-top: 8px; padding-bottom: 8px; gap: 5px; }
   .sidebar .tenant-box { padding-top: 4px; padding-bottom: 4px; }
-  .sidebar-scene-entry { min-height: 44px; padding: 8px 12px; }
-  .sidebar-scene-entry small { display: none; }
+  .sidebar-feature-entry { min-height: 44px; padding: 8px 12px; }
+  .sidebar-feature-entry small { display: none; }
   .sidebar-collapsed .sidebar-bottom { flex-direction: row; flex-wrap: wrap; }
 }

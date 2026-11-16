@@ -187,6 +187,7 @@ const visibleMenus = computed(() =>
     platform.value ? m.platform : !m.platform && (!m.admin || admin.value),
   ),
 );
+const assistantMenu = computed(() => visibleMenus.value.find(item => item.id === "ai"));
 const current = computed(
   () => menus.find((m) => m.id === page.value) || menus[0],
 );
@@ -218,7 +219,7 @@ const menuGroups = computed(() =>
   groupOrder
     .map((label) => ({
       label,
-      items: visibleMenus.value.filter((m) => m.group === label),
+      items: visibleMenus.value.filter((m) => m.group === label && m.id !== "ai"),
     }))
     .filter((g) => g.items.length),
 );
@@ -244,8 +245,8 @@ const tabItems = computed(() =>
     .slice(0, 4),
 );
 const paletteItems = computed(() => [
-  ...menuGroups.value.flatMap((g) =>
-    g.items.map((m) => ({ ...m, current: m.id === page.value })),
+  ...groupOrder.flatMap((group) =>
+    visibleMenus.value.filter((m) => m.group === group).map((m) => ({ ...m, current: m.id === page.value })),
   ),
   { id: "action:settings", title: "账号设置", icon: "settings", group: "账号" },
   {
@@ -1024,7 +1025,7 @@ onUnmounted(() => {
       <button
         v-if="!platform && account && !account.mustChangePassword"
         type="button"
-        class="sidebar-scene-entry"
+        class="sidebar-feature-entry sidebar-scene-entry"
         aria-label="进入 3D 农场"
         aria-haspopup="dialog"
         :title="collapsed ? '进入 3D 农场' : undefined"
@@ -1034,6 +1035,19 @@ onUnmounted(() => {
       >
         <AppIcon name="cube" />
         <span class="sidebar-label"><strong>{{ screenOpening ? '正在进入…' : '3D 农场' }}</strong><small>走进你的田野</small></span>
+        <span class="scene-entry-arrow sidebar-label" aria-hidden="true">↗</span>
+      </button>
+      <button
+        v-if="assistantMenu && account && !account.mustChangePassword"
+        type="button"
+        class="sidebar-feature-entry sidebar-assistant-entry"
+        aria-label="小禾AI 你的专属田间助手"
+        :title="collapsed ? '小禾AI 你的专属田间助手' : undefined"
+        :aria-current="page === 'ai' ? 'page' : undefined"
+        @click="navigate(assistantMenu.id)"
+      >
+        <AppIcon :name="assistantMenu.icon" />
+        <span class="sidebar-label"><strong>{{ assistantMenu.title }}</strong><small>{{ assistantMenu.description }}</small></span>
         <span class="scene-entry-arrow sidebar-label" aria-hidden="true">↗</span>
       </button>
       <nav aria-label="工作空间">
