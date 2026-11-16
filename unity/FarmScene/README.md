@@ -63,7 +63,7 @@ cd ..
 
 树木、农房、长条仓棚、塑料大棚、电杆和草捆由 `tools/blender/build_farm_art.py` 在 Blender 中程序化生成并导出到 `Assets/Resources/FarmArt`（提交 Git，项目自制）。在仓库根目录运行 `blender --background --factory-startup --python tools/blender/build_farm_art.py`；Microsoft Store 版 Blender 通过 `blender-launcher.exe` 运行且不输出控制台，结果写入 `.cache/blender-farm-art.log`，追加 `-- --preview` 可在 `.cache/review` 渲染一张样张。`FarmArtImporter` 保证网格可读、不生成材质；树木远景使用低面数 `_far` 版本。构建会关闭网格通道裁剪，因为这些网格的顶点色只在运行时材质中使用。
 
-摆放规则在 `FarmSceneArt.cs`：描绘林带种植杨树、林地种植阔叶树、描绘河渠两岸点缀垂柳；按描绘屋顶的长宽比放置农房、仓棚或大棚并缩放到屋顶轮廓；描绘道路一侧每约 42 米一根电杆并连三相导线。所有布景都与登记地块保持间距、避开设备避让范围，不改变地块、设备、管网或镜头接口。树种分配集中在 `TreeVariantFor`，可按当地植被调整。
+摆放规则在 `FarmSceneArt.cs`：描绘林带以杨树为主（约 78%），间有垂柳和阔叶树；林地以阔叶树为主并混有杨树；描绘河渠两岸以垂柳为主、间植杨树；农房周边以阔叶树为主；按描绘屋顶的长宽比放置农房、仓棚或大棚并缩放到屋顶轮廓；描绘道路一侧每约 42 米一根电杆并连三相导线。所有布景都与登记地块保持间距、避开设备避让范围，不改变地块、设备、管网或镜头接口。树种分配集中在 `TreeVariantFor`，可按当地植被调整。
 
 本机图片验收使用 Unity CLI 的 `com.unity.pipeline` 开发工具连接 Editor。进入 Play 模式前开启自动 tick，验收时同时记录推进帧数，避免把停帧截图当成运行证明。截图和带演示记录的临时验收输入放在被忽略的 `.cache` 中，不进入构建资源。
 

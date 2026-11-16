@@ -75,11 +75,13 @@ public partial class FarmScene
     // `roll` is a stable 0..1 random number for this tree, so the choice never flickers.
     TreeKind TreeVariantFor(TreeContext context, float roll)
     {
-        // TODO(user): decide the species mix for each context (see the session notes).
+        // Northern plain farmland: field shelter belts are mostly poplar with the odd willow or elm;
+        // canal banks favour willow; traced woods and farmyards are mainly broadleaf (elm, ash) with poplar mixed in.
         switch (context) {
-            case TreeContext.ShelterBelt: return roll < .85f ? TreeKind.Poplar : TreeKind.Broadleaf;
-            case TreeContext.CanalBank: return TreeKind.Willow;
-            default: return TreeKind.Broadleaf;
+            case TreeContext.ShelterBelt: return roll < .78f ? TreeKind.Poplar : roll < .9f ? TreeKind.Willow : TreeKind.Broadleaf;
+            case TreeContext.CanalBank: return roll < .75f ? TreeKind.Willow : TreeKind.Poplar;
+            case TreeContext.Woodland: return roll < .3f ? TreeKind.Poplar : roll < .4f ? TreeKind.Willow : TreeKind.Broadleaf;
+            default: return roll < .25f ? TreeKind.Poplar : TreeKind.Broadleaf;
         }
     }
 

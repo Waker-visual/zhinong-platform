@@ -243,7 +243,7 @@ function retry() {
   markerOffsets.clear();
   cancelAnimationFrame(projectionFrame);
   projectionFrame = 0;
-  frame.value.src = "/farm-scene/index.html?v=pastoral-20261116-1";
+  frame.value.src = "/farm-scene/index.html?v=pastoral-20261116-2";
   startTimeout();
 }
 function startTimeout() {
@@ -300,7 +300,7 @@ onBeforeUnmount(() => {
   <section class="farm-landscape" aria-label="交互式三维农场">
     <iframe
       ref="frame"
-      src="/farm-scene/index.html?v=pastoral-20261116-1"
+      src="/farm-scene/index.html?v=pastoral-20261116-2"
       title="三维农田：左键旋转，右键平移，滚轮缩放，点击田块"
     />
     <div
