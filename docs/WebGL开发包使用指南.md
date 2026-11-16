@@ -9,7 +9,7 @@ $archive = 'C:\Downloads\zhinong-farm-scene-webgl.zip'
 $expected = ((Get-Content -LiteralPath ($archive + '.sha256') -Raw).Trim() -split '\s+')[0]
 if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) { throw '下载包校验失败' }
 Expand-Archive -LiteralPath $archive -DestinationPath . -Force
-$manifest = Get-Content farm-scene-manifest.json -Raw | ConvertFrom-Json
+$manifest = Get-Content -LiteralPath farm-scene-manifest.json -Raw -Encoding UTF8 | ConvertFrom-Json
 foreach ($file in $manifest.files) {
     if ((Get-FileHash -LiteralPath $file.path -Algorithm SHA256).Hash -ne $file.sha256) { throw "文件校验失败：$($file.path)" }
 }
