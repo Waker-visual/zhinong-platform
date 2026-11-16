@@ -286,6 +286,7 @@ onUnmounted(() => { alive = false; endDrag(); window.removeEventListener("resize
       <p v-if="contextOpen" id="floating-assistant-context-detail" class="floating-assistant-context-detail">发送问题时，服务端会按当前农场和页面范围重新读取有限资料；不会使用浏览器页面原文。每条回答下方会记录实际参考的页面资料。</p>
       <p v-if="elsewhereBusy" class="floating-assistant-notice" role="status">完整 AI 页正在生成另一段回答，完成或停止后可以继续提问。</p>
       <p v-if="error" class="error floating-assistant-error" role="alert">{{ error }}</p>
+      <div class="floating-assistant-log">
       <div ref="scroller" class="floating-assistant-messages" role="log" aria-label="小禾对话记录" :aria-busy="!!run || loading" @scroll="handleScroll">
         <div v-if="loading" class="floating-assistant-loading" aria-hidden="true"><span class="skeleton"></span><span class="skeleton"></span><span class="skeleton" style="width:58%"></span></div>
         <template v-else-if="!displayed.length">
@@ -304,7 +305,9 @@ onUnmounted(() => { alive = false; endDrag(); window.removeEventListener("resize
           </template>
         </article>
       </div>
+      <!-- 悬浮在对话记录底边、输入框上方，不占用输入框位置 -->
       <button v-if="showJump" class="floating-assistant-jump" type="button" @click="scrollLatest()"><AppIcon name="arrowDown" />回到最新</button>
+      </div>
       <p v-if="notice" class="floating-assistant-notice" role="status">{{ notice }}</p>
       <form class="floating-assistant-composer" @submit.prevent="send"><label class="sr-only" for="floating-question">询问小禾</label><textarea id="floating-question" ref="input" v-model="question" rows="1" maxlength="2000" :disabled="sending" placeholder="询问当前农场…" @keydown.enter.exact="e => { if (!e.isComposing) { e.preventDefault(); send(); } }"></textarea><button v-if="sending" type="button" class="floating-assistant-send" aria-label="停止生成" @click="stop"><AppIcon name="stop" /></button><button v-else type="submit" class="floating-assistant-send" :disabled="disabled || !question.trim()" aria-label="发送"><AppIcon name="arrowUp" /></button></form>
       <footer class="floating-assistant-footer"><div class="floating-assistant-footer-actions"><button type="button" @click="openFull">打开完整 AI</button><button type="button" @click="openIrrigation()">去灌溉管理</button></div><span>只读咨询 · 不会直接控制设备</span></footer>

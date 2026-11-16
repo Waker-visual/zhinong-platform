@@ -19,7 +19,7 @@
   background: var(--display-lake);
   border-color: var(--display-leaf);
   font-size: 12px;
-  box-shadow: 0 3px 12px var(--display-map);
+  box-shadow: 0 3px 12px var(--scene-parcel-shadow);
 }
 .farm-display .farm-landscape-markers button > span {
   display: block;
@@ -186,7 +186,7 @@
   border-radius: 7px;
 }
 .farm-display .farm-landscape-controls button:hover:not(:disabled) {
-  background: var(--display-teal);
+  background: var(--subtle-bg);
 }
 .farm-display .farm-landscape-controls button[aria-pressed="true"] {
   color: var(--display-leaf);
@@ -352,6 +352,9 @@
   background: var(--page);
   font-family: var(--font-sans);
   font-size: 14px;
+  color-scheme: light;
+}
+html[data-theme="dark"] .farm-display {
   color-scheme: dark;
 }
 .farm-display::backdrop {
@@ -1833,5 +1836,56 @@
   .farm-display .display-about-content {
     right: auto;
     left: -120px;
+  }
+}
+
+/* 三维场景浮层：半透明模糊底（浅色为米白、深色为湖蓝），让田野透出来；不支持背景模糊时保持高不透明度以保证文字对比。 */
+.farm-display .farm-landscape {
+  --scene-glass: color-mix(in srgb, var(--surface) 95%, transparent);
+  --scene-glass-line: color-mix(in srgb, var(--display-white) 12%, transparent);
+}
+@supports (backdrop-filter: blur(1px)) {
+  .farm-display .farm-landscape {
+    --scene-glass: color-mix(in srgb, var(--surface) 82%, transparent);
+  }
+}
+.farm-display
+  :is(
+    .farm-landscape-heading,
+    .farm-landscape-plots,
+    .farm-landscape-device,
+    .farm-landscape-controls,
+    .farm-landscape-summary,
+    .farm-landscape-caption
+  ) {
+  background: var(--scene-glass);
+  border: 1px solid var(--scene-glass-line);
+  backdrop-filter: blur(10px) saturate(1.12);
+  box-shadow: 0 10px 28px var(--scene-parcel-shadow);
+}
+.farm-display .farm-landscape-heading {
+  padding: 14px 18px;
+}
+.farm-display .farm-landscape-heading h2 {
+  margin-top: 10px;
+  font-size: 22px;
+}
+.farm-display .farm-landscape-loading .scene-progress {
+  width: min(280px, 70%);
+  height: 4px;
+  margin: 14px 0 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--display-leaf-soft);
+}
+.farm-display .farm-landscape-loading .scene-progress span {
+  display: block;
+  height: 100%;
+  background: var(--display-leaf);
+  transition: width 240ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  .farm-display .farm-landscape-loading .scene-progress span {
+    transition: none;
   }
 }

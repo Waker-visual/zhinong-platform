@@ -1,4 +1,4 @@
-param([string]$MavenRepository = '', [string]$MavenSettings = '')
+﻿param([string]$MavenRepository = '', [string]$MavenSettings = '')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if ($MavenSettings) { $MavenSettings = (Resolve-Path -LiteralPath $MavenSettings).Path }

@@ -43,7 +43,9 @@
 .floating-assistant-message .ai-activity-disclosure { margin-bottom: 8px; }
 .floating-assistant-message .ai-streaming-status { padding-top: 5px; font-size: 11px; }
 .floating-assistant-retry { min-height: 32px; padding: 4px 0; color: var(--link-fg); font-size: 12px; }
-.floating-assistant-jump { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; padding: 6px 11px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); color: var(--text-2); font-size: 11px; }
+/* 对话记录与“回到最新”共用定位容器：按钮贴着记录底边浮在输入框上方，与面板页脚高度无关。 */
+.floating-assistant-log { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.floating-assistant-jump { position: absolute; left: 50%; bottom: 10px; z-index: 1; transform: translateX(-50%); display: flex; align-items: center; gap: 5px; padding: 6px 11px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); box-shadow: var(--shadow); color: var(--text-2); font-size: 11px; }
 .floating-assistant-jump .app-icon { width: 13px; height: 13px; }
 .floating-assistant-notice { margin: 0 16px 5px; color: var(--label-fg); font-size: 11px; }
 .floating-assistant-composer { display: grid; grid-template-columns: minmax(0, 1fr) 34px; align-items: end; gap: 6px; margin: 0 12px; padding: 5px 5px 5px 11px; border: 1px solid var(--border); border-radius: 12px; background: var(--input-bg); }

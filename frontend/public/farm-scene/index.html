@@ -30,10 +30,10 @@ window.addEventListener('message', (event) => {
   if (farmInstance && methods.has(event.data.method) && typeof event.data.value === 'string') farmInstance.SendMessage('FarmScene', event.data.method, event.data.value);
 });
 const loader = document.createElement('script');
-loader.src = 'Build/farm-scene.loader.js?v=daylight-20261014-2';
+loader.src = 'Build/farm-scene.loader.js?v=pastoral-20261116-1';
 loader.onerror = () => notify({ type: 'farm-error' });
 loader.onload = () => createUnityInstance(document.getElementById('farm'), {
-  dataUrl: 'Build/farm-scene.data?v=daylight-20261014-2', frameworkUrl: 'Build/farm-scene.framework.js?v=daylight-20261014-2', codeUrl: 'Build/farm-scene.wasm?v=daylight-20261014-2',
+  dataUrl: 'Build/farm-scene.data?v=pastoral-20261116-1', frameworkUrl: 'Build/farm-scene.framework.js?v=pastoral-20261116-1', codeUrl: 'Build/farm-scene.wasm?v=pastoral-20261116-1',
   companyName: 'Zhihe', productName: 'FarmScene', productVersion: '1.0', devicePixelRatio: Math.min(devicePixelRatio, 1.5),
 }, (value) => notify({ type: 'farm-progress', value })).then((instance) => { if (disposing) { instance.Quit().catch(() => {}); return; } farmInstance = instance; updateVisibility(); if (runtimeReady) notify({ type: 'farm-ready' }); }).catch(() => { if (!disposing) notify({ type: 'farm-error' }); });
 document.body.appendChild(loader);

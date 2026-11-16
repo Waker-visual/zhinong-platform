@@ -36,16 +36,19 @@ public partial class FarmScene
         // Never put a different farm onto this region's photograph.
         if(farmBounds.min.x<nw.x || farmBounds.max.x>se.x || farmBounds.min.z<se.z || farmBounds.max.z>nw.z)return false;
         satelliteMapped=true;
-        if(!satelliteGround){satelliteGround=new Material(Shader.Find("Farm/OrthoGround"));materials["satellite ground"]=satelliteGround;}
-        satelliteGround.mainTexture=texture;
+        RememberRegisteredPlots(farm);artTreeCount=artPropCount=0;
+        // Prefer procedural land cover derived from the imagery; the photo is only a fallback.
+        var cover=Resources.Load<Texture2D>("SatelliteImagery/landcover-region");var flow=Resources.Load<Texture2D>("SatelliteImagery/landflow-region");
+        if(!satelliteGround){satelliteGround=new Material(Shader.Find(cover && flow ? "Farm/LandCover" : "Farm/OrthoGround"));materials["satellite ground"]=satelliteGround;}
+        if(cover && flow){satelliteGround.SetTexture("_Cover",cover);satelliteGround.SetTexture("_Flow",flow);}
+        else{satelliteGround.mainTexture=texture;satelliteGround.color=new Color(1.12f,1.1f,1.06f);}
         satelliteGround.SetVector("_WorldRect",new Vector4(nw.x,se.z,se.x-nw.x,nw.z-se.z));
-        satelliteGround.color=new Color(1.14f,1.14f,1.14f);
         var mesh=new Mesh();mesh.vertices=new[]{new Vector3(nw.x,-.14f,se.z),new Vector3(nw.x,-.14f,nw.z),new Vector3(se.x,-.14f,nw.z),new Vector3(se.x,-.14f,se.z)};
         mesh.triangles=new[]{0,1,2,0,2,3};mesh.RecalculateNormals();meshes.Add(mesh);
         var ground=new GameObject("georeferenced satellite surface");ground.transform.SetParent(content);
         ground.AddComponent<MeshFilter>().sharedMesh=mesh;ground.AddComponent<MeshRenderer>().sharedMaterial=satelliteGround;
         BuildSatelliteSurroundings(nw,se);
-        var road=Mat("image traced gravel","#8b8972");var channel=Mat("image traced water","#344b42",.68f);var bank=Mat("image traced bank","#555b3a");
+        var road=Mat("image traced gravel","#8b8972");var channel=Mat("image traced water","#3a5a5c",.93f);var bank=Mat("image traced bank","#555b3a");
         int seed=0;
         foreach(var path in imageContext.paths) {
             var points=new List<Vector3>();foreach(var p in path.points)points.Add(ImagePosition(p.x,p.y));
@@ -55,11 +58,13 @@ public partial class FarmScene
                     for(float d=0;d<Vector3.Distance(a,b);d+=6.5f)for(int row=0;row<2;row++) {
                         seed++;var p=Vector3.Lerp(a,b,d/Vector3.Distance(a,b))+side*((row-.5f)*path.width*.55f+(Noise(seed,2)-.5f)*3);
                         p+=(b-a).normalized*(Noise(seed,3)-.5f)*3;
-                        AddImageTree(p,seed);
+                        AddImageTree(p,seed,TreeContext.ShelterBelt);
                     }
                 }
             } else {
                 ImageCorridor(points,path.width,path.kind,road,channel,bank);
+                if(path.kind=="road")PowerLine(points,path.width);
+                if(path.kind=="canal")CanalPlanting(points,path.width,ref seed);
             }
         }
         foreach(var wood in imageContext.woodlands) {
@@ -67,11 +72,12 @@ public partial class FarmScene
             var bounds=new Bounds(polygon[0],Vector3.zero);foreach(var p in polygon)bounds.Encapsulate(p);
             for(float x=bounds.min.x;x<bounds.max.x;x+=11)for(float z=bounds.min.z;z<bounds.max.z;z+=11) {
                 seed++;var p=new Vector3(x+(Noise(seed,1)-.5f)*9,0,z+(Noise(seed,2)-.5f)*9);
-                if(Inside(p.x,p.z,polygon))AddImageTree(p,seed);
+                if(Inside(p.x,p.z,polygon))AddImageTree(p,seed,TreeContext.Woodland);
             }
         }
-        FlushImageTrees();
         foreach(var building in imageContext.buildings)ImageBuildingModel(building);
+        FlushImageTrees();FlushProps();FlushWires();
+        Debug.Log("FarmScene art kit: "+artTreeCount+" kit trees, "+artPropCount+" props");
         if(imageContext.fields!=null)foreach(var field in imageContext.fields) {
             var polygon=new List<Vector3>();foreach(var point in field.points)polygon.Add(ImagePosition(point.x,point.y));
             cropParcels.Add(new CropParcel {polygon=polygon,crop="stubble",seed=++seed});
@@ -89,10 +95,12 @@ public partial class FarmScene
         // Existing cache: z13 x7114..7117, y2871..2874, expressed in the detail image's pixels.
         var nw=ImagePosition((7114*4-imageContext.tileX)*256,(2871*4-imageContext.tileY)*256);
         var se=ImagePosition((7118*4-imageContext.tileX)*256,(2875*4-imageContext.tileY)*256);
+        var cover=Resources.Load<Texture2D>("SatelliteImagery/landcover-context");var flow=Resources.Load<Texture2D>("SatelliteImagery/landflow-context");
         if(!materials.TryGetValue("satellite surroundings",out var material)) {
-            material=new Material(Shader.Find("Farm/OrthoGround"));materials["satellite surroundings"]=material;
+            material=new Material(Shader.Find(cover && flow ? "Farm/LandCover" : "Farm/OrthoGround"));materials["satellite surroundings"]=material;
         }
-        material.mainTexture=texture;material.color=satelliteGround.color;
+        if(cover && flow){material.SetTexture("_Cover",cover);material.SetTexture("_Flow",flow);}
+        else{material.mainTexture=texture;material.color=satelliteGround.color;}
         material.SetVector("_WorldRect",new Vector4(nw.x,se.z,se.x-nw.x,nw.z-se.z));
         var vertices=new List<Vector3>();var triangles=new List<int>();
         void Rect(float west,float south,float east,float north) {
@@ -107,9 +115,10 @@ public partial class FarmScene
         var ground=new GameObject("georeferenced surrounding imagery");ground.transform.SetParent(content);
         ground.AddComponent<MeshFilter>().sharedMesh=mesh;ground.AddComponent<MeshRenderer>().sharedMaterial=material;
     }
-    void AddImageTree(Vector3 p,int seed)
+    void AddImageTree(Vector3 p,int seed,TreeContext context)
     {
         if(p.sqrMagnitude>1600*1600)return;
+        if(AddArtTree(p,seed,context))return;
         var mesh=ImageTreeMesh(seed%3);
         if(!materials.TryGetValue("image tree canopy",out var material)) {
             material=new Material(Shader.Find("Farm/Canopy"));material.color=Color.white;materials["image tree canopy"]=material;
@@ -190,6 +199,7 @@ public partial class FarmScene
     void ImageBuildingModel(ImageBuilding building)
     {
         var p=ImagePosition(building.x,building.y);if(p.sqrMagnitude>1600*1600)return;
+        if(ArtBuilding(building,p))return;
         var root=new GameObject("image traced roof; inferred height").transform;root.SetParent(content);root.position=p;root.rotation=Quaternion.Euler(0,building.angle,0);
         var wall=Mat("image wall","#c0bdab");var roof=Mat("image metal roof","#727f7f",.3f);var dark=Mat("image doors","#455357");
         Box("walls",Vector3.up*building.height*.5f,new Vector3(building.width,building.height,building.length),wall,root);
