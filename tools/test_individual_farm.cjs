@@ -74,9 +74,14 @@ async function shot(page, name) {
 async function main() {
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const owner = await signIn("owner");
+  // 顶栏农场选择器是自绘按钮，没有表单值：以它显示的农场名与今日农场头图一致为准。
+  const selectedFarm = (
+    await owner.getByLabel("当前农场", { exact: true }).innerText()
+  ).trim();
+  assert.notEqual(selectedFarm, "选择农场");
   assert.equal(
-    await owner.getByLabel("当前农场", { exact: true }).inputValue(),
-    fixture.farmId,
+    (await owner.locator(".daily-hero h2").innerText()).trim(),
+    selectedFarm,
   );
   check("Single farm selected; daily work is default landing");
   await shot(owner, "owner-daily");
