@@ -183,7 +183,7 @@ export const ChapterXiaohe: React.FC<{ t: number }> = ({ t }) => {
         lineStyle={{ fontFamily: FONT.serif, fontWeight: 700, fontSize: 124, lineHeight: 1.2, letterSpacing: "0.05em", color: P.ink }} />
       {t >= Q2 - 0.05 && h2Move < 1 && (
         <div style={{ position: "absolute", left: mix(L, 380, h2Move), top: mix(t < X ? 420 : mix(420, 238, ramp(t, X - 0.6, 0.9, "inOut")), BUBBLE.top - 20, h2Move), transform: `scale(${mix(1, 0.3, h2Move)})`, transformOrigin: "100% 0", opacity: 1 - ramp(t, ASK - 0.3, 0.4) }}>
-          <Lines t={t} from={Q2} lines={["今天，先做哪一件？"]} lineStyle={{ fontFamily: FONT.serif, fontWeight: 700, fontSize: 124, lineHeight: 1.2, letterSpacing: "0.05em", color: P.ink, whiteSpace: "nowrap" }} />
+          <Lines t={t} from={Q2} lines={["今天，先做哪一件？"]} lineStyle={{ fontFamily: FONT.serif, fontWeight: 700, fontSize: mix(124, 94, ramp(t, X - 0.6, 0.9, "inOut")), lineHeight: 1.2, letterSpacing: "0.05em", color: P.ink, whiteSpace: "nowrap" }} />
           <div style={{ marginTop: 14, height: 8, width: 520 * ramp(t, Q2 + 0.7, 0.8, "inOut"), background: C.gold, borderRadius: 4, opacity: 1 - ramp(t, X - 0.6, 0.4) }} />
         </div>
       )}

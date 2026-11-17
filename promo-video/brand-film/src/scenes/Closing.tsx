@@ -48,7 +48,7 @@ const Season: React.FC<{ t: number; at: number }> = ({ t, at }) => {
         <line x1={0} y1={150} x2={470} y2={150} stroke="rgba(18,36,28,.14)" strokeWidth={2} />
         {paths.map((p, i) => <path key={i} d={p.d} fill="none" stroke={p.c} strokeWidth={5} strokeLinejoin="round" strokeLinecap="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - clamp01(d * 1.3 - i * 0.15)} />)}
       </svg>
-      <div style={{ position: "absolute", left: 44, bottom: 22, fontFamily: FONT.sans, fontSize: 20, color: P.sub, letterSpacing: "0.04em" }}>同一组地块与天气 · 三种资源方案 · 用于比较，不是产量承诺</div>
+      <div style={{ position: "absolute", left: 44, bottom: 22, fontFamily: FONT.sans, fontSize: 20, color: P.sub, letterSpacing: "0.04em" }}>三种资源方案对比 · 非产量承诺</div>
     </>
   );
 };
