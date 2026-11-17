@@ -1,0 +1,8 @@
+node_modules/
+out/
+public/shots/
+public/rec/
+public/audio/
+public/data/
+audio/out/
+audio/tts/
