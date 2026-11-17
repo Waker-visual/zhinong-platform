@@ -48,8 +48,8 @@ export const CONFIRM_POINT: [number, number] = [OK.x + OK.w / 2, OK.y + OK.h / 2
 // ───────── 时间 ─────────
 const Q2 = bar(16.9); // 第二句
 const X = S.xiaohe;
-const ASK = beat(X + 3.3); // 问题落进对话
-const DOCK = beat(X + 4.9); // 小禾归位
+const ASK = beat(X + 4.6); // 问题落进对话
+const DOCK = beat(X + 6.0); // 小禾归位，紧接着开始读取资料
 const actAt = (i: number) => beat(S.xRead + 0.5 + i * 1.9);
 const STREAM = [S.xAnswer + 0.8, S.xAnswer + 4.2] as const;
 const MARK_AT = beat(S.xAnswer + 4.6);
