@@ -33,14 +33,15 @@ const TAKES: Take[] = [
   { id: "high", from: S.wide, to: S.real, track: high as Track, zoom: [1.0, 1.08] },
 ];
 const leadOf = (k: Take) => k.lead ?? Math.max(0, Math.round((k.track.frames.length - f(k.to - k.from)) / 2));
-const takeAt = (t: number) => TAKES.find((k) => t >= k.from && t < k.to) ?? null;
+// 取镜头与跟踪帧都按整数帧算，与素材 Sequence 的起点一致，避免切点上错位一帧
+const takeAt = (t: number) => { const n = Math.round(t * FPS); return TAKES.find((k) => n >= f(k.from) && n < f(k.to)) ?? null; };
 
 // 产品回传的投影点已是“左上为原点”的屏幕比例坐标，无需翻转
 const FLIP_Y = false;
 function useShot(t: number) {
   const k = takeAt(t);
   if (!k) return null;
-  const i = Math.min(k.track.frames.length - 1, Math.max(0, Math.round((t - k.from) * FPS) + leadOf(k)));
+  const i = Math.min(k.track.frames.length - 1, Math.max(0, Math.round(t * FPS) - f(k.from) + leadOf(k)));
   const fr = k.track.frames[i];
   const u = clamp01((t - k.from) / (k.to - k.from));
   const settle = 1 + 0.03 * (1 - ramp(t, k.from, 0.55, "out")); // 切入时轻微回落
@@ -112,7 +113,7 @@ const STEP_AT = [F.cmd[0], F.run, F.flow[0] + 0.4, F.spray];
 
 /** 实录层（置于纸面之下）：章节转场时由纸面让出 */
 export const FarmLayer: React.FC<{ t: number }> = ({ t }) => {
-  if (t < START - 0.05 || t >= S.real + 0.02) return null;
+  if (t < START - 0.05 || Math.round(t * FPS) >= f(S.real)) return null;
   const sh = useShot(t);
   return (
     <AbsoluteFill style={{ background: "#0a1811" }}>
@@ -240,7 +241,7 @@ export const FarmOverlay: React.FC<{ t: number }> = ({ t }) => {
       )}
 
       {/* 展示大屏实录：刚才的画面就在产品的这一页里 */}
-      {t >= S.real - 0.02 && (() => {
+      {Math.round(t * FPS) >= f(S.real) && (() => {
         const p = ramp(t, S.real, 0.9, "out");
         return (
           <Paper>

@@ -20,10 +20,14 @@ node scripts/assets.mjs          # 复用旧片的配乐、问答记录
 python -I audio/music.py         # 配乐剪到小节线，生成 src/beats.json
 node capture/farm.mjs            # 三维农场 8 个镜头（PREVIEW=1 只拍首/中/尾三帧）
 node capture/screens.mjs login   # 登录页一日光景；另有 seasons、display 两组
-node capture/mobile.mjs          # 手机端首页
+node capture/mobile.mjs          # 手机端首页 → 复制 capture/out/shots/m-home.png 到 public/shots/
 FFMPEG=<ffmpeg> node scripts/encode.mjs farm
 FFMPEG=<ffmpeg> node scripts/encode.mjs rec
 FFMPEG=<ffmpeg> node scripts/stills.mjs 12 82 101   # 抽帧检查
+python -I audio/tts.py           # 旁白：复用缓存句，新句调用 MiniMax（计费）
+node scripts/voice.mjs           # 旁白入轨 + 字幕 out/brand-film.srt
+npx remotion render src/index.ts BrandFilm out/brand-film-raw.mp4 --crf=16
+# 成片：实测响度后用 ffmpeg 的 volume 滤镜补到 -16 LUFS（本次 +0.27 dB）
 ```
 
 三维场景的 WebGL 构建来自 `farm-scene-webgl-20261116-2` 开发包（见 `docs/WebGL开发包使用指南.md`）。
@@ -40,4 +44,4 @@ FFMPEG=<ffmpeg> node scripts/stills.mjs 12 82 101   # 抽帧检查
 
 ## 署名
 
-配乐《Documentary Nature》— alex-morgan（Pixabay Content License）。AI 回答由 deepseek-flash 于 2026-10-19 生成。
+配乐《Documentary Nature》— alex-morgan（Pixabay Content License）。三维农场的地表由 Esri World Imagery 影像推定（见 `tools/scene/classify_landcover.py`），手机端截图中的地图底图同为 Esri World Imagery。AI 回答由 deepseek-flash 于 2026-10-19 生成。

@@ -11,7 +11,8 @@ import voice from "./content/voice.json";
 
 // 配乐在旁白期间让出空间：每句前 0.35 s 开始压低，句末 0.5 s 回升
 const duck = (t: number) => Math.max(0, ...voice.map((l) => env(t, l.at - 0.35, l.at + l.duration + 0.1, 0.35, 0.5)));
-const musicVolume = (t: number) => (0.62 - 0.36 * duck(t)) * (1 - ramp(t, TOTAL - 2.2, 2.0, "soft"));
+// 实测：旁白原始均值约 -23 dB，配乐约 -11.6 dB。配乐平时压到 0.36，旁白期间再让到 0.11，人声高出约 11 dB
+const musicVolume = (t: number) => (0.36 - 0.25 * duck(t)) * (1 - ramp(t, TOTAL - 2.2, 2.0, "soft"));
 
 export const DURATION = Math.round(TOTAL * FPS);
 
@@ -32,7 +33,7 @@ export const BrandFilm: React.FC<{ withAudio?: boolean }> = ({ withAudio = true 
           <Audio src={staticFile("audio/music-cut.wav")} volume={(f) => musicVolume(f / FPS)} />
           {voice.map((l) => (
             <Sequence key={l.id} from={Math.round(l.at * FPS)} durationInFrames={Math.ceil((l.duration + 0.3) * FPS)} layout="none">
-              <Audio src={staticFile(`audio/vo/${l.id}.mp3`)} volume={1} />
+              <Audio src={staticFile(`audio/vo/${l.id}.mp3`)} volume={1.5} />
             </Sequence>
           ))}
         </>

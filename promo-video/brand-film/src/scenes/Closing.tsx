@@ -118,7 +118,7 @@ export const Closing: React.FC<{ t: number }> = ({ t }) => {
           </div>
           <div style={{ position: "absolute", left: 0, right: 0, bottom: 70, textAlign: "center", fontFamily: FONT.sans, fontSize: 19, lineHeight: 1.9, color: "rgba(245,242,230,.46)", opacity: ramp(t, S.end + 5.6, 1.0) }}>
             配乐《Documentary Nature》— alex-morgan（Pixabay Content License） · AI 回答为 deepseek-flash 于 2026-10-19 实时生成<br />
-            登录页、三维农场与展示大屏为 2026-11-17 应用实录，设备运行状态为演示设定 · 片中农场、设备与经营数据均为演示数据
+            三维农场地表依据 Esri World Imagery 影像推定 · 登录页、三维农场与展示大屏为 2026-11-17 应用实录，设备运行状态为演示设定 · 农场、设备与经营数据均为演示数据
           </div>
           {fly > 0 && fly < 1 && <SparkArc a={[300, 1140]} c={[520, 120]} b={LEAF} u={fly} r={10} trail={0.3} />}
           {t >= S.end && t < S.end + 1.2 && (() => { const q = (t - S.end) / 1.2; return <div style={{ position: "absolute", left: LEAF[0] - 30 - 150 * q, top: LEAF[1] - 30 - 150 * q, width: 60 + 300 * q, height: 60 + 300 * q, borderRadius: "50%", border: `3px solid ${C.gold}`, opacity: 1 - q }} />; })()}
