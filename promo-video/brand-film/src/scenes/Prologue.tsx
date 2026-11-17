@@ -49,8 +49,7 @@ export const Prologue: React.FC<{ t: number }> = ({ t }) => {
         const p = ramp(t, sBeats[i], 0.5, "out");
         return (
           <AbsoluteFill key={s.ch} style={{ alignItems: "center", justifyContent: "center" }}>
-            <div style={{ fontFamily: FONT.serif, fontWeight: 700, fontSize: 340, color: C.cream, opacity: 0.94, transform: `scale(${mix(1.12, 1, p)})`, textShadow: "0 20px 90px rgba(0,0,0,.5)", mixBlendMode: "soft-light" }}>{s.ch}</div>
-            <div style={{ position: "absolute", fontFamily: FONT.serif, fontWeight: 700, fontSize: 340, color: C.cream, opacity: 0.55, transform: `scale(${mix(1.12, 1, p)})` }}>{s.ch}</div>
+            <div style={{ fontFamily: FONT.serif, fontWeight: 700, fontSize: 320, color: C.cream, opacity: 0.96 * (1 - ramp(t, sBeats[i + 1] - 0.12, 0.12)), transform: `scale(${mix(1.1, 1, p)})`, textShadow: "0 16px 70px rgba(10,30,20,.55), 0 2px 10px rgba(10,30,20,.35)" }}>{s.ch}</div>
           </AbsoluteFill>
         );
       })}

@@ -8,9 +8,9 @@ export const OUT = path.join(HERE, 'out');
 export const password = () => fs.readFileSync(path.join(APP_ROOT, '.cache/demo-password.txt'), 'utf8').trim();
 export const { chromium } = createRequire(path.join(APP_ROOT, 'frontend/package.json'))('playwright');
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-export async function open({ width = 1920, height = 1080, scheme = 'light', mobile = false } = {}) {
-  const browser = await chromium.launch({ channel: 'msedge', headless: false, args: ['--use-angle=d3d11', '--enable-gpu', '--window-position=0,0', '--hide-scrollbars'] });
-  const ctx = await browser.newContext({ viewport: { width, height }, locale: 'zh-CN', timezoneId: 'Asia/Shanghai', colorScheme: scheme, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: mobile ? 3 : 1 });
+export async function open({ width = 1920, height = 1080, scheme = 'light', mobile = false, dsf = 0 } = {}) {
+  const browser = await chromium.launch({ channel: 'msedge', headless: false, args: ['--use-angle=d3d11', '--enable-gpu', '--window-position=0,0', '--hide-scrollbars', '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-features=CalculateNativeWinOcclusion'] });
+  const ctx = await browser.newContext({ viewport: { width, height }, locale: 'zh-CN', timezoneId: 'Asia/Shanghai', colorScheme: scheme, isMobile: mobile, hasTouch: mobile, deviceScaleFactor: dsf || (mobile ? 3 : 1) });
   const page = await ctx.newPage();
   return { browser, ctx, page };
 }

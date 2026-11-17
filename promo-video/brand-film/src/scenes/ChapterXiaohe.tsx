@@ -59,8 +59,8 @@ export const CONFIRM_AT = S.turn;
 
 const Tile: React.FC<{ t: number; i: number }> = ({ t, i }) => {
   const d = TILES[i];
-  const row = i < 3 ? 0 : 1;
-  const w = row === 0 ? 240 : 373, x = 1010 + (row === 0 ? i * 266 : (i - 3) * 399), y = 250 + row * 216;
+  // 五项并排在标题下方，一行读完
+  const w = 308, x = L + i * 333, y = 640;
   const p = stag(t, beat(S.question + 1.3), i, 0.3, 0.8);
   const gather = ramp(t, X - 0.35, 0.9, "inOut"); // 汇入“今日农场”依据卡
   if (p <= 0 || gather >= 1) return null;

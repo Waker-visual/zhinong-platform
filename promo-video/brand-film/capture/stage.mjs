@@ -38,3 +38,16 @@ export const setDemo = (page, state) => page.evaluate((s) => {
 }, state);
 export const send = (page, method, value = '') => page.evaluate(([m, v]) => window.__farm.send(m, v), [method, value]);
 export const points = (page) => page.evaluate(() => window.__farm.points);
+// 直接从 Unity 画布取帧（比整页截图快一个量级）。
+// keepBuffer 须在打开页面前调用：让场景的 WebGL 上下文保留绘图缓冲，之后任何时刻都能读到刚渲染的一帧。
+export const keepBuffer = (page) => page.addInitScript(() => {
+  const get = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function (type, attrs) { return get.call(this, type, /webgl/.test(type) ? { ...(attrs || {}), preserveDrawingBuffer: true } : attrs); };
+});
+// 场景默认按 30 帧/秒自限；录制时改为每个动画帧都渲染，配合 60 帧/秒的虚拟时钟
+export const everyFrame = (page) => page.evaluate(() => {
+  const w = document.querySelector('.farm-landscape iframe').contentWindow; const inst = w.eval('typeof farmInstance === "undefined" ? null : farmInstance');
+  const fn = inst?.Module?._emscripten_set_main_loop_timing; if (fn) fn(1, 1);
+  const c = w.document.getElementById('farm'); return { timing: !!fn, size: [c.width, c.height] };
+});
+export const grab = async (page) => { const url = await page.evaluate(() => document.querySelector('.farm-landscape iframe').contentWindow.document.getElementById('farm').toDataURL('image/jpeg', 0.94)); return Buffer.from(url.slice(url.indexOf(',') + 1), 'base64'); };
