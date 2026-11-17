@@ -3,6 +3,8 @@ out/
 public/shots/
 public/rec/
 public/audio/
+public/content
 public/data/
 audio/out/
 audio/tts/
+capture/out

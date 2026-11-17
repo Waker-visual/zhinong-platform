@@ -1,0 +1,24 @@
+import fs from 'node:fs'; import path from 'node:path';
+import { open, shot, sleep, OUT } from './lib.mjs';
+import { enterStage, setDemo, send, points } from './stage.mjs';
+const { browser, page } = await open();
+await enterStage(page);
+const last = JSON.parse(await page.evaluate(() => window.__farm.last));
+fs.mkdirSync(OUT, { recursive: true }); fs.writeFileSync(path.join(OUT, 'devices.json'), JSON.stringify({ last, scene: JSON.parse(await page.evaluate(() => window.__farm.scene)), points: await points(page) }, null, 1));
+console.log('devices', last.devices.length);
+const scene = JSON.parse(await page.evaluate(() => window.__farm.scene)); const pump = scene.devices.find((d) => d.kind === 'PUMP'), gate = scene.devices.find((d) => d.kind === 'GATE');
+await shot(page, '20-stage-entry');
+await send(page, 'ResetView'); await sleep(2500); await shot(page, '21-stage-reset');
+const state = { devices: { [pump.id]: { running: true }, [gate.id]: { running: true, opening: 100 } }, zones: Object.fromEntries(last.zones.map((z) => [z.id, true])) };
+await send(page, 'SetDeviceDemo', 'off');
+await send(page, 'SelectDevice', pump.id); await sleep(3500); await shot(page, '22-pump-off');
+await setDemo(page, state); await sleep(3000); await shot(page, '23-pump-on');
+await send(page, 'SelectDevice', gate.id); await sleep(3500); await shot(page, '24-gate-open');
+await send(page, 'SelectDevice', ''); await send(page, 'SelectPlot', (await page.evaluate(() => JSON.parse(window.__farm.last).zones[2]?.id)) || ''); await sleep(1000);
+await page.locator('.farm-landscape iframe').hover({ position: { x: 960, y: 540 } });
+await send(page, 'ResetView'); await sleep(1500); for (let i = 0; i < 4; i++) { await send(page, 'Zoom', 'in'); } await sleep(2500); await shot(page, '25-zones-running');
+// 镜头控制试验：拖动 200px、滚轮
+await page.mouse.move(960, 600); await page.mouse.down(); await page.mouse.move(1160, 560, { steps: 30 }); await page.mouse.up(); await sleep(1500); await shot(page, '26-orbit');
+await page.mouse.move(700, 500); await page.mouse.wheel(0, -300); await sleep(1500); await shot(page, '27-wheel');
+console.log('points sample', JSON.stringify((await points(page)).slice(0, 3)));
+await browser.close();
